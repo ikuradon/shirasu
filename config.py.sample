@@ -1,0 +1,5 @@
+GPSD_HOST="host.docker.internal"
+GPSD_PORT=2947
+
+SECRET_KEY = "nsec1zzzzzzzzzzzzzzzzzzzzzzzzzzz"
+RELAY_URLS = "wss://yabu.me/"

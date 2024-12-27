@@ -1,0 +1,12 @@
+services:
+  shirasu:
+    build:
+      context: .
+    restart: always
+    volumes:
+      - type: bind
+        source: ./config.py
+        target: /app/config.py
+        read_only: true
+    extra_hosts:
+        - "host.docker.internal:host-gateway"
