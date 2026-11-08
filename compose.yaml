@@ -3,10 +3,14 @@ services:
     build:
       context: .
     restart: always
+    # gpsd listens on the Linux host's loopback interface.
+    network_mode: host
+    environment:
+      PYTHONUNBUFFERED: "1"
     volumes:
       - type: bind
         source: ./config.py
         target: /app/config.py
         read_only: true
     extra_hosts:
-        - "host.docker.internal:host-gateway"
+        - "host.docker.internal:127.0.0.1"

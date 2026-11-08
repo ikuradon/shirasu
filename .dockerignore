@@ -1,2 +1,7 @@
 .venv
 config.py
+.git
+.agents
+.aws
+.codex
+__pycache__

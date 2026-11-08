@@ -1,2 +1,2 @@
-azarashi==0.11.0
-nostr-sdk==0.37.0
+azarashi==0.17.1
+nostr-sdk==0.45.1
