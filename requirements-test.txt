@@ -1,0 +1,6 @@
+# WebSocket relay used only by the localhost fault-injection tests.
+# CPython 3.12 Linux amd64/arm64 wheels and the portable Python wheel.
+websockets==17.3 \
+    --hash=sha256:a7f391838e8adcf1f2fe71561d9e5a9f74ea7ffa5052eb2db329aac677383136 \
+    --hash=sha256:c15a165673bb3fb57facbf040edf5c0556d20ccd2e0ccc5f23ebb69fb715fdc1 \
+    --hash=sha256:dc2b495a92b3971966bf102e73589f950db3ec1ca6713265355ce7771d97b199

@@ -1,0 +1,315 @@
+rule_files:
+- alerts.yml
+evaluation_interval: 1m
+tests:
+- name: Scrape outage waits two minutes and resolves after recovery
+  interval: 1m
+  input_series:
+  - series: up{job="shirasu",instance="receiver:9016"}
+    values: 0x3 1x8
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: ShirasuExporterDown
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ShirasuExporterDown
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        severity: critical
+        instance: receiver:9016
+      exp_annotations:
+        summary: Shirasu の監視に接続できません
+        description: メトリクスの取得が2分以上失敗しています。監視コンテナと収集設定を確認してください。
+  - eval_time: 4m
+    alertname: ShirasuExporterDown
+    exp_alerts: []
+- name: Missing scrape job is also detected
+  interval: 1m
+  input_series: []
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: ShirasuExporterDown
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ShirasuExporterDown
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        severity: critical
+      exp_annotations:
+        summary: Shirasu の監視に接続できません
+        description: メトリクスの取得が2分以上失敗しています。監視コンテナと収集設定を確認してください。
+- name: Unreadable state waits one minute and resolves after recovery
+  interval: 1m
+  input_series:
+  - series: up{job="shirasu",instance="receiver:9016"}
+    values: 1x6
+  - series: shirasu_state_readable{job="shirasu",instance="receiver:9016"}
+    values: 0x2 1x3
+  alert_rule_test:
+  - eval_time: 0m
+    alertname: ShirasuStateUnavailable
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: ShirasuStateUnavailable
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        severity: critical
+        instance: receiver:9016
+      exp_annotations:
+        summary: Shirasu の保存状態を読み取れません
+        description: 状態DBを1分以上読み取れません。ボリューム、権限、ディスク容量を確認してください。
+  - eval_time: 3m
+    alertname: ShirasuStateUnavailable
+    exp_alerts: []
+- name: Stopped process suppresses receiver and delivery duplicates
+  interval: 1m
+  input_series:
+  - series: up{job="shirasu",instance="receiver:9016"}
+    values: 1x6
+  - series: shirasu_state_readable{job="shirasu",instance="receiver:9016"}
+    values: 1x6
+  - series: shirasu_process_running{job="shirasu",instance="receiver:9016"}
+    values: 0x3 1x2
+  - series: shirasu_heartbeat_timestamp_seconds{job="shirasu",instance="receiver:9016"}
+    values: 0+60x6
+  - series: shirasu_gpsd_connected{job="shirasu",instance="receiver:9016"}
+    values: 0x3 1x2
+  - series: shirasu_relay_connected{job="shirasu",instance="receiver:9016"}
+    values: 0x3 1x2
+  - series: shirasu_last_received_timestamp_seconds{job="shirasu",instance="receiver:9016"}
+    values: 0+60x6
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: ShirasuProcessStalled
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ShirasuProcessStalled
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        severity: critical
+        instance: receiver:9016
+      exp_annotations:
+        summary: Shirasu 本体が停止または応答しなくなっています
+        description: 本体の停止または状態更新の異常が2分以上続いています。コンテナの状態とログを確認してください。
+  - eval_time: 4m
+    alertname: ShirasuProcessStalled
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ShirasuReceptionStalled
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ShirasuDeliveryStalled
+    exp_alerts: []
+- name: Frozen heartbeat is detected even when last saved running remains true
+  interval: 1m
+  input_series:
+  - series: up{job="shirasu",instance="receiver:9016"}
+    values: 1x8
+  - series: shirasu_state_readable{job="shirasu",instance="receiver:9016"}
+    values: 1x8
+  - series: shirasu_process_running{job="shirasu",instance="receiver:9016"}
+    values: 1x8
+  - series: shirasu_heartbeat_timestamp_seconds{job="shirasu",instance="receiver:9016"}
+    values: 0x5 360+60x2
+  - series: shirasu_last_received_timestamp_seconds{job="shirasu",instance="receiver:9016"}
+    values: 0x5 360+60x2
+  - series: shirasu_gpsd_connected{job="shirasu",instance="receiver:9016"}
+    values: 0x5 1x2
+  - series: shirasu_relay_connected{job="shirasu",instance="receiver:9016"}
+    values: 0x5 1x2
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: ShirasuProcessStalled
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ShirasuProcessStalled
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        severity: critical
+        instance: receiver:9016
+      exp_annotations:
+        summary: Shirasu 本体が停止または応答しなくなっています
+        description: 本体の停止または状態更新の異常が2分以上続いています。コンテナの状態とログを確認してください。
+  - eval_time: 6m
+    alertname: ShirasuProcessStalled
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ShirasuReceptionStalled
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ShirasuDeliveryStalled
+    exp_alerts: []
+- name: GPSD disconnection is detected and clears on reconnect
+  interval: 1m
+  input_series:
+  - series: up{job="shirasu",instance="receiver:9016"}
+    values: 1x12
+  - series: shirasu_state_readable{job="shirasu",instance="receiver:9016"}
+    values: 1x12
+  - series: shirasu_process_running{job="shirasu",instance="receiver:9016"}
+    values: 1x12
+  - series: shirasu_heartbeat_timestamp_seconds{job="shirasu",instance="receiver:9016"}
+    values: 0+60x12
+  - series: shirasu_gpsd_connected{job="shirasu",instance="receiver:9016"}
+    values: 0x3 1x8
+  - series: shirasu_last_received_timestamp_seconds{job="shirasu",instance="receiver:9016"}
+    values: 0+60x12
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: ShirasuReceptionStalled
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ShirasuReceptionStalled
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        severity: warning
+        instance: receiver:9016
+      exp_annotations:
+        summary: Shirasu の通報受信が止まっています
+        description: gpsd切断または90秒以上受信できない状態が2分以上続いています。受信機とgpsdを確認してください。
+  - eval_time: 4m
+    alertname: ShirasuReceptionStalled
+    exp_alerts: []
+- name: Connected receiver without decoded reports is detected
+  interval: 1m
+  input_series:
+  - series: up{job="shirasu",instance="receiver:9016"}
+    values: 1x12
+  - series: shirasu_state_readable{job="shirasu",instance="receiver:9016"}
+    values: 1x12
+  - series: shirasu_process_running{job="shirasu",instance="receiver:9016"}
+    values: 1x12
+  - series: shirasu_heartbeat_timestamp_seconds{job="shirasu",instance="receiver:9016"}
+    values: 0+60x12
+  - series: shirasu_gpsd_connected{job="shirasu",instance="receiver:9016"}
+    values: 1x12
+  - series: shirasu_last_received_timestamp_seconds{job="shirasu",instance="receiver:9016"}
+    values: 0x5 360+60x6
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: ShirasuReceptionStalled
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ShirasuReceptionStalled
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        severity: warning
+        instance: receiver:9016
+      exp_annotations:
+        summary: Shirasu の通報受信が止まっています
+        description: gpsd切断または90秒以上受信できない状態が2分以上続いています。受信機とgpsdを確認してください。
+  - eval_time: 6m
+    alertname: ShirasuReceptionStalled
+    exp_alerts: []
+- name: Relay loss, rejection, old backlog and large backlog all recover
+  interval: 1m
+  input_series:
+  - series: up{job="shirasu",instance="disconnected:9016"}
+    values: 1x12
+  - series: shirasu_state_readable{job="shirasu",instance="disconnected:9016"}
+    values: 1x12
+  - series: shirasu_process_running{job="shirasu",instance="disconnected:9016"}
+    values: 1x12
+  - series: shirasu_heartbeat_timestamp_seconds{job="shirasu",instance="disconnected:9016"}
+    values: 0+60x12
+  - series: shirasu_relay_connected{job="shirasu",instance="disconnected:9016"}
+    values: 0x3 1x8
+  - series: up{job="shirasu",instance="rejected:9016"}
+    values: 1x12
+  - series: shirasu_state_readable{job="shirasu",instance="rejected:9016"}
+    values: 1x12
+  - series: shirasu_process_running{job="shirasu",instance="rejected:9016"}
+    values: 1x12
+  - series: shirasu_heartbeat_timestamp_seconds{job="shirasu",instance="rejected:9016"}
+    values: 0+60x12
+  - series: shirasu_delivery_failed{job="shirasu",instance="rejected:9016"}
+    values: 1x3 0x8
+  - series: up{job="shirasu",instance="waiting:9016"}
+    values: 1x12
+  - series: shirasu_state_readable{job="shirasu",instance="waiting:9016"}
+    values: 1x12
+  - series: shirasu_process_running{job="shirasu",instance="waiting:9016"}
+    values: 1x12
+  - series: shirasu_heartbeat_timestamp_seconds{job="shirasu",instance="waiting:9016"}
+    values: 0+60x12
+  - series: shirasu_oldest_pending_age_seconds{job="shirasu",instance="waiting:9016"}
+    values: 120x3 0x8
+  - series: up{job="shirasu",instance="growing:9016"}
+    values: 1x12
+  - series: shirasu_state_readable{job="shirasu",instance="growing:9016"}
+    values: 1x12
+  - series: shirasu_process_running{job="shirasu",instance="growing:9016"}
+    values: 1x12
+  - series: shirasu_heartbeat_timestamp_seconds{job="shirasu",instance="growing:9016"}
+    values: 0+60x12
+  - series: shirasu_pending_reports{job="shirasu",instance="growing:9016"}
+    values: 100x3 0x8
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: ShirasuDeliveryStalled
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ShirasuDeliveryStalled
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        severity: warning
+        instance: disconnected:9016
+      exp_annotations:
+        summary: Shirasu の通報配送が滞っています
+        description: リレー切断、配送失敗、90秒以上の送信待ち、または100件以上の滞留が2分以上続いています。
+    - exp_labels:
+        job: shirasu
+        severity: warning
+        instance: rejected:9016
+      exp_annotations:
+        summary: Shirasu の通報配送が滞っています
+        description: リレー切断、配送失敗、90秒以上の送信待ち、または100件以上の滞留が2分以上続いています。
+    - exp_labels:
+        job: shirasu
+        severity: warning
+        instance: waiting:9016
+      exp_annotations:
+        summary: Shirasu の通報配送が滞っています
+        description: リレー切断、配送失敗、90秒以上の送信待ち、または100件以上の滞留が2分以上続いています。
+    - exp_labels:
+        job: shirasu
+        severity: warning
+        instance: growing:9016
+      exp_annotations:
+        summary: Shirasu の通報配送が滞っています
+        description: リレー切断、配送失敗、90秒以上の送信待ち、または100件以上の滞留が2分以上続いています。
+  - eval_time: 4m
+    alertname: ShirasuDeliveryStalled
+    exp_alerts: []
+- name: Dropped reports notify for the recent window and then resolve
+  interval: 1m
+  input_series:
+  - series: up{job="shirasu",instance="receiver:9016"}
+    values: 1x12
+  - series: shirasu_dropped_reports_total{job="shirasu",instance="receiver:9016"}
+    values: 0 1x11
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: ShirasuReportsDropped
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ShirasuReportsDropped
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        severity: critical
+        instance: receiver:9016
+      exp_annotations:
+        summary: Shirasu が通報を保存できませんでした
+        description: 過去10分に送信待ちの容量不足による保存失敗がありました。配送状態とキュー上限を確認してください。
+  - eval_time: 11m
+    alertname: ShirasuReportsDropped
+    exp_alerts: []

@@ -1,0 +1,52 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate Compose configuration
+        run: |
+          cp config.py.sample config.py
+          docker compose config --quiet
+          docker compose -f compose.yaml -f monitoring/compose.observer.yaml config --quiet
+
+      - name: Build application image
+        run: docker build --pull --tag shirasu:test .
+
+      - name: Check installed dependencies
+        run: docker run --rm --network none shirasu:test python -m pip check
+
+      - name: Run regression tests
+        run: docker run --rm --network none shirasu:test python -B -m unittest discover -s tests -v
+
+      - name: Build integration test image
+        run: docker build --target test --tag shirasu:integration .
+
+      - name: Run connection and crash recovery tests
+        run: docker run --rm --network none shirasu:integration python -B -m unittest discover -s tests/integration -v
+
+      - name: Check alert firing and recovery
+        run: >-
+          docker run --rm --network none --entrypoint promtool
+          --volume "$PWD/monitoring:/rules:ro"
+          prom/prometheus:v3.1.0@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218
+          test rules /rules/alerts.test.yml

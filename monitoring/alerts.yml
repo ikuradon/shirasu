@@ -1,0 +1,84 @@
+groups:
+  - name: shirasu
+    rules:
+      - alert: ShirasuExporterDown
+        expr: up{job="shirasu"} == 0 or absent(up{job="shirasu"})
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Shirasu の監視に接続できません
+          description: メトリクスの取得が2分以上失敗しています。監視コンテナと収集設定を確認してください。
+
+      - alert: ShirasuStateUnavailable
+        expr: shirasu_state_readable{job="shirasu"} == 0 and up{job="shirasu"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Shirasu の保存状態を読み取れません
+          description: 状態DBを1分以上読み取れません。ボリューム、権限、ディスク容量を確認してください。
+
+      - alert: ShirasuProcessStalled
+        expr: |
+          (
+            shirasu_process_running{job="shirasu"} == 0
+            or time() - shirasu_heartbeat_timestamp_seconds{job="shirasu"} >= 90
+            or shirasu_heartbeat_timestamp_seconds{job="shirasu"} - time() > 30
+          )
+          and shirasu_state_readable{job="shirasu"} == 1
+          and up{job="shirasu"} == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Shirasu 本体が停止または応答しなくなっています
+          description: 本体の停止または状態更新の異常が2分以上続いています。コンテナの状態とログを確認してください。
+
+      - alert: ShirasuReceptionStalled
+        expr: |
+          (
+            shirasu_gpsd_connected{job="shirasu"} == 0
+            or time() - shirasu_last_received_timestamp_seconds{job="shirasu"} >= 90
+            or shirasu_last_received_timestamp_seconds{job="shirasu"} - time() > 30
+          )
+          and shirasu_process_running{job="shirasu"} == 1
+          and time() - shirasu_heartbeat_timestamp_seconds{job="shirasu"} < 90
+          and shirasu_heartbeat_timestamp_seconds{job="shirasu"} - time() <= 30
+          and shirasu_state_readable{job="shirasu"} == 1
+          and up{job="shirasu"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Shirasu の通報受信が止まっています
+          description: gpsd切断または90秒以上受信できない状態が2分以上続いています。受信機とgpsdを確認してください。
+
+      - alert: ShirasuDeliveryStalled
+        expr: |
+          (
+            shirasu_relay_connected{job="shirasu"} == 0
+            or shirasu_delivery_failed{job="shirasu"} == 1
+            or shirasu_oldest_pending_age_seconds{job="shirasu"} >= 90
+            or shirasu_pending_reports{job="shirasu"} >= 100
+          )
+          and shirasu_process_running{job="shirasu"} == 1
+          and time() - shirasu_heartbeat_timestamp_seconds{job="shirasu"} < 90
+          and shirasu_heartbeat_timestamp_seconds{job="shirasu"} - time() <= 30
+          and shirasu_state_readable{job="shirasu"} == 1
+          and up{job="shirasu"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Shirasu の通報配送が滞っています
+          description: リレー切断、配送失敗、90秒以上の送信待ち、または100件以上の滞留が2分以上続いています。
+
+      - alert: ShirasuReportsDropped
+        expr: increase(shirasu_dropped_reports_total{job="shirasu"}[10m]) > 0 and up{job="shirasu"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Shirasu が通報を保存できませんでした
+          description: 過去10分に送信待ちの容量不足による保存失敗がありました。配送状態とキュー上限を確認してください。

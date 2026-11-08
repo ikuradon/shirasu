@@ -4,7 +4,7 @@ gpsd 経由で受信した「みちびき」の災害・危機管理通報をデ
 
 ## 起動
 
-Python 3.12 の Docker イメージを使用します。Linux ホストで gpsd が `127.0.0.1:2947` を待ち受け、受信機から災危通報を取得できることが前提です。Compose はホストのネットワークを使い、`host.docker.internal` を `127.0.0.1` に対応させます。
+Python 3.12.16 の Docker イメージを digest で固定して使用します。Linux ホストで gpsd が `127.0.0.1:2947` を待ち受け、受信機から災危通報を取得できることが前提です。本体の Compose サービスはホストのネットワークを使い、`host.docker.internal` を `127.0.0.1` に対応させます。
 
 初回は設定例をコピーし、`config.py` を編集します。すでに `config.py` がある場合は上書きせず、既存設定を使ってください。
 
@@ -33,6 +33,12 @@ docker compose logs --tail 100 -f shirasu
 ヘルスチェックは、プロセスの動作、gpsd とリレーの接続、90秒以内の状態更新と通報受信を確認します。未解消の投稿エラーや90秒以上の送信待ちも異常と判定します。Docker の `unhealthy` 判定だけでは自動再起動しません。通常の通信切断はアプリ自身が再接続・再送し、プロセスが終了した場合は Compose の `restart: always` が再起動します。
 
 起動・停止はログに記録します。公開 Nostr 投稿の `booting...` は送信しません。
+
+本体と監視コンテナのログは Docker の `local` ドライバーで、各コンテナにつき10MB×3世代に制限します。ローテーション済みログは圧縮されます。通常どおり `docker compose logs` で参照でき、設定の反映にはコンテナの再作成が必要です。
+
+監視用の `metrics` サービスは、状態DBを読み取り専用で参照し、`http://127.0.0.1:9016/metrics` に Prometheus メトリクスを公開します。本体とは別プロセスのため、本体の停止や状態更新の停滞も検出できます。収集設定・アラートルール・通知先の接続方法は [監視手順](monitoring/README.md) を参照してください。
+
+未完了・保留事項は [TODO](TODO.md) に記録します。
 
 ## 配送と重複防止
 
@@ -79,8 +85,31 @@ docker compose stop shirasu
 
 ## テスト
 
+ソースからテスト用イメージを作り、依存関係と回帰テストを確認します。`config.py`、受信機、Nostr リレーは不要です。テスト実行時はコンテナの外部通信を無効にします。
+
 ```sh
-docker compose run --rm --no-deps -T shirasu python -B -m unittest discover -s tests -v
+docker build --pull --tag shirasu:test .
+docker run --rm --network none shirasu:test python -m pip check
+docker run --rm --network none shirasu:test python -B -m unittest discover -s tests -v
+docker build --target test --tag shirasu:integration .
+docker run --rm --network none shirasu:integration python -B -m unittest discover -s tests/integration -v
 ```
 
 回帰テストで、通報の除外・署名、通信切断後の復帰、保存・再送・順序・期限、再起動後の重複抑制を検証します。
+
+結合テストは、本物のアプリを別プロセスで起動し、ローカルの GPSD と Nostr リレーで TCP 切断・ACK 喪失・SIGKILL を再現します。再接続、再送時の署名とイベントID、配送順序、再起動後の重複抑制を検証します。テスト専用の WebSocket ライブラリは `test` ビルドターゲットだけに入り、本番イメージには入りません。
+
+[GitHub Actions の Tests ワークフロー](.github/workflows/test.yml) は、`main` への push とプルリクエストで Compose 設定・Docker ビルド・依存関係・回帰テスト・結合テスト・アラートの発火と復旧を確認します。Actions 画面から手動実行もできます。CI では設定例を使い、秘密鍵や本番データを必要としません。
+
+## 依存関係の更新
+
+`requirements.in` は直接依存、`requirements.txt` は間接依存を含むバージョンと配布物の SHA256 を記録します。Docker ビルドはハッシュを照合し、固定していない依存や異なる配布物を拒否します。Linux AMD64・ARM64 の両方に対応します。
+
+更新時は `requirements.in` を編集し、固定した Python 3.12 の一時環境で `pip-tools==7.6.2` を使って再生成します。
+
+```sh
+pip-compile --generate-hashes --no-emit-index-url --no-emit-trusted-host \
+  --pip-args='--only-binary=:all:' --output-file=requirements.txt requirements.in
+```
+
+間接依存も更新する場合は `--upgrade` を付けます。Python 自体の更新時は Dockerfile のバージョンと multiarch digest を一緒に変更します。更新後は上記テストを実行し、両アーキテクチャ向けの wheel とハッシュを確認してください。テスト専用依存は `requirements-test.txt` に分離しています。

@@ -1,0 +1,7 @@
+# Merge this job into the existing Prometheus scrape_configs list.
+# Prometheus and the metrics service must share a Docker network.
+job_name: shirasu
+scrape_interval: 15s
+scrape_timeout: 5s
+static_configs:
+  - targets: ["shirasu-metrics:9016"]

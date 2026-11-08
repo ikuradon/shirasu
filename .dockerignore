@@ -6,3 +6,6 @@ config.py
 .codex
 __pycache__
 state
+.env
+.env.*
+compose.override.yaml

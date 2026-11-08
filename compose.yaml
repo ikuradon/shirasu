@@ -1,8 +1,15 @@
+x-logging: &bounded-logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   shirasu:
     build:
       context: .
     restart: always
+    logging: *bounded-logging
     # gpsd listens on the Linux host's loopback interface.
     network_mode: host
     environment:
@@ -23,6 +30,28 @@ services:
       - shirasu-state:/data
     extra_hosts:
         - "host.docker.internal:127.0.0.1"
+
+  metrics:
+    build:
+      context: .
+    command: ["python", "metrics.py"]
+    restart: always
+    logging: *bounded-logging
+    environment:
+      PYTHONUNBUFFERED: "1"
+      SHIRASU_STATE_PATH: /data/shirasu.sqlite3
+    ports:
+      - "127.0.0.1:9016:9016"
+    volumes:
+      # SQL uses mode=ro + query_only. SQLite still needs to create WAL/SHM
+      # helpers when reading a database whose writer has stopped cleanly.
+      - shirasu-state:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9016/healthz', timeout=2).close()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
 
 volumes:
   shirasu-state:

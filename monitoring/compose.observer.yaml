@@ -1,0 +1,13 @@
+# Copy to ../compose.override.yaml to join an existing Prometheus network.
+services:
+  metrics:
+    networks:
+      default:
+      observer:
+        aliases:
+          - shirasu-metrics
+
+networks:
+  observer:
+    external: true
+    name: ${SHIRASU_PROMETHEUS_NETWORK:-observer_observer}
