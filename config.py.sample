@@ -3,3 +3,11 @@ GPSD_PORT=2947
 
 SECRET_KEY = "nsec1zzzzzzzzzzzzzzzzzzzzzzzzzzz"
 RELAY_URLS = "wss://yabu.me/"
+
+# Retry undelivered reports for this long (0: no limit).
+RETRY_MAX_AGE_SECONDS = 15 * 60
+# Suppress a report until it has not been received for this long.
+# Keep at least 60 seconds longer than RETRY_MAX_AGE_SECONDS.
+DEDUP_SECONDS = 24 * 60 * 60
+MAX_PENDING = 1000
+GPSD_READ_TIMEOUT = 30

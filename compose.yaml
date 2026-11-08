@@ -7,10 +7,22 @@ services:
     network_mode: host
     environment:
       PYTHONUNBUFFERED: "1"
+      SHIRASU_STATE_PATH: /data/shirasu.sqlite3
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "python", "main.py", "--health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     volumes:
       - type: bind
         source: ./config.py
         target: /app/config.py
         read_only: true
+      - shirasu-state:/data
     extra_hosts:
         - "host.docker.internal:127.0.0.1"
+
+volumes:
+  shirasu-state:

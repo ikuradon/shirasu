@@ -1,90 +1,322 @@
-import socket
-import azarashi
-from azarashi.reports import dcx
-from datetime import timedelta
-from pprint import pprint
-import sys
-import asyncio
-from nostr_sdk import ClientBuilder, EventBuilder, Keys, Kind, RelayUrl, SignerAuthenticator
+"""Receive QZSS reports and deliver them through a durable Nostr outbox."""
 
-import config
+import argparse
+import asyncio
+from concurrent.futures import TimeoutError as FutureTimeout
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import timedelta
+import fcntl
+import hashlib
+import json
+import logging
+import math
+import os
+from pathlib import Path
+import signal
+import threading
+import time
+
+from azarashi.reports import dcx
+from nostr_sdk import (
+    ClientBuilder, Event, EventBuilder, Keys, Kind, NostrSdkError,
+    RelayStatus, RelayUrl, SignerAuthenticator,
+)
+
+from outbox import Outbox, read_status
+from receiver import GpsdReceiver
+
+
+logger = logging.getLogger('shirasu')
+
+
+@dataclass
+class Settings:
+    secret_key: str
+    relay_urls: str
+    gpsd_host: str
+    gpsd_port: int
+    state_path: str = 'state/shirasu.sqlite3'
+    retry_max_age: float = 900
+    dedup_seconds: float = 86400
+    max_pending: int = 1000
+    read_timeout: float = 30
+
+    @classmethod
+    def load(cls, config):
+        settings = cls(
+            config.SECRET_KEY, config.RELAY_URLS, config.GPSD_HOST, config.GPSD_PORT,
+            state_path=os.environ.get('SHIRASU_STATE_PATH', 'state/shirasu.sqlite3'),
+            retry_max_age=float(getattr(config, 'RETRY_MAX_AGE_SECONDS', 900)),
+            dedup_seconds=float(getattr(config, 'DEDUP_SECONDS', 86400)),
+            max_pending=int(getattr(config, 'MAX_PENDING', 1000)),
+            read_timeout=float(getattr(config, 'GPSD_READ_TIMEOUT', 30)),
+        )
+        if (not all(math.isfinite(v) for v in (settings.retry_max_age, settings.dedup_seconds, settings.read_timeout))
+                or settings.retry_max_age < 0 or settings.dedup_seconds <= 0
+                or settings.max_pending <= 0 or settings.read_timeout <= 0):
+            raise ValueError('Invalid retry, retention, capacity, or read-timeout setting')
+        if settings.dedup_seconds < settings.retry_max_age + 60:
+            raise ValueError('DEDUP_SECONDS must exceed RETRY_MAX_AGE_SECONDS by at least 60 seconds')
+        return settings
+
+
+@contextmanager
+def daemon_lock(path):
+    lock = Path(str(path) + '.lock')
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with lock.open('a') as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError('Another shirasu process is using this state database') from error
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+class DeliveryError(Exception):
+    """No relay confirmed delivery; retry the same signed event."""
+
 
 class Nostr:
-  def __init__(self):
-    self.client = None
+    def __init__(self, secret_key, relay_urls):
+        self.keys = Keys.parse(secret_key)
+        self.urls = [RelayUrl.parse(url.strip()) for url in relay_urls.split(',') if url.strip()]
+        if not self.urls:
+            raise ValueError('At least one Nostr relay is required')
+        self.client = ClientBuilder().authenticator(SignerAuthenticator(self.keys)).build()
 
-  async def init(self, SK, RELAY_URLS):
-    self.keys = Keys.parse(SK)
-    self.client = ClientBuilder().authenticator(SignerAuthenticator(self.keys)).build()
-    for relay_url in RELAY_URLS.split(','):
-      await self.client.add_relay(RelayUrl.parse(relay_url.strip()))
-    await self.client.connect(and_wait=timedelta(seconds=15))
+    @property
+    def identity(self):
+        return self.keys.public_key().to_hex()
 
-  async def post(self, message):
-    event = EventBuilder(Kind(1), message).finalize(self.keys)
-    result = await self.client.send_event(event)
-    for relay_url, reason in result.failed.items():
-      print(f'# Nostr relay {relay_url}: {reason}', file=sys.stderr)
-    if not result.success:
-      raise RuntimeError('No Nostr relay accepted the event')
-    return result
+    def build_event(self, message):
+        return EventBuilder(Kind(1), message).finalize(self.keys)
 
-  async def close(self):
-    if self.client is not None:
-      await self.client.shutdown()
+    async def connect(self):
+        for url in self.urls:
+            await self.client.add_relay(url)
+        await self.client.connect()
 
-async def a_shirasu(report, nostr):
-  ppp(report)
-  message = \
-    f"{report}" "\n" \
-    "---" "\n" \
-    f"NMEA: {report.nmea}"
-  await nostr.post(message)
+    async def connected(self):
+        return any(relay.status() == RelayStatus.CONNECTED
+                   for relay in (await self.client.relays()).values())
 
-def shirasu(report, loop, nostr):
-  if not isinstance(report, (dcx.NullMsg, dcx.Unknown)):
-    loop.run_until_complete(a_shirasu(report, nostr))
-
-
-def ppp(report):
-  print("#----------")
-  print(report)
-  print("-----------")
-  pprint(report.get_params(), sort_dicts=False)
-  print("#----------")
-
-def main(loop):
-  nostr = Nostr()
-  try:
-    loop.run_until_complete(nostr.init(config.SECRET_KEY, config.RELAY_URLS))
-    with socket.create_connection((config.GPSD_HOST, config.GPSD_PORT)) as s:
-      s.sendall(b'?WATCH={"enable":true,"raw":2};\n')
-      with s.makefile('rb') as stream:
-        loop.run_until_complete(nostr.post("booting..."))
-        while True:
-          try:
-            azarashi.decode_stream(
-              stream, msg_type="ublox", callback=shirasu,
-              callback_args=(loop, nostr), unique=True, ignore_dcx=False,
+    async def send(self, event):
+        async with asyncio.timeout(30):
+            await self.client.connect()
+            result = await self.client.send_event(
+                event, ok_timeout=timedelta(seconds=10),
+                authentication_timeout=timedelta(seconds=10),
             )
-          except azarashi.AzarashiReadOn as e:
-            print(f'# [{type(e).__name__}] {e}', file=sys.stderr)
-  except azarashi.AzarashiReopenStream as e:
-    print(f'# [{type(e).__name__}] {e}', file=sys.stderr)
-    return 1
-  except EOFError as e:
-    print(f'{e}', file=sys.stderr)
-    return 0
-  except Exception as e:
-    print(f'# [{type(e).__name__}] {e}', file=sys.stderr)
-    return 1
-  finally:
-    loop.run_until_complete(nostr.close())
+        for url, reason in result.failed.items():
+            logger.warning('Relay rejected event=%s relay=%s reason=%s', event.id().to_hex(), url, reason)
+        if not result.success:
+            raise DeliveryError('No Nostr relay accepted the event')
+
+    async def close(self):
+        await self.client.shutdown()
+
+
+def report_key(report):
+    # Match decoder equality, independent of receipt time or satellite PRN.
+    prefix = f'{report.message_type}:{type(report).__name__}:'.encode()
+    return hashlib.sha256(prefix + bytes(report.raw)).hexdigest()
+
+
+def report_message(report):
+    return f'{report}\n---\nNMEA: {report.nmea}'
+
+
+class Service:
+    def __init__(self, nostr, outbox, stop, clock=time.time):
+        self.nostr = nostr
+        self.outbox = outbox
+        self.stop = stop
+        self.clock = clock
+        self.wake = asyncio.Event()
+        self.state = outbox.snapshot(clock())['status']
+        self.state.update(running=True, gpsd_connected=False, relay_connected=False)
+
+    async def accept(self, report):
+        now = self.clock()
+        self.state['last_received'] = now
+        if isinstance(report, (dcx.NullMsg, dcx.Unknown)):
+            return 'ignored'
+        event = self.nostr.build_event(report_message(report))
+        result = self.outbox.enqueue(report_key(report), event.as_json(), event.id().to_hex(), now)
+        if result == 'queued':
+            self.state['last_queued'] = now
+            logger.info('Queued report=%s event=%s', type(report).__name__, event.id().to_hex())
+            self.wake.set()
+        elif result == 'full':
+            self.state['dropped_full'] = self.state.get('dropped_full', 0) + 1
+            self.state['last_delivery_error'] = 'Outbox full; received report could not be saved'
+            logger.error('Outbox full; could not save report=%s', type(report).__name__)
+        return result
+
+    async def publish_one(self):
+        maintenance = self.outbox.maintain(self.clock())
+        if maintenance['expired']:
+            logger.warning('Expired %s undelivered reports; retry deadline reached', maintenance['expired'])
+        record = self.outbox.next_due(self.clock())
+        if record is None:
+            return False
+        # Corrupt local state is not a transient network failure.
+        event = Event.from_json(record['event_json'])
+        if event.id().to_hex() != record['event_id'] or not event.verify():
+            raise RuntimeError('Invalid signed event in outbox')
+        try:
+            await self.nostr.send(event)
+        except (DeliveryError, NostrSdkError, TimeoutError, ConnectionError) as error:
+            delay = min(60, 2 ** min(record['attempts'], 6))
+            self.outbox.mark_failed(record['key'], str(error), self.clock(), delay)
+            self.state['last_delivery_error'] = str(error)[:1000]
+            logger.warning('Delivery failed event=%s attempt=%s retry_in=%ss reason=%s',
+                           record['event_id'], record['attempts'] + 1, delay, error)
+        else:
+            self.outbox.mark_sent(record['key'], self.clock())
+            self.state['last_published'] = self.clock()
+            self.state['last_delivery_error'] = None
+            logger.info('Published event=%s', record['event_id'])
+        return True
+
+    async def publisher(self):
+        while not self.stop.is_set():
+            self.wake.clear()
+            if not await self.publish_one():
+                try:
+                    await asyncio.wait_for(self.wake.wait(), timeout=1)
+                except TimeoutError:
+                    pass
+
+    def receiver_state(self, connected, error):
+        self.state['gpsd_connected'] = connected
+        self.state['last_receiver_error'] = error
+
+    def save_status(self):
+        now = self.clock()
+        for name, value in self.state.items():
+            self.outbox.set_status(name, value, now)
+        self.outbox.set_status('heartbeat', now, now)
+
+    async def monitor(self):
+        last_log = 0
+        while not self.stop.is_set():
+            self.state['relay_connected'] = await self.nostr.connected()
+            self.save_status()
+            now = self.clock()
+            if now - last_log >= 60:
+                snapshot = self.outbox.snapshot(now)
+                logger.info('Status gpsd=%s relay=%s pending=%s expired=%s last_received=%s last_published=%s',
+                            self.state['gpsd_connected'], self.state['relay_connected'],
+                            snapshot['counts']['pending'], snapshot['counts']['expired'],
+                            self.state.get('last_received'), self.state.get('last_published'))
+                last_log = now
+            try:
+                await asyncio.wait_for(self.stop.wait(), timeout=10)
+            except TimeoutError:
+                pass
+
+
+async def run(settings, stop=None):
+    stop = stop or asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, stop.set)
+    with daemon_lock(settings.state_path):
+        nostr = Nostr(settings.secret_key, settings.relay_urls)
+        with Outbox(settings.state_path, nostr.identity, settings.dedup_seconds,
+                    settings.retry_max_age, settings.max_pending) as outbox:
+            service = Service(nostr, outbox, stop)
+            thread_stop = threading.Event()
+
+            def receive(report):
+                future = asyncio.run_coroutine_threadsafe(service.accept(report), loop)
+                while True:
+                    try:
+                        return future.result(timeout=0.5)
+                    except FutureTimeout:
+                        if future.done():
+                            return future.result()
+                        if thread_stop.is_set():
+                            future.cancel()
+                            return
+
+            receiver = GpsdReceiver(
+                settings.gpsd_host, settings.gpsd_port, receive,
+                lambda connected, error: loop.call_soon_threadsafe(service.receiver_state, connected, error),
+                thread_stop, read_timeout=settings.read_timeout,
+            )
+            tasks = []
+            receiver_task = None
+            try:
+                await nostr.connect()
+                logger.info('Starting state=%s retry_max_age=%ss dedup=%ss',
+                            settings.state_path, settings.retry_max_age, settings.dedup_seconds)
+                service.save_status()
+                receiver_task = asyncio.create_task(asyncio.to_thread(receiver.run), name='gpsd')
+                tasks = [receiver_task, asyncio.create_task(service.publisher(), name='publisher'),
+                         asyncio.create_task(service.monitor(), name='monitor'),
+                         asyncio.create_task(stop.wait(), name='stop')]
+                done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    task.result()
+                if not stop.is_set():
+                    raise RuntimeError('A background worker stopped unexpectedly')
+            finally:
+                stop.set()
+                receiver.close()
+                # The event loop must stay alive until receiver callbacks return.
+                for task in tasks:
+                    if task is not receiver_task:
+                        task.cancel()
+                await asyncio.gather(*(t for t in tasks if t is not receiver_task), return_exceptions=True)
+                if receiver_task is not None:
+                    await asyncio.gather(receiver_task, return_exceptions=True)
+                service.state.update(running=False, gpsd_connected=False, relay_connected=False)
+                service.save_status()
+                await nostr.close()
+                logger.info('Stopped; undelivered reports remain in the outbox')
+
+
+def healthy(snapshot, now):
+    state = snapshot['status']
+    heartbeat = state.get('heartbeat', 0)
+    pending_age = snapshot.get('oldest_pending_age_seconds')
+    return bool(state.get('running') and state.get('gpsd_connected')
+                and state.get('relay_connected') and 0 <= now - heartbeat < 90
+                and 0 <= now - state.get('last_received', 0) < 90
+                and not state.get('last_delivery_error')
+                and (pending_age is None or pending_age < 90))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--status', action='store_true', help='print saved runtime state as JSON')
+    group.add_argument('--health', action='store_true', help='exit successfully only when healthy')
+    args = parser.parse_args()
+    logging.basicConfig(level=os.environ.get('SHIRASU_LOG_LEVEL', 'INFO'),
+                        format='%(asctime)s %(levelname)s %(name)s %(message)s')
+    try:
+        if args.status or args.health:
+            # Health probes never load the private signing key or create state.
+            path = os.environ.get('SHIRASU_STATE_PATH', 'state/shirasu.sqlite3')
+            snapshot = read_status(path)
+            ok = healthy(snapshot, time.time())
+            if args.status:
+                print(json.dumps(dict(snapshot, healthy=ok), ensure_ascii=False, indent=2))
+            return 0 if args.status or ok else 1
+        import config
+        asyncio.run(run(Settings.load(config)))
+        return 0
+    except Exception:
+        logger.exception('Shirasu stopped with an error')
+        return 1
 
 
 if __name__ == '__main__':
-  try:
-    with asyncio.Runner() as runner:
-      sys.exit(main(runner.get_loop()))
-  except KeyboardInterrupt:
-    print("\nShutdown...")
+    raise SystemExit(main())

@@ -5,3 +5,4 @@ config.py
 .aws
 .codex
 __pycache__
+state
