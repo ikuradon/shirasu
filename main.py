@@ -24,7 +24,7 @@ from nostr_sdk import (
     RelayStatus, RelayUrl, SignerAuthenticator,
 )
 
-from outbox import Outbox, read_history, read_status
+from outbox import Outbox, event_id_prefix, read_event, read_history, read_status
 from receiver import GpsdReceiver
 from message_format import report_message
 
@@ -295,6 +295,13 @@ def healthy(snapshot, now):
                 and (pending_age is None or pending_age < 90))
 
 
+def show_id(value):
+    try:
+        return event_id_prefix(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
 def received_at(value):
     try:
         timestamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
@@ -340,15 +347,17 @@ def main(argv=None):
     group.add_argument('--status', action='store_true', help='print saved runtime state (default: JSON)')
     group.add_argument('--health', action='store_true', help='exit successfully only when healthy')
     group.add_argument('--history', action='store_true', help='list saved delivery history (default: text)')
+    group.add_argument('--show', type=show_id, metavar='EVENT_ID',
+                       help='show a saved event by its ID or unique 12+ character prefix (default: text)')
     group.add_argument('--preview', nargs='+', metavar='FILE', help='preview reports from files; use - for standard input')
-    parser.add_argument('--format', choices=('text', 'json'), help='output format for --status or --history')
+    parser.add_argument('--format', choices=('text', 'json'), help='output format for --status, --history or --show')
     parser.add_argument('--state', choices=('pending', 'sent', 'expired'), help='filter --history by delivery state')
     parser.add_argument('--limit', type=int, help='maximum history rows (default: 20, maximum: 1000)')
     parser.add_argument('--input-format', choices=('nmea', 'ubx'), help='preview input format (default: nmea)')
     parser.add_argument('--received-at', type=received_at, help='preview reference date/time with timezone (default: current UTC time)')
     args = parser.parse_args(argv)
-    if args.format and not (args.status or args.history):
-        parser.error('--format requires --status or --history')
+    if args.format and not (args.status or args.history or args.show):
+        parser.error('--format requires --status, --history or --show')
     if (args.state is not None or args.limit is not None) and not args.history:
         parser.error('--state and --limit require --history')
     if args.limit is not None and not 1 <= args.limit <= 1000:
@@ -361,10 +370,19 @@ def main(argv=None):
                         format='%(asctime)s %(levelname)s %(name)s %(message)s')
     if args.preview:
         return run_preview(args)
-    if args.status or args.health or args.history:
+    if args.status or args.health or args.history or args.show:
         # Inspection commands never load config, start workers, or maintain state.
         try:
             path = os.environ.get('SHIRASU_STATE_PATH', 'state/shirasu.sqlite3')
+            if args.show:
+                from inspection import format_event, prepare_event
+                detail = prepare_event(read_event(path, args.show))
+                if args.format == 'json':
+                    # Preserve stored content exactly, escaping terminal controls.
+                    print(json.dumps(detail, ensure_ascii=True, indent=2))
+                else:
+                    print(format_event(detail))
+                return 0
             if args.history:
                 from inspection import format_history, prepare_history
                 history = prepare_history(read_history(path, state=args.state, limit=args.limit or 20))

@@ -130,11 +130,69 @@ def prepare_history(history):
     return dict(history, events=records)
 
 
+def prepare_event(detail):
+    """Expose the saved body verbatim; decoding is only used for its type label."""
+    original = detail['event']
+    record = {name: value for name, value in original.items() if name != 'event_json'}
+    record['report_type'], record['report_label'] = _report_description(original)
+    record['content'] = None
+    record['content_error'] = None
+    try:
+        event = json.loads(original['event_json'])
+    except (KeyError, TypeError, ValueError, RecursionError):
+        record['content_error'] = '保存された投稿のJSONを読み取れません。'
+    else:
+        if not isinstance(event, dict) or not isinstance(event.get('content'), str):
+            record['content_error'] = '保存された投稿に文字列の本文がありません。'
+        else:
+            record['content'] = event['content']
+    return dict(detail, event=record)
+
+
 def _datetime(timestamp):
     try:
         return datetime.fromtimestamp(timestamp, JST).strftime('%Y-%m-%d %H:%M:%S')
     except (TypeError, ValueError, OverflowError, OSError):
         return '不明'
+
+
+def _escape_body_controls(content):
+    # Preserve ordinary whitespace and line breaks, but never execute terminal
+    # controls or let bidi/zero-width controls alter the surrounding display.
+    return ''.join(
+        char if char == '\n' or char.isprintable() or unicodedata.category(char) == 'Zs'
+        else (f'\\u{ord(char):04x}' if ord(char) <= 0xffff else f'\\U{ord(char):08x}')
+        for char in content
+    )
+
+
+def format_event(detail):
+    """Render one saved publication and its delivery metadata without truncation."""
+    record = detail['event']
+    rows = [
+        ('イベントID', record['event_id']),
+        ('通報種別', record.get('report_label') or record['report_type']),
+        ('配送状態', STATES.get(record['state'], record['state'])),
+        ('受信日時(JST)', _datetime(record['created_at'])),
+        ('送信日時(JST)', '未送信' if record['sent_at'] is None else _datetime(record['sent_at'])),
+        ('失敗回数', str(record['attempts'])),
+        ('最終失敗理由', record.get('last_error') or 'なし'),
+    ]
+    width = max(_width(label) for label, _ in rows)
+    lines = [label + ' ' * (width - _width(label) + 2) + _clean(value)
+             for label, value in rows]
+    lines.extend(('', '投稿本文（保存当時）'))
+    content = record['content']
+    if content is None:
+        lines.append(_clean(record['content_error']))
+    elif content == '':
+        lines.append('（本文は空です）')
+    else:
+        body = _escape_body_controls(content)
+        if body != content:
+            lines.append('※ 制御文字をエスケープ表示しています。JSON形式では元の本文を取得できます。')
+        lines.append(body)
+    return '\n'.join(lines)
 
 
 def format_history(history):

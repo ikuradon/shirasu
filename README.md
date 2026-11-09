@@ -27,6 +27,7 @@ docker compose ps
 docker compose exec shirasu python main.py --status --format text
 docker compose exec shirasu python main.py --history
 docker compose exec shirasu python main.py --history --state expired --limit 50
+docker compose exec shirasu python main.py --show EVENT_ID
 docker compose exec shirasu python main.py --status
 docker compose logs --tail 100 -f shirasu
 ```
@@ -38,6 +39,12 @@ docker compose logs --tail 100 -f shirasu
 `--history` は保存中の配送履歴を新しい順に20件表示します。受信日時は JST、列は通報種別・配送状態・失敗回数・イベントID・最後の失敗理由です。`--state pending`（送信待ち）、`sent`（送信済み）、`expired`（期限切れ）で絞り込めます。`--limit` は1〜1000件、`--format json` で機械向けの出力も選べます。履歴の保持期間は配送時の重複情報と同じです。旧版から移行した行では、受信日時に移行元投稿の作成日時を使います。
 
 各行は通報ごとの最新の配送状態です。「失敗回数」はアプリが記録した送信失敗の回数で、SDK 内部の再送回数は含みません。表では長い項目とイベントIDを短縮し、JSONでは完全な値を参照できます。確認コマンドは保存内容を読むだけで、再送・期限切れ処理・履歴削除を実行しません。`docker compose exec` の出力は実行した端末に表示され、常駐処理の `docker compose logs` には混ざりません。
+
+`--show EVENT_ID` は保存済みの1通報を詳しく表示します。`EVENT_ID` を `--history` に表示される12桁のイベントID、または完全な64桁のIDに置き換えてください。16進数の大文字・小文字は区別しません。同じ先頭部分の記録が複数ある場合は選ばずにエラーを返すので、より長いIDを指定してください。検索対象は現在の投稿アカウントの保存記録です。
+
+詳細には完全なイベントID、通報種別、配送状態、受信・送信日時（JST）、失敗回数、最後のエラー、保存当時の投稿本文と末尾のNMEAを表示します。本文は署名イベントに保存されたものを使い、現在の書式で整形し直しません。保存された本文を読み取れない場合も配送情報と読取エラーを表示します。本文中の端末制御文字はエスケープして、その旨を表示します。
+
+`--show EVENT_ID --format json` は配送情報と本文をJSONで返します。JSONの `event.content` は保存当時の本文そのもので、文字のエスケープはJSONを解析すると元に戻ります。本文を読み取れない場合は `content` が `null`、`content_error` に理由が入ります。設定・秘密鍵・通信を使わず、保存状態の変更や再投稿も行いません。履歴の保持期限を過ぎて削除された記録は表示できません。
 
 ヘルスチェックは、プロセスの動作、gpsd とリレーの接続、90秒以内の状態更新と通報受信を確認します。未解消の投稿エラーや90秒以上の送信待ちも異常と判定します。Docker の `unhealthy` 判定だけでは自動再起動しません。通常の通信切断はアプリ自身が再接続・再送し、プロセスが終了した場合は Compose の `restart: always` が再起動します。
 

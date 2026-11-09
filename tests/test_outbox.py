@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from outbox import Outbox, read_history, read_status
+from outbox import Outbox, event_id_prefix, read_event, read_history, read_status
 
 
 def signed_note(event_id):
@@ -304,6 +304,99 @@ class OutboxTests(unittest.TestCase):
             box.connection.execute("DELETE FROM metadata WHERE name = 'current_identity'")
         with self.assertRaisesRegex(RuntimeError, 'identity has not been initialized'):
             read_history(self.path)
+
+    def test_event_lookup_accepts_full_id_and_unique_history_prefix_in_either_case(self):
+        box = self.open()
+        event_id = 'a1b2c3d4e5f6' + '7' * 52
+        self.enqueue(box, 'warning', 10, event_id)
+        box.mark_failed('warning', 'relay offline', 11, 5)
+        expected = {'identity': box.identity, 'event': read_history(self.path)['events'][0]}
+        for selector in (event_id, event_id.upper(), event_id[:12], event_id[:12].upper(), event_id[:63]):
+            with self.subTest(selector=selector):
+                self.assertEqual(read_event(self.path, selector), expected)
+        self.assertEqual(event_id_prefix(event_id[:12].upper()), event_id[:12])
+
+    def test_event_lookup_rejects_missing_and_ambiguous_ids_without_selecting_a_row(self):
+        box = self.open()
+        prefix = 'abcdef012345'
+        first_id = prefix + 'a' * 52
+        second_id = prefix + 'b' * 52
+        self.enqueue(box, 'first', 10, first_id)
+        self.enqueue(box, 'second', 11, second_id)
+        with self.assertRaisesRegex(ValueError, '複数.*完全なイベントID'):
+            read_event(self.path, prefix)
+        with self.assertRaisesRegex(ValueError, '保存済みの記録がありません'):
+            read_event(self.path, 'f' * 64)
+        self.assertEqual(read_event(self.path, first_id)['event']['key'], 'first')
+        self.assertEqual(read_event(self.path, second_id[:13])['event']['key'], 'second')
+        # Even a malformed stored ID cannot turn a complete-ID lookup into a
+        # prefix lookup that returns a different event.
+        self.enqueue(box, 'long-id', 12, 'c' * 65)
+        with self.assertRaisesRegex(ValueError, '保存済みの記録がありません'):
+            read_event(self.path, 'c' * 64)
+
+    def test_event_lookup_uses_current_identity_and_keeps_other_accounts_separate(self):
+        first = self.open('account-a')
+        first_id = 'abcdef012345' + 'a' * 52
+        second_id = 'abcdef012345' + 'b' * 52
+        self.enqueue(first, 'first', 10, first_id)
+        second = self.open('account-b')
+        self.enqueue(second, 'second', 11, second_id)
+        self.assertEqual(read_event(self.path, first_id[:12]), {
+            'identity': 'account-b', 'event': read_history(self.path)['events'][0],
+        })
+        self.assertEqual(read_event(self.path, first_id[:12], identity='account-a')['event']['event_id'], first_id)
+        for identity in (None, "' OR 1=1 --"):
+            with self.subTest(identity=identity):
+                with self.assertRaisesRegex(ValueError, '保存済みの記録がありません'):
+                    read_event(self.path, first_id, identity=identity)
+
+    def test_event_lookup_preserves_overdue_pending_and_old_sent_records_without_writes(self):
+        box = self.open(max_age_seconds=10, dedup_seconds=20)
+        sent_id, pending_id = 'a' * 64, 'b' * 64
+        self.enqueue(box, 'sent', 0, sent_id)
+        box.mark_sent('sent', 1)
+        self.enqueue(box, 'pending', 2, pending_id)
+        box.mark_failed('pending', 'relay offline', 3, 5)
+        box.set_status('running', True, 3)
+        before = read_status(self.path, now=1000)
+        records_before = list(box.connection.iterdump())
+        sent = read_event(self.path, sent_id)
+        pending = read_event(self.path, pending_id)
+        self.assertEqual(sent['event']['state'], 'sent')
+        self.assertEqual(pending['event']['state'], 'pending')
+        self.assertEqual(pending['event']['event_json'], signed_note(pending_id))
+        self.assertEqual(pending['event']['attempts'], 1)
+        self.assertEqual(read_status(self.path, now=1000), before)
+        self.assertEqual(list(box.connection.iterdump()), records_before)
+        box.close()
+        self.assertEqual(read_event(self.path, sent_id), sent)
+        self.assertEqual(read_event(self.path, pending_id), pending)
+
+    def test_event_lookup_validates_ids_before_opening_storage_and_never_creates_missing_database(self):
+        for value in ('', 'a' * 11, 'a' * 65, 'g' * 12, 'a' * 11 + '%',
+                      'a' * 11 + '_', "' OR 1=1 --", 'a' * 12 + '\n', None, 12, True):
+            with self.subTest(value=value):
+                with patch('outbox.sqlite3.connect') as connect:
+                    with self.assertRaisesRegex(ValueError, '12〜64文字の16進数'):
+                        read_event(self.path, value)
+                    connect.assert_not_called()
+        with self.assertRaises(sqlite3.OperationalError):
+            read_event(self.path, 'a' * 64)
+        self.assertFalse(self.path.parent.exists())
+
+    def test_event_lookup_rejects_unknown_schema_and_uninitialized_identity(self):
+        box = self.open()
+        event_id = 'a' * 64
+        self.enqueue(box, 'warning', 10, event_id)
+        box.connection.execute('PRAGMA user_version = 99')
+        with self.assertRaisesRegex(RuntimeError, 'Unsupported outbox database version'):
+            read_event(self.path, event_id)
+        box.connection.execute('PRAGMA user_version = 1')
+        with box.connection:
+            box.connection.execute("DELETE FROM metadata WHERE name = 'current_identity'")
+        with self.assertRaisesRegex(RuntimeError, 'identity has not been initialized'):
+            read_event(self.path, event_id)
 
 
 if __name__ == '__main__':

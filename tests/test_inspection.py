@@ -1,15 +1,18 @@
 import copy
 from datetime import datetime, timezone
+import json
 import unittest
 from unittest.mock import patch
 
 import azarashi
 from nostr_sdk import EventBuilder, Keys, Kind
 
-from inspection import format_history, format_status, prepare_history
+from inspection import format_event, format_history, format_status, prepare_event, prepare_history
+from message_format import report_message
 
 
 DCR_NMEA = '$QZQSM,55,C6AF89A820000324000050400548C5E2C000000003DFF8001C00001185443FC*05'
+MARINE_NMEA = '$QZQSM,58,53ADF5A111800283FC5083541042820D5047EA17994309A8622000113240198*7B'
 RECEIVED_AT = datetime(2026, 11, 8, tzinfo=timezone.utc)
 
 
@@ -35,6 +38,10 @@ class InspectionTests(unittest.TestCase):
             'last_seen': RECEIVED_AT.timestamp(), 'next_attempt_at': RECEIVED_AT.timestamp() + 60,
             'sent_at': None, 'last_error': 'relay rejected event',
         }]}
+
+    def detail(self):
+        history = self.history()
+        return {'identity': history['identity'], 'event': history['events'][0]}
 
     def test_status_shows_relative_times_and_counts(self):
         now = 1794148017.0343413
@@ -136,6 +143,103 @@ class InspectionTests(unittest.TestCase):
         text = format_history({'identity': 'test', 'total': 0, 'events': []})
         self.assertIn('配送履歴はありません', text)
         self.assertIn('表示 0件 / 対象 0件', text)
+
+    def test_event_uses_the_saved_old_marine_body_even_when_decoding_is_unavailable(self):
+        detail = self.detail()
+        report = azarashi.decode(MARINE_NMEA, timestamp=RECEIVED_AT)
+        content = f'{report}\n---\nNMEA: {MARINE_NMEA}'
+        self.assertNotEqual(content, report_message(report))
+        event = EventBuilder(Kind(1), content).finalize(Keys.generate())
+        detail['identity'] = event.author().to_hex()
+        detail['event'].update(event_id=event.id().to_hex(), event_json=event.as_json())
+        before = copy.deepcopy(detail)
+
+        with patch('inspection.azarashi.decode', side_effect=RuntimeError('obsolete decoder')):
+            prepared = prepare_event(detail)
+            text = format_event(prepared)
+
+        self.assertEqual(prepared['event']['content'], content)
+        self.assertIsNone(prepared['event']['content_error'])
+        self.assertEqual(prepared['event']['report_label'], '不明')
+        self.assertNotIn('event_json', prepared['event'])
+        self.assertEqual(prepared['identity'], event.author().to_hex())
+        self.assertIn(event.id().to_hex(), text)
+        self.assertTrue(text.endswith(content))
+        self.assertEqual(detail, before)
+
+    def test_event_displays_full_metadata_with_jst_times_and_no_truncation(self):
+        detail = self.detail()
+        detail['event'].update(state='sent', sent_at=RECEIVED_AT.timestamp() + 61,
+                               attempts=123, last_error='長い理由' * 100)
+        prepared = prepare_event(detail)
+        before = copy.deepcopy(prepared)
+        text = format_event(prepared)
+        for expected in ('イベントID', detail['event']['event_id'], '緊急地震速報',
+                         '送信済み', '受信日時(JST)', '送信日時(JST)',
+                         '2026-11-08 09:00:00', '2026-11-08 09:01:01',
+                         '失敗回数', '123', '長い理由' * 100, '投稿本文（保存当時）', DCR_NMEA):
+            self.assertIn(expected, text)
+        self.assertEqual(prepared, before)
+
+    def test_unsent_event_states_do_not_invent_a_send_time(self):
+        detail = self.detail()
+        for state, label in (('pending', '送信待ち'), ('expired', '期限切れ')):
+            with self.subTest(state=state):
+                detail['event']['state'] = state
+                text = format_event(prepare_event(detail))
+                self.assertIn(label, text)
+                self.assertIn('未送信', text)
+                self.assertEqual(text.count('2026-11-08 09:00:00'), 1)
+
+    def test_corrupt_event_content_keeps_delivery_metadata_visible(self):
+        for raw in ('broken JSON', '[]', 'null', '{}', '{"content":null}', '{"content":7}', '[' * 2000):
+            with self.subTest(raw=raw):
+                detail = self.detail()
+                detail['event']['event_json'] = raw
+                prepared = prepare_event(detail)
+                text = format_event(prepared)
+                self.assertIsNone(prepared['event']['content'])
+                self.assertTrue(prepared['event']['content_error'])
+                self.assertIn(prepared['event']['content_error'], text)
+                self.assertIn(detail['event']['event_id'], text)
+                self.assertIn('送信待ち', text)
+                self.assertIn('relay rejected event', text)
+
+    def test_empty_saved_body_is_valid_and_explicit(self):
+        detail = self.detail()
+        detail['event']['event_json'] = json.dumps({'content': ''})
+        prepared = prepare_event(detail)
+        self.assertEqual(prepared['event']['content'], '')
+        self.assertIsNone(prepared['event']['content_error'])
+        self.assertIn('本文は空です', format_event(prepared))
+
+    def test_saved_body_preserves_normal_whitespace_and_line_breaks(self):
+        detail = self.detail()
+        content = '  先頭  スペース\n\n　全角スペースも保持　\n末尾  \n'
+        detail['event']['event_json'] = json.dumps({'content': content})
+        prepared = prepare_event(detail)
+        text = format_event(prepared)
+        self.assertEqual(prepared['event']['content'], content)
+        self.assertTrue(text.endswith(content))
+        self.assertNotIn('エスケープ', text)
+
+    def test_event_escapes_body_controls_but_keeps_json_content_exact(self):
+        detail = self.detail()
+        content = '本文\n\x1b[31m色\r復帰\tタブ\u202e方向\x00\u2028\ud800'
+        detail['event']['event_json'] = json.dumps({'content': content})
+        detail['event']['last_error'] = 'rejected\n\x1b[31m\r\t\u202edanger'
+        prepared = prepare_event(detail)
+        text = format_event(prepared)
+        for control in ('\x1b', '\r', '\t', '\u202e', '\x00', '\u2028', '\ud800'):
+            self.assertNotIn(control, text)
+        for escaped in (r'\u001b', r'\u000d', r'\u0009', r'\u202e',
+                        r'\u0000', r'\u2028', r'\ud800'):
+            self.assertIn(escaped, text)
+        self.assertIn('制御文字をエスケープ表示', text)
+        self.assertIn('本文\n', text)
+        self.assertTrue(any('rejected' in line and 'danger' in line for line in text.splitlines()))
+        self.assertEqual(prepared['event']['content'], content)
+        self.assertEqual(json.loads(json.dumps(prepared))['event']['content'], content)
 
 
 if __name__ == '__main__':

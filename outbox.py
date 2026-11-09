@@ -9,6 +9,7 @@ from contextlib import contextmanager
 import json
 import math
 from pathlib import Path
+import re
 import sqlite3
 import time
 
@@ -112,6 +113,33 @@ def read_history(path, *, state=None, limit=20, identity=None):
             ORDER BY created_at DESC, rowid DESC LIMIT ?
         ''', [*parameters, limit])
         return {'identity': identity, 'total': total, 'events': [dict(row) for row in rows]}
+
+
+def event_id_prefix(value):
+    """Validate a complete event ID or the prefix displayed by history."""
+    if not isinstance(value, str) or re.fullmatch(r'[0-9a-fA-F]{12,64}', value) is None:
+        raise ValueError('イベントIDは12〜64文字の16進数で指定してください')
+    return value.lower()
+
+
+def read_event(path, event_id, *, identity=None):
+    """Read one saved event without changing delivery or retention state."""
+    prefix = event_id_prefix(event_id)
+    with _read_connection(path, identity) as (connection, identity):
+        # Prefixes are validated as hexadecimal, so LIKE has no caller-supplied
+        # wildcard characters. A full ID always uses an exact comparison.
+        comparison = 'event_id = ?' if len(prefix) == 64 else 'event_id LIKE ?'
+        value = prefix if len(prefix) == 64 else prefix + '%'
+        rows = connection.execute(f'''
+            SELECT key, event_id, event_json, state, attempts, created_at,
+                   last_seen, next_attempt_at, sent_at, last_error
+            FROM events WHERE identity = ? AND {comparison} LIMIT 2
+        ''', (identity, value)).fetchall()
+        if not rows:
+            raise ValueError('指定したイベントIDに一致する保存済みの記録がありません')
+        if len(rows) != 1:
+            raise ValueError('イベントIDが複数の記録に一致します。より長いIDまたは完全なイベントIDを指定してください')
+        return {'identity': identity, 'event': dict(rows[0])}
 
 
 class Outbox:
