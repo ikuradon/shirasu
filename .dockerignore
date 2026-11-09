@@ -6,6 +6,7 @@ config.py
 .codex
 __pycache__
 state
+backups
 .env
 .env.*
 compose.override.yaml

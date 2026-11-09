@@ -302,6 +302,12 @@ def show_id(value):
         raise argparse.ArgumentTypeError(str(error)) from error
 
 
+def backup_path(value):
+    if not value:
+        raise argparse.ArgumentTypeError('バックアップのファイルパスを指定してください')
+    return value
+
+
 def received_at(value):
     try:
         timestamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
@@ -350,14 +356,19 @@ def main(argv=None):
     group.add_argument('--show', type=show_id, metavar='EVENT_ID',
                        help='show a saved event by its ID or unique 12+ character prefix (default: text)')
     group.add_argument('--preview', nargs='+', metavar='FILE', help='preview reports from files; use - for standard input')
-    parser.add_argument('--format', choices=('text', 'json'), help='output format for --status, --history or --show')
+    group.add_argument('--backup', type=backup_path, metavar='FILE',
+                       help='create and validate a consistent state backup without overwriting FILE')
+    group.add_argument('--verify-backup', type=backup_path, metavar='FILE',
+                       help='validate a standalone state backup without changing it')
+    parser.add_argument('--format', choices=('text', 'json'), help='output format for inspection and backup commands')
     parser.add_argument('--state', choices=('pending', 'sent', 'expired'), help='filter --history by delivery state')
     parser.add_argument('--limit', type=int, help='maximum history rows (default: 20, maximum: 1000)')
     parser.add_argument('--input-format', choices=('nmea', 'ubx'), help='preview input format (default: nmea)')
     parser.add_argument('--received-at', type=received_at, help='preview reference date/time with timezone (default: current UTC time)')
     args = parser.parse_args(argv)
-    if args.format and not (args.status or args.history or args.show):
-        parser.error('--format requires --status, --history or --show')
+    if args.format and not (args.status or args.history or args.show
+                            or args.backup is not None or args.verify_backup is not None):
+        parser.error('--format requires --status, --history, --show, --backup or --verify-backup')
     if (args.state is not None or args.limit is not None) and not args.history:
         parser.error('--state and --limit require --history')
     if args.limit is not None and not 1 <= args.limit <= 1000:
@@ -368,6 +379,26 @@ def main(argv=None):
         parser.error('standard input (-) can only be used once')
     logging.basicConfig(level=os.environ.get('SHIRASU_LOG_LEVEL', 'INFO'),
                         format='%(asctime)s %(levelname)s %(name)s %(message)s')
+    if args.backup is not None or args.verify_backup is not None:
+        try:
+            from backup import create_backup, verify_backup
+            from inspection import format_backup
+            if args.backup is not None:
+                path = os.environ.get('SHIRASU_STATE_PATH', 'state/shirasu.sqlite3')
+                summary = create_backup(path, args.backup)
+            else:
+                summary = verify_backup(args.verify_backup)
+            if args.format == 'json':
+                print(json.dumps(summary, ensure_ascii=True, indent=2))
+            else:
+                print(format_backup(summary, created=args.backup is not None))
+            return 0
+        except Exception as error:
+            operation = '作成' if args.backup is not None else '検証'
+            message = ' '.join(''.join(char if char.isprintable() else ' '
+                                       for char in str(error)).split())
+            print(f'バックアップを{operation}できません: {message}', file=sys.stderr)
+            return 1
     if args.preview:
         return run_preview(args)
     if args.status or args.health or args.history or args.show:

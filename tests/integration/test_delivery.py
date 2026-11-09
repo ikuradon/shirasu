@@ -25,6 +25,8 @@ from nostr_sdk import Event, Keys
 from websockets.asyncio.server import serve
 from websockets.exceptions import ConnectionClosed
 
+from backup import create_backup, verify_backup
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DCR_NMEA = '$QZQSM,55,C6AF89A820000324000050400548C5E2C000000003DFF8001C00001185443FC*05'
@@ -280,6 +282,37 @@ class DeliveryIntegrationTests(unittest.IsolatedAsyncioTestCase):
         await self.wait_for(lambda: self.records()[0]['state'] == 'sent', 'restart ACK commit')
         await self.assert_duplicate_is_suppressed(writer, DCR_NMEA, 1)
         self.assertEqual(len(self.relay.events), 2)
+
+    async def test_new_database_restored_from_backup_preserves_pending_and_sent_events(self):
+        writer = await self.start_daemon()
+        await self.send_report(writer, DCR_NMEA)
+        sent = await self.next_event()
+        await self.wait_for(lambda: self.records()[0]['state'] == 'sent', 'sent event before backup')
+        self.relay.mode = 'hold'
+        await self.send_report(writer, MARINE_NMEA)
+        pending = await self.next_event()
+        records = self.records()
+        self.assertEqual([row['state'] for row in records], ['sent', 'pending'])
+
+        archive = self.directory_path / 'backup.sqlite3'
+        summary = create_backup(self.path, archive)
+        self.assertEqual(summary['counts'], {'pending': 1, 'sent': 1, 'expired': 0})
+        await self.stop_daemon()
+        self.assertEqual(verify_backup(archive), summary)
+        original_path = self.path
+        self.path = self.directory_path / 'restored.sqlite3'
+        shutil.copyfile(archive, self.path)
+        self.assertEqual([row['event_json'] for row in self.records()],
+                         [row['event_json'] for row in records])
+
+        self.relay.mode = 'ack'
+        writer = await self.start_daemon()
+        self.assertEqual(await self.next_event(), pending)
+        await self.wait_for(lambda: all(row['state'] == 'sent' for row in self.records()),
+                            'restored pending ACK commit')
+        await self.assert_duplicate_is_suppressed(writer, DCR_NMEA, 2)
+        self.assertEqual(self.relay.events, [sent, pending, pending])
+        self.assertTrue(original_path.exists())
 
 
 if __name__ == '__main__':

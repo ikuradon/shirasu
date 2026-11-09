@@ -156,6 +156,30 @@ def _datetime(timestamp):
         return '不明'
 
 
+def format_backup(summary, *, created=False):
+    """Describe archive integrity separately from the daemon's live health."""
+    counts = summary['counts']
+    last_updated = summary['status_updated_at']
+    rows = [
+        ('ファイル', summary['path']),
+        ('作成日時(JST)', _datetime(summary['backup_created_at'])),
+        ('状態記録の最終更新(JST)', '未記録' if last_updated is None else _datetime(last_updated)),
+        ('投稿アカウント', summary['identity']),
+        ('保存アカウント数', str(len(summary['accounts']))),
+        ('送信待ち（全体）', f"{counts['pending']}件"),
+        ('送信済み（全体）', f"{counts['sent']}件"),
+        ('期限切れ（全体）', f"{counts['expired']}件"),
+        ('署名検証', f"{summary['events_verified']}件 正常"),
+        ('DB整合性', '正常'),
+    ]
+    width = max(_width(label) for label, _ in rows)
+    lines = ['バックアップを作成しました。' if created else 'バックアップを検証しました。']
+    lines.extend(label + ' ' * (width - _width(label) + 2) + _clean(value)
+                 for label, value in rows)
+    lines.append('復元時は、バックアップ取得後の送信履歴を照合してから公開投稿を再開してください。')
+    return '\n'.join(lines)
+
+
 def _escape_body_controls(content):
     # Preserve ordinary whitespace and line breaks, but never execute terminal
     # controls or let bidi/zero-width controls alter the surrounding display.

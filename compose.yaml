@@ -53,5 +53,32 @@ services:
       start_period: 10s
       retries: 3
 
+  backup:
+    build:
+      context: .
+    command: ["python", "backup_worker.py"]
+    restart: always
+    network_mode: none
+    logging: *bounded-logging
+    environment:
+      PYTHONUNBUFFERED: "1"
+      SHIRASU_STATE_PATH: /data/shirasu.sqlite3
+      SHIRASU_BACKUP_DIR: /backups
+      SHIRASU_BACKUP_INTERVAL_SECONDS: "${SHIRASU_BACKUP_INTERVAL_SECONDS:-3600}"
+      SHIRASU_BACKUP_KEEP_COUNT: "${SHIRASU_BACKUP_KEEP_COUNT:-168}"
+    stop_grace_period: 90s
+    volumes:
+      # SQL remains read-only; SQLite may create WAL/SHM helpers after shutdown.
+      - shirasu-state:/data
+      - type: bind
+        source: ./backups/auto
+        target: /backups
+    healthcheck:
+      test: ["CMD", "python", "backup_worker.py", "--health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+
 volumes:
   shirasu-state:
