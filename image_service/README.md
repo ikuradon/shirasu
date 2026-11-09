@@ -1,7 +1,7 @@
 # 署名付き QZQSM 画像サービス
 
 受信機とは別に動かす、Python 3.12 / WSGI の画像レンダラーです。画像の入力は
-`/v1/<key-id>/<JSON+zlib+base64url>.<HMAC-SHA256>.png` または `/v2/...` に含まれます。
+`/v1/<key-id>/<JSON+zlib+base64url>.<HMAC-SHA256>.png` 、`/v2/...`、`/v3/...` に含まれます。
 共有する `image_protocol.py` が署名とサイズを検証してから、azarashi で復号します。
 現在時刻や外部 API は参照せず、URL に入っている受信時刻を復号の日付の基準にします。
 
@@ -80,6 +80,40 @@ v1の描画をそのまま残し、新しく発行するv2 URLで次の3種類�
 {"k1":"<32 bytes encoded as 64 hexadecimal characters>"}
 ```
 
+## v3 の予報区域・火山表示
+
+v1/v2 の表示を保ち、v3 URL で次を追加します。
+
+- 気象: 府県予報区の輪郭と受信した警報・情報を表示します。北海道・東京/伊豆・
+  鹿児島/奄美・沖縄の細分を都道府県全体へ置き換えません。共通の発表/解除を区別し、
+  「全ての気象特別警報」は仕様どおり解除の場合だけ扱います。
+- 緊急地震速報: 受信した警報対象区域と、通報全体に1組の予測震度範囲を表示します。
+  各区域に固有の震度を割り当てず、震央地名から座標を推定しません。長周期の予測、
+  発生時刻、深さ・M、防災上の留意事項を保持します。PLUMの仮定震源はその旨を明記し、
+  固定の深さ・Mを実際の地震値として示しません。
+- 火山: 気象庁の公式代表位置に印を付け、受信した警戒レベル・現象・活動時刻・
+  対象市町村を併記します。「噴火」と「噴火したもよう」、時刻の曖昧さを保持します。
+  危険半径、火口の広がり、避難対象区域は推定しません。
+
+地図の輪郭は通報が指す予報区域です。区域全体が一様な危険域であるとは限らず、
+未掲載地域の安全も意味しません。離島を含む全範囲を保持し、必要に応じて小図を使います。
+未知・矛盾する入力や読める配置を作れない場合は、通報全体の要旨に戻します。
+
+地域データは `assets/v3/regional_manifest.json`、火山位置は `volcano_manifest.json`、
+v3専用のNatural Earth 10m底図は `land_manifest.json` に出典・入力ハッシュ・加工条件を
+記録しています。大きなGeoJSONはzlib圧縮で同梱し、
+実行時にハッシュと展開上限を検証します。外部の地図をリクエスト時に取得しません。
+再生成は `scripts/prepare_v3_region_assets.py`、`scripts/prepare_volcano_assets.py`、
+`scripts/prepare_v3_land_assets.py` を使います。
+
+```sh
+/tmp/shirasu-images-venv/bin/python -m image_service --version v3 --records image_service/examples/weather.json --output /tmp/weather.png
+/tmp/shirasu-images-venv/bin/python -m image_service --version v3 --records image_service/examples/eew.json --output /tmp/eew.png
+/tmp/shirasu-images-venv/bin/python -m image_service --version v3 --records image_service/examples/volcano.json --output /tmp/volcano.png
+```
+
+v3 のサンプルは全て訓練分類の合成通報で、実際の災害情報ではありません。投稿は行いません。
+
 ## デプロイと HTTP 契約
 
 デプロイパッケージには `image_service/` と共通の `image_protocol.py` が必要です。
@@ -87,7 +121,7 @@ Vercel の `api/image.py` から `from image_service.app import app` で WSGI �
 ルートのすべてのリクエストをこの関数へ rewrite します。受信機の `config.py`、SQLite、
 バックアップ、秘密鍵をパッケージに含めないでください。
 
-- `GET /healthz`: 鍵設定とv1/v2両方の固定アセットを検査します。成功は `200`、設定不備は `503`。
+- `GET /healthz`: 鍵設定とv1/v2/v3全ての固定アセットを検査します。成功は `200`、設定不備は `503`。
 - `GET` / `HEAD` の署名付きパス: 成功は `image/png`、PNG 内容の SHA-256 を ETag に使用。
   `Cache-Control: public, max-age=31536000, immutable` と
   `Vercel-CDN-Cache-Control: public, max-age=31536000` を返します。
@@ -108,6 +142,6 @@ HMAC は新しい入力の作成を制限する仕組みです。公開済みの
 日本語の地名を欠落させないためフォントを部分化していません。v1 のアセットは約 35 MB です。
 
 公開後に v1 の見た目、デコード規則、依存、アセットを変更すると同じ URL の内容が変わります。
-v2も公開後は固定です。次の変更は新しい描画経路として追加し、古い経路と検証鍵を残してください。
+v2・v3も公開後は固定です。次の変更は新しい描画経路として追加し、古い経路と検証鍵を残してください。
 Matplotlib の描画と azarashi の multipart 組立状態はリクエスト全体のロックで保護し、
 各リクエストの前後で組立状態を破棄します。

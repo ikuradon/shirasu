@@ -1,0 +1,7 @@
+[
+  {
+    "description": "Synthetic training example, not a real volcanic warning: Aso, Level 3, three received municipalities. No Nostr publication.",
+    "nmea": "$QZQSM,55,C6AFC5A5D900025D68D1F783E0F10910421230200000000000000012CB07404*00",
+    "received_ms": 1794235860000
+  }
+]

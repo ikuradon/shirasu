@@ -1,0 +1,19 @@
+Natural Earth 1:10m land / v3 専用底図
+
+Natural Earth のパブリックドメイン地形データを Shirasu が形式変換したもの。
+1:10m land polygons, version 5.1.1. 2026年11月10日取得。
+https://www.naturalearthdata.com/downloads/10m-physical-vectors/10m-land/
+https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_land.zip
+利用条件: https://www.naturalearthdata.com/about/terms-of-use/
+
+元データの WGS 84 経緯度、全ポリゴン、島、穴を保持して GeoJSON 化。
+簡略化、座標の丸め、補間、陸地の追加・除去、区域による切り取りは行わない。
+地図の表示範囲による通常の描画クリップは行う。海岸線は測量図ではなく、
+避難経路や浸水範囲の判定に使うためのデータではない。
+公開済み v1 / v2 の底図には変更を加えていない。
+
+入力・出力の SHA-256、座標数、変換条件は land_manifest.json に記録。
+再生成環境: pyshp==2.3.1, shapely==2.1.2
+  python scripts/prepare_v3_land_assets.py --source /path/to/ne_10m_land.zip
+--source を省略すると上記公式 URL から取得する。--output で出力先を変更可能。
+公開済み世代を上書きしないこと。

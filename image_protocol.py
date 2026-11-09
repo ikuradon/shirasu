@@ -4,7 +4,7 @@ Only the shared signing key authorizes new inputs. A published URL has no
 expiry: readers can reuse it, and a renderer can recreate its PNG after CDN
 eviction. This module deliberately has no third-party dependencies or I/O.
 
-v1/v2 payload: canonical UTF-8 JSON ``{"r":[[offset_ms,nmea],...],"t":base_ms}``,
+Versioned payload: canonical UTF-8 JSON ``{"r":[[offset_ms,nmea],...],"t":base_ms}``,
 compressed with zlib and encoded as unpadded base64url. The base is the earliest
 receipt timestamp; records are sorted by receipt timestamp and NMEA text.
 """
@@ -20,7 +20,7 @@ import zlib
 
 
 VERSION = 'v1'
-SUPPORTED_VERSIONS = ('v1', 'v2')
+SUPPORTED_VERSIONS = ('v1', 'v2', 'v3')
 MAX_REPORTS = 32
 MAX_PATH_LENGTH = 8192
 MAX_COMPRESSED_BYTES = 4096

@@ -1,0 +1,7 @@
+[
+  {
+    "description": "Synthetic EEW training fixture; not an actual earthquake or warning. Prefectural forecast-area flags and one bulletin-wide prediction range.",
+    "nmea": "$QZQSM,55,C6AF8DA81900A3240000502D194475DA000DC8000000000000000012FEF359C*06",
+    "received_ms": 1794271805000
+  }
+]

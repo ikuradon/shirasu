@@ -1,0 +1,25 @@
+{
+  "land.geojson.zlib": {
+    "source": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_land.zip",
+    "source_page": "https://www.naturalearthdata.com/downloads/10m-physical-vectors/10m-land/",
+    "source_sha256": "e547d749445eaa0964aba76738090ec88f5e63c4585122170f98c67a7ea922dc",
+    "source_bytes": 3269070,
+    "source_version": "5.1.1",
+    "retrieved": "2026-11-10",
+    "terms": "https://www.naturalearthdata.com/about/terms-of-use/",
+    "sha256": "64ee1f5c8eba1916de4002dc170bdac9496c489dcc97d1626ac3fd0b12ca17e8",
+    "bytes": 4971606,
+    "uncompressed_sha256": "e78f6eda6f8969c54b319f721b0cc14827f02fd5c0a9b691288f225727c17af5",
+    "uncompressed_bytes": 17588642,
+    "feature_count": 11,
+    "polygon_count": 6837,
+    "hole_count": 1,
+    "vertex_count": 446175,
+    "crs": "WGS 84 longitude/latitude",
+    "processing": "pyshp 2.3.1 Shapefile-to-GeoJSON conversion; Shapely 2.1.2 checks source validity only. All original coordinates, polygon components and holes retained, with no simplification, rounding, clipping, repair, interpolation or merging. UTF-8 compact JSON with final newline; zlib level 9."
+  },
+  "LAND_NOTICE.txt": {
+    "sha256": "c2f2fca2be6fe30570c7f9121584c1cc3678c23fbc1acaa9778740e9e4757799",
+    "bytes": 1242
+  }
+}

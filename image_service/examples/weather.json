@@ -1,0 +1,7 @@
+[
+  {
+    "description": "Synthetic training example, not an actual weather warning.",
+    "nmea": "$QZQSM,55,C6AFD5A599000111FBDA1222E0B9D4C0B1ADB0B9FBDA000000000012F004804*0E",
+    "received_ms": 1794228531340
+  }
+]

@@ -69,7 +69,7 @@ SHIRASU_IMAGE_KEYS={"k1":"<64桁のhex鍵>"}
 SHIRASU_IMAGE_BASE_URL=https://<本番ドメイン>
 SHIRASU_IMAGE_KEY_ID=k1
 SHIRASU_IMAGE_SIGNING_KEY=<同じ64桁のhex鍵>
-SHIRASU_IMAGE_VERSION=v2
+SHIRASU_IMAGE_VERSION=v3
 SHIRASU_TYPHOON_WAIT_SECONDS=180
 ```
 
@@ -77,10 +77,10 @@ SHIRASU_TYPHOON_WAIT_SECONDS=180
 BASE_URLにはHTTPSのoriginだけを指定します。待ち時間は1〜300秒かつ配送の再送期限より
 短くします。集約待ちの生通報と配送待ちは `MAX_PENDING` の上限を共有します。
 
-`SHIRASU_IMAGE_VERSION` は `v1`（既定）または `v2` です。v2では海上警報・震度・津波の
-地域地図を追加します。変更するのは新しい投稿のURLだけで、保存済みの署名イベントや
-投稿済みv1 URLを作り直しません。v1/v2の受信入力形式は共通ですが、版もHMACに含めるため
-パスの `v1` だけを `v2` に置き換えたURLは拒否します。
+`SHIRASU_IMAGE_VERSION` は `v1`（既定）・`v2`・`v3` です。v2では海上警報・震度・津波、
+v3では気象・緊急地震速報・火山の地図を追加します。変更するのは新しい投稿のURLだけで、
+保存済みの署名イベントや投稿済みURLを作り直しません。受信入力形式は各版で共通ですが、
+版もHMACに含めるため、パスの版だけを書き換えたURLは拒否します。
 
 公開後はまず `/healthz`、正規署名URLのPNG、改変URLの拒否を確認します。
 その後 `docker compose up -d --build shirasu` で受信側の設定を反映し、
@@ -90,7 +90,7 @@ BASE_URLにはHTTPSのoriginだけを指定します。待ち時間は1〜300秒
 
 ## キャッシュと世代管理
 
-URLは `/v1/<key-id>/<payload>.<signature>.png` または `/v2/...` です。
+URLは `/v1/<key-id>/<payload>.<signature>.png`、`/v2/...`、`/v3/...` です。
 payloadはキー順を固定したJSON、zlib、paddingなしbase64urlの順に変換します。
 元のNMEAと元の受信Unixミリ秒を含め、復号の年月補完も再現します。HMACはバージョン・
 key-id・payloadを対象にします。署名確認後にサイズ上限付きで展開・復号します。

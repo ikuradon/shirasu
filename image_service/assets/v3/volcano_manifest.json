@@ -1,0 +1,22 @@
+{
+  "volcano.json": {
+    "source": "https://www.jma.go.jp/bosai/volcano/const/volcano_list.json",
+    "source_sha256": "0dd309cb4d9dc62dc1e9330b945c78e4a58416a55b21535bcd16e5181799eb5a",
+    "retrieved": "2026-11-10",
+    "terms": "https://www.jma.go.jp/jma/kishou/info/coment.html",
+    "sha256": "8fcaf0a5f568d5ab2587600c763f91252cecd9734703568b571edb957f9191b5",
+    "bytes": 7082,
+    "feature_count": 117,
+    "excluded_codes": [
+      900,
+      901,
+      902,
+      4000
+    ],
+    "processing": "Official latlon strings converted to numeric [longitude, latitude]; no shifting or interpolation. Names checked against azarashi 0.17.1 after normalizing parentheses."
+  },
+  "VOLCANO_NOTICE.txt": {
+    "sha256": "cf371ef51f0554faf78502d047ed7a1dfdbf05bbbb135c1e394559eded989952",
+    "bytes": 1727
+  }
+}

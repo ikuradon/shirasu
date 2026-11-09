@@ -12,7 +12,7 @@ def main():
     group.add_argument('--serve', action='store_true', help='serve on 127.0.0.1; requires SHIRASU_IMAGE_KEYS')
     parser.add_argument('--output', type=Path, help='new PNG output path for an offline preview')
     parser.add_argument('--port', type=int, default=8080)
-    parser.add_argument('--version', choices=('v1', 'v2'), default='v1', help='renderer for an offline preview')
+    parser.add_argument('--version', choices=('v1', 'v2', 'v3'), default='v1', help='renderer for an offline preview')
     args = parser.parse_args()
     if args.serve:
         if args.output:
@@ -33,8 +33,10 @@ def main():
             parser.error('--records requires --output')
         if args.version == 'v1':
             from image_service.render import render
-        else:
+        elif args.version == 'v2':
             from image_service.render_v2 import render
+        else:
+            from image_service.render_v3 import render
         records = json.loads(args.records.read_text())
         image = render([(row['nmea'], row['received_ms']) for row in records])
         with args.output.open('xb') as destination:

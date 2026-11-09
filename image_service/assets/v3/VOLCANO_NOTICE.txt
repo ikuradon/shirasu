@@ -1,0 +1,24 @@
+JMA volcano position catalogue / 気象庁火山位置データの加工について
+
+出典: 気象庁ホームページ「あなたの街の防災情報」の火山一覧
+https://www.jma.go.jp/bosai/volcano/const/volcano_list.json
+2026年11月10日取得。入力のSHA-256は volcano_manifest.json に記録。
+気象庁ホームページの利用規約（公共データ利用規約 第1.0版）に基づき利用。
+https://www.jma.go.jp/jma/kishou/info/coment.html
+
+気象庁データを Shirasu が加工して作成。気象庁が作成した画像ではない。
+元一覧の117地点の緯度・経度を数値化して経度・緯度順に保存し、火山コードを
+IS-QZSS-DCR-017 / azarashi 0.17.1 と照合。名称は通報の固定コード表に合わせ、
+全角括弧のみを正規化して照合している。画面上のラベル移動量は使用しない。
+全国・その他・新たな活火山（900/901/902）とその他の火山（4000）には、
+位置を割り当てていない。知らない地点を他の火山の位置で代用しない。
+
+座標は火山の代表位置であり、今回噴火した火口の観測位置、危険半径、
+警戒範囲、避難対象区域ではない。市町村名を受信してもその境界は推定しない。
+レベル1や「活火山であることに留意」は「安全」や通報取消を意味しない。
+
+再生成（azarashi 0.17.1 の環境で実行）:
+  python scripts/prepare_volcano_assets.py
+既存の取得ファイルを使う場合:
+  python scripts/prepare_volcano_assets.py --source /path/to/volcano_list.json
+出力先は --output で変更できる。公開済み世代のアセットは上書きしないこと。

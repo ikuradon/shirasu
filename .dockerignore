@@ -17,5 +17,10 @@ tests/test_regional_reports.py
 tests/test_marine_regions.py
 tests/test_region_map.py
 tests/test_image_renderer_v2.py
+tests/test_image_renderer_v3.py
+tests/test_weather_map.py
+tests/test_eew_map.py
+tests/test_volcano_map.py
+tests/test_map_v3.py
 dist
 .vercel

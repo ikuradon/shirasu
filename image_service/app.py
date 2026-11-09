@@ -1,9 +1,13 @@
 """WSGI entrypoint for Vercel or a local WSGI server; PNGs are never stored."""
 
 import hashlib
+from importlib import import_module
 import os
 
 from image_protocol import MAX_PATH_LENGTH, SUPPORTED_VERSIONS, load_keys, parse_path, path_version
+
+RENDERERS = {'v1': 'image_service.render', 'v2': 'image_service.render_v2',
+             'v3': 'image_service.render_v3'}
 
 
 def app(environ, start_response):
@@ -32,10 +36,8 @@ def app(environ, start_response):
         return error('503 Service Unavailable', 'image service is not configured')
     if path == '/healthz':
         try:
-            from image_service.render import verify_assets
-            from image_service.render_v2 import verify_assets as verify_v2_assets
-            verify_assets()
-            verify_v2_assets()
+            for module in RENDERERS.values():
+                import_module(module).verify_assets()
         except Exception:
             return error('503 Service Unavailable', 'renderer is unavailable')
         return respond('200 OK', b'ok\n', [('Content-Type', 'text/plain'), ('Cache-Control', 'no-store')])
@@ -44,11 +46,8 @@ def app(environ, start_response):
     except ValueError:
         return error('403 Forbidden', 'invalid image URL')
     try:
-        if path_version(path) == 'v1':
-            from image_service.render import render
-        else:
-            from image_service.render_v2 import render
-        image = render(records)
+        renderer = import_module(RENDERERS[path_version(path)])
+        image = renderer.render(records)
     except (ValueError, OverflowError):
         return error('400 Bad Request', 'invalid report bundle')
     except Exception:

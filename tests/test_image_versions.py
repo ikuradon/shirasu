@@ -1,4 +1,4 @@
-"""Keep published v1 URLs valid while opting new publications into v2."""
+"""Keep published v1 URLs valid while opting new publications into later renderers."""
 
 import base64
 import hashlib
@@ -27,6 +27,9 @@ KEYS = {'k1': KEY}
 LEGACY_PATH = ('/v1/k1/eNotjDEKgDAMAP8SnCRD0iaadivVbg7ipvgJcRP_bhVvObjhLjggbhshNPM6LxOq'
                'Yu5SsZDMUcU7eaVUpWJZR5fpxw-lGBF_gdlUxJfcksK-I5wQuQ9C4T2w8_cDOTcYBQ.'
                'Qjb7-aZGigftCfS02dY4NL2QRK-dT_yMJJtcU2UJB5E.png')
+V2_PATH = ('/v2/k1/eNotjDEKgDAMAP8SnCRD0iaadivVbg7ipvgJcRP_bhVvObjhLjggbhshNPM6LxOq'
+           'Yu5SsZDMUcU7eaVUpWJZR5fpxw-lGBF_gdlUxJfcksK-I5wQuQ9C4T2w8_cDOTcYBQ.'
+           'uT2cLp1gyMoQNmPLeQ9SvWZSBaAkbQSKJFHTeCBEQsw.png')
 ENVIRONMENT = {
     'SHIRASU_IMAGE_BASE_URL': 'https://images.example.test',
     'SHIRASU_IMAGE_KEY_ID': 'k1',
@@ -39,6 +42,21 @@ def b64(data):
 
 
 class ImageVersionProtocolTests(unittest.TestCase):
+    def test_v3_preserves_v2_and_authenticates_its_own_generation(self):
+        self.assertEqual(make_path(RECORDS, 'k1', KEY, version='v2'), V2_PATH)
+        self.assertEqual(parse_path(V2_PATH, KEYS), RECORDS)
+        current = make_path(RECORDS, 'k1', KEY, version='v3')
+        self.assertEqual(parse_path(current, KEYS), RECORDS)
+        publisher = ImagePublisher.from_environment(dict(ENVIRONMENT, SHIRASU_IMAGE_VERSION='v3'))
+        self.assertEqual(publisher.url(RECORDS), ENVIRONMENT['SHIRASU_IMAGE_BASE_URL'] + current)
+        with patch('image_protocol.zlib.decompressobj', side_effect=AssertionError('must authenticate first')):
+            for old in (LEGACY_PATH, V2_PATH):
+                with self.subTest(path=old[:7]), self.assertRaises(ProtocolError):
+                    parse_path(old.replace('/' + path_version(old) + '/', '/v3/'), KEYS)
+            for version in ('v1', 'v2'):
+                with self.subTest(version=version), self.assertRaises(ProtocolError):
+                    parse_path(current.replace('/v3/', '/' + version + '/'), KEYS)
+
     def test_saved_v1_url_and_new_default_url_stay_byte_identical(self):
         self.assertEqual(parse_path(LEGACY_PATH, KEYS), RECORDS)
         self.assertEqual(make_path(RECORDS, 'k1', KEY), LEGACY_PATH)
@@ -64,12 +82,12 @@ class ImageVersionProtocolTests(unittest.TestCase):
                     parse_path(path, KEYS)
 
     def test_unknown_versions_cannot_be_signed_or_read(self):
-        for version in ('v0', 'v3', 'V2', '', 'v2/extra', None, 2):
+        for version in ('v0', 'v99', 'V2', '', 'v2/extra', None, 2):
             with self.subTest(version=version), self.assertRaises(ProtocolError):
                 make_path(RECORDS, 'k1', KEY, version=version)
         with patch('image_protocol.zlib.decompressobj', side_effect=AssertionError('invalid route')):
             with self.assertRaises(ProtocolError):
-                parse_path(LEGACY_PATH.replace('/v1/', '/v3/'), KEYS)
+                parse_path(LEGACY_PATH.replace('/v1/', '/v99/'), KEYS)
 
     def test_v2_keeps_bounded_decompression_for_authorized_inputs(self):
         payload = b64(zlib.compress(b' ' * (MAX_EXPANDED_BYTES * 100), 9))
@@ -95,7 +113,7 @@ class ImageVersionProtocolTests(unittest.TestCase):
             del incomplete[name]
             with self.subTest(missing=name), self.assertRaises(ValueError):
                 ImagePublisher.from_environment(incomplete)
-        for version in ('', 'v3', 'V2', None):
+        for version in ('', 'v99', 'V2', None):
             with self.subTest(version=version), self.assertRaises(ValueError):
                 ImagePublisher.from_environment(dict(ENVIRONMENT, SHIRASU_IMAGE_VERSION=version))
 
@@ -104,7 +122,8 @@ class ImageVersionProtocolTests(unittest.TestCase):
 class ImageVersionHTTPTests(unittest.TestCase):
     def setUp(self):
         self.renderers = {}
-        for version, name in [('v1', 'image_service.render'), ('v2', 'image_service.render_v2')]:
+        for version, name in [('v1', 'image_service.render'), ('v2', 'image_service.render_v2'),
+                                     ('v3', 'image_service.render_v3')]:
             module = ModuleType(name)
             module.render = Mock(return_value=SimpleNamespace(png=b'\x89PNG\r\n\x1a\n' + version.encode()))
             module.verify_assets = Mock(return_value=True)
@@ -121,7 +140,8 @@ class ImageVersionHTTPTests(unittest.TestCase):
         return response
 
     def test_authenticated_path_selects_only_its_frozen_renderer(self):
-        for version, module_name in [('v1', 'image_service.render'), ('v2', 'image_service.render_v2')]:
+        for version, module_name in [('v1', 'image_service.render'), ('v2', 'image_service.render_v2'),
+                                     ('v3', 'image_service.render_v3')]:
             with self.subTest(version=version):
                 for module in self.renderers.values():
                     module.render.reset_mock()
@@ -145,13 +165,13 @@ class ImageVersionHTTPTests(unittest.TestCase):
             module.render.assert_not_called()
 
     def test_unsupported_generation_is_not_found_and_not_cached(self):
-        response = self.request(LEGACY_PATH.replace('/v1/', '/v3/'))
+        response = self.request(LEGACY_PATH.replace('/v1/', '/v99/'))
         self.assertEqual(response['status'], '404 Not Found')
         self.assertEqual(response['headers']['Cache-Control'], 'no-store')
         for module in self.renderers.values():
             module.render.assert_not_called()
 
-    def test_health_checks_assets_of_both_generations(self):
+    def test_health_checks_assets_of_all_generations(self):
         response = self.request('/healthz')
         self.assertEqual(response['status'], '200 OK')
         for module in self.renderers.values():

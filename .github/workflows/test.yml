@@ -31,12 +31,13 @@ jobs:
       - name: Check bundled renderers and map assets
         run: >-
           docker run --rm --network none shirasu-images:test python -B -c
-          'from image_service.render_v2 import verify_assets; verify_assets()'
+          'from image_service.render_v3 import verify_assets; verify_assets()'
       - name: Check PNGs, signed HTTP responses, and source isolation
         run: >-
           docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
           shirasu-images:test sh -c 'for suite in image_protocol image_renderer image_renderer_v2
-          image_package image_versions regional_reports marine_regions region_map; do
+          image_renderer_v3 image_package image_versions regional_reports marine_regions region_map
+          weather_map eew_map volcano_map map_v3; do
           python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
   test:
     runs-on: ubuntu-24.04
