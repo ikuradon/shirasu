@@ -1,0 +1,7 @@
+Noto Sans CJK JP Regular and Bold, Version 2.004.
+Copyright notice from the embedded name table:
+© 2014-2021 Adobe (http://www.adobe.com/).
+
+These unmodified font files are distributed under the SIL Open Font License 1.1.
+The complete license is in OFL.txt. Source URLs and SHA-256 digests are recorded
+in manifest.json. Full Japanese glyph coverage is retained for place names.

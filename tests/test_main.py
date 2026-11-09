@@ -6,12 +6,15 @@ import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
+from urllib.parse import urlsplit
 
 import azarashi
 from azarashi.reports import dcx
-from nostr_sdk import Event, EventBuilder, Keys, Kind, RelayUrl
+from nostr_sdk import Event, Keys, RelayUrl
 
 import main
+from image_protocol import ProtocolError, parse_path
+from image_publication import ImagePublisher, image_entry
 from outbox import Outbox, read_status
 
 
@@ -21,6 +24,11 @@ UNKNOWN_NMEA = '$QZQSM,55,53B0000DFF00000000000000000000000000000000000000000000
 DCR_NMEA = '$QZQSM,55,C6AF89A820000324000050400548C5E2C000000003DFF8001C00001185443FC*05'
 MARINE_NMEA = '$QZQSM,58,53ADF5A111800283FC5083541042820D5047EA17994309A8622000113240198*7B'
 RECEIVED_AT = datetime(2026, 11, 8, tzinfo=timezone.utc)
+TYPHOON_NMEA = (
+    '$QZQSM,56,C6ADE5A5990002580100008004619010EC80F511B200000000000012D31A380*0C',
+    '$QZQSM,57,53ADE5A59900028003001880046320113400F29437000000000000130F45394*7B',
+)
+IMAGE_KEY = bytes(range(32))
 
 
 class Clock:
@@ -34,9 +42,11 @@ class Clock:
 def fake_nostr():
     # Real local cryptography, mocked transport: no production key or network.
     keys = Keys.generate()
+    build_event = main.Nostr.build_event
     return SimpleNamespace(
         identity=keys.public_key().to_hex(),
-        build_event=Mock(side_effect=lambda text: EventBuilder(Kind(1), text).finalize(keys)),
+        build_event=Mock(side_effect=lambda text, image_url=None: build_event(
+            SimpleNamespace(keys=keys), text, image_url=image_url)),
         send=AsyncMock(), connect=AsyncMock(), connected=AsyncMock(return_value=True),
         close=AsyncMock(),
     )
@@ -281,6 +291,196 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.nostr.send.await_args.args[0].as_json(), original_json)
 
 
+class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = Path(self.directory.name) / 'state.sqlite3'
+        self.clock = Clock()
+        self.nostr = fake_nostr()
+        self.outbox = Outbox(self.path, self.nostr.identity)
+        self.addCleanup(lambda: self.outbox.close())
+        self.stop = asyncio.Event()
+        self.images = ImagePublisher('https://images.example.test', 'k1', IMAGE_KEY)
+        self.service = main.Service(self.nostr, self.outbox, self.stop, clock=self.clock, images=self.images)
+        self.report = azarashi.decode(DCR_NMEA, timestamp=RECEIVED_AT)
+        self.marine = azarashi.decode(MARINE_NMEA, timestamp=RECEIVED_AT)
+        self.typhoons = tuple(azarashi.decode(nmea, timestamp=datetime.fromtimestamp(ms / 1000, timezone.utc))
+                              for nmea, ms in zip(TYPHOON_NMEA, (1794228531340, 1794228535353)))
+        self.enterContext(patch.object(main, 'logger'))
+
+    def reopen(self, *, images=True, **outbox_options):
+        self.outbox.close()
+        self.outbox = Outbox(self.path, self.nostr.identity, **outbox_options)
+        self.service = main.Service(self.nostr, self.outbox, self.stop, clock=self.clock,
+                                    images=self.images if images else None)
+
+    def image_url(self, event):
+        tags = [tag.to_vec() for tag in event.tags() if tag.to_vec()[0] == 'imeta']
+        self.assertEqual(len(tags), 1)
+        url = next(value.removeprefix('url ') for value in tags[0] if value.startswith('url '))
+        self.assertIn(url, event.content())
+        self.assertIn('m image/png', tags[0])
+        return url
+
+    async def test_other_reports_publish_immediately_while_typhoon_points_wait(self):
+        self.assertEqual(await self.service.accept(self.typhoons[0]), 'buffered')
+        self.assertFalse(await self.service.publish_one())
+        for report in (self.report, self.marine):
+            self.assertEqual(await self.service.accept(report), 'queued')
+            self.assertTrue(await self.service.publish_one())
+            event = self.nostr.send.await_args.args[0]
+            url = self.image_url(event)
+            self.assertEqual(parse_path(urlsplit(url).path, {'k1': IMAGE_KEY}), (image_entry(report),))
+            self.assertTrue(event.content().endswith('NMEA: ' + report.nmea))
+        self.assertEqual(self.service.typhoons.pending_count(), 1)
+        self.assertEqual(self.nostr.send.await_count, 2)
+
+    async def test_collection_survives_restart_and_publishes_one_signed_summary(self):
+        self.assertEqual(await self.service.accept(self.typhoons[0]), 'buffered')
+        self.clock.now += 4
+        self.assertEqual(await self.service.accept(self.typhoons[1]), 'buffered')
+        self.reopen()
+        self.assertEqual(self.service.typhoons.pending_count(), 2)
+        self.clock.now = 1179.9
+        self.assertFalse(await self.service.publish_one())
+        self.clock.now = 1180
+        self.assertTrue(await self.service.publish_one())
+        self.nostr.send.assert_awaited_once()
+        event = self.nostr.send.await_args.args[0]
+        self.assertTrue(event.verify())
+        self.assertIn('受信した2時点', event.content())
+        self.assertEqual(parse_path(urlsplit(self.image_url(event)).path, {'k1': IMAGE_KEY}),
+                         tuple(image_entry(report) for report in self.typhoons))
+        self.assertEqual(self.service.typhoons.pending_count(), 0)
+        self.assertEqual(await self.service.accept(self.typhoons[0]), 'duplicate')
+        self.assertFalse(await self.service.publish_one())
+
+    async def test_late_point_publishes_an_updated_complete_track_without_replacing_the_old_event(self):
+        await self.service.accept(self.typhoons[0])
+        self.clock.now += 180
+        await self.service.publish_one()
+        original = self.nostr.send.await_args.args[0]
+        original_json = original.as_json()
+        self.clock.now += 1
+        self.assertEqual(await self.service.accept(self.typhoons[1]), 'buffered')
+        self.clock.now += 180
+        await self.service.publish_one()
+        updated = self.nostr.send.await_args.args[0]
+        self.assertIn('【追加更新】', updated.content())
+        self.assertEqual(parse_path(urlsplit(self.image_url(updated)).path, {'k1': IMAGE_KEY}),
+                         tuple(image_entry(report) for report in self.typhoons))
+        self.assertEqual(parse_path(urlsplit(self.image_url(original)).path, {'k1': IMAGE_KEY}),
+                         (image_entry(self.typhoons[0]),))
+        saved = self.outbox.connection.execute('SELECT event_json FROM events WHERE event_id = ?',
+                                                (original.id().to_hex(),)).fetchone()
+        self.assertEqual(saved['event_json'], original_json)
+
+    async def test_disabling_images_drains_existing_collection_as_text_and_stops_new_buffering(self):
+        self.assertEqual(await self.service.accept(self.typhoons[0]), 'buffered')
+        self.reopen(images=False)
+        self.assertEqual(await self.service.accept(self.typhoons[0]), 'duplicate')
+        self.assertEqual(await self.service.accept(self.typhoons[1]), 'queued')
+        self.assertEqual(self.service.typhoons.pending_count(), 1)
+        self.assertTrue(await self.service.publish_one())
+        self.clock.now = 1180
+        self.assertTrue(await self.service.publish_one())
+        summary = self.nostr.send.await_args.args[0]
+        self.assertIn('受信した1時点', summary.content())
+        self.assertIn(TYPHOON_NMEA[0], summary.content())
+        self.assertEqual(self.service.typhoons.pending_count(), 0)
+        for call in self.nostr.send.await_args_list:
+            self.assertEqual(call.args[0].tags(), [])
+            self.assertNotIn('https://images.', call.args[0].content())
+        self.service.save_status()
+        self.assertFalse(read_status(self.path, now=self.clock())['status']['images_enabled'])
+
+    async def test_disabling_images_can_reopen_with_a_shorter_delivery_lifetime(self):
+        await self.service.accept(self.typhoons[0])
+        self.reopen(images=False, max_age_seconds=120)
+        self.assertEqual(self.service.typhoons.pending_count(), 1)
+        self.assertEqual(await self.service.accept(self.report), 'queued')
+
+    async def test_capacity_combines_buffered_points_and_outbox_but_preserves_duplicate_refresh(self):
+        self.reopen(max_pending=2)
+        self.assertEqual(await self.service.accept(self.typhoons[0]), 'buffered')
+        self.assertEqual(await self.service.accept(self.report), 'queued')
+        original = self.outbox.next_due(self.clock())['event_json']
+        self.assertEqual(await self.service.accept(self.marine), 'full')
+        self.assertEqual(self.service.state['dropped_full'], 1)
+        self.clock.now += 5
+        self.assertEqual(await self.service.accept(self.report), 'duplicate')
+        self.assertEqual(await self.service.accept(self.typhoons[0]), 'duplicate')
+        row = self.outbox.connection.execute('SELECT event_json, last_seen FROM events WHERE key = ?',
+                                              (main.report_key(self.report),)).fetchone()
+        self.assertEqual(row['event_json'], original)
+        self.assertEqual(row['last_seen'], self.clock())
+        self.assertTrue(await self.service.publish_one())
+        self.assertEqual(await self.service.accept(self.marine), 'queued')
+
+    async def test_disabled_images_still_count_saved_raw_points_towards_capacity(self):
+        self.reopen(max_pending=1)
+        await self.service.accept(self.typhoons[0])
+        self.reopen(images=False, max_pending=1)
+        self.assertEqual(await self.service.accept(self.report), 'full')
+        self.clock.now = 1180
+        self.assertTrue(await self.service.publish_one())
+        self.assertEqual(await self.service.accept(self.report), 'queued')
+
+    async def test_expired_buffered_points_release_capacity_before_immediate_enqueue(self):
+        self.reopen(max_pending=1)
+        await self.service.accept(self.typhoons[0])
+        self.clock.now += 900
+        self.assertEqual(await self.service.accept(self.report), 'queued')
+        self.assertEqual(self.service.typhoons.pending_count(), 0)
+
+    async def test_image_encoding_failure_keeps_the_text_and_raw_record_deliverable(self):
+        with patch.object(ImagePublisher, 'url', side_effect=ProtocolError('bad input')):
+            self.assertEqual(await self.service.accept(self.report), 'queued')
+        self.assertEqual(self.service.state['last_image_error'], 'ProtocolError')
+        await self.service.publish_one()
+        event = self.nostr.send.await_args.args[0]
+        self.assertEqual(event.content(), main.report_message(self.report))
+        self.assertEqual(event.tags(), [])
+        self.assertTrue(event.verify())
+
+    async def test_invalid_receipt_context_falls_back_to_text_without_losing_report(self):
+        with patch.object(main, 'image_entry', side_effect=ValueError('naive receipt timestamp')):
+            self.assertEqual(await self.service.accept(self.report), 'queued')
+        self.assertIsNotNone(self.service.state['last_image_error'])
+        await self.service.publish_one()
+        self.assertEqual(self.nostr.send.await_args.args[0].content(), main.report_message(self.report))
+
+    async def test_summary_encoding_failure_also_publishes_text_and_finishes_collection(self):
+        for report in self.typhoons:
+            await self.service.accept(report)
+        self.clock.now += 180
+        with patch.object(ImagePublisher, 'url', side_effect=ProtocolError('bad input')):
+            self.assertTrue(await self.service.publish_one())
+        event = self.nostr.send.await_args.args[0]
+        self.assertIn('受信した2時点', event.content())
+        for nmea in TYPHOON_NMEA:
+            self.assertIn(nmea, event.content())
+        self.assertEqual(event.tags(), [])
+        self.assertEqual(self.service.typhoons.pending_count(), 0)
+
+    async def test_retry_and_restart_reuse_the_signed_url_after_key_rotation(self):
+        await self.service.accept(self.report)
+        self.nostr.send.side_effect = main.DeliveryError('relay unavailable')
+        await self.service.publish_one()
+        original = self.nostr.send.await_args.args[0]
+        original_url = self.image_url(original)
+        self.images = ImagePublisher('https://new-images.example.test', 'k2', b'x' * 32)
+        self.reopen()
+        self.clock.now += 1
+        self.nostr.send.side_effect = None
+        with patch.object(ImagePublisher, 'url', side_effect=AssertionError('retry must not regenerate URL')):
+            self.assertTrue(await self.service.publish_one())
+        retried = self.nostr.send.await_args.args[0]
+        self.assertEqual(retried.as_json(), original.as_json())
+        self.assertEqual(self.image_url(retried), original_url)
+
+
 class NostrTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.keys = Keys.generate()
@@ -313,6 +513,16 @@ class NostrTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call.kwargs['ok_timeout'].total_seconds(), 10)
         self.assertEqual(call.kwargs['authentication_timeout'].total_seconds(), 10)
 
+    async def test_image_metadata_uses_the_installed_sdk_and_is_covered_by_the_signature(self):
+        url = 'https://images.example.test/v1/k1/payload.signature.png'
+        event = self.nostr.build_event('通報本文\n\n' + url, image_url=url)
+        self.assertTrue(event.verify())
+        self.assertEqual([tag.to_vec() for tag in event.tags()],
+                         [['imeta', 'url ' + url, 'm image/png', 'alt みちびき受信通報の図']])
+        restored = Event.from_json(event.as_json())
+        self.assertTrue(restored.verify())
+        self.assertEqual([tag.to_vec() for tag in restored.tags()], [tag.to_vec() for tag in event.tags()])
+
     async def test_no_ack_is_a_delivery_failure(self):
         for failures in ({self.relay: 'blocked: test rejection'}, {}):
             with self.subTest(failures=bool(failures)):
@@ -333,6 +543,38 @@ class NostrTests(unittest.IsolatedAsyncioTestCase):
 
 
 class OperationalTests(unittest.TestCase):
+    def test_image_configuration_loads_explicitly_and_secrets_are_hidden_from_repr(self):
+        config = SimpleNamespace(SECRET_KEY='private-nostr-test-key', RELAY_URLS='wss://relay.example.test',
+                                 GPSD_HOST='gpsd.example.test', GPSD_PORT=2947)
+        environment = {
+            'SHIRASU_IMAGE_BASE_URL': 'https://images.example.test',
+            'SHIRASU_IMAGE_KEY_ID': 'k1',
+            'SHIRASU_IMAGE_SIGNING_KEY': IMAGE_KEY.hex(),
+            'SHIRASU_TYPHOON_WAIT_SECONDS': '120',
+        }
+        with patch.dict(main.os.environ, environment, clear=True):
+            settings = main.Settings.load(config)
+        self.assertEqual(settings.images.base_url, environment['SHIRASU_IMAGE_BASE_URL'])
+        self.assertEqual(settings.typhoon_wait_seconds, 120)
+        self.assertNotIn(config.SECRET_KEY, repr(settings))
+        self.assertNotIn(IMAGE_KEY.hex(), repr(settings))
+        self.assertNotIn(repr(IMAGE_KEY), repr(settings))
+        with patch.dict(main.os.environ, {}, clear=True):
+            config.RETRY_MAX_AGE_SECONDS = 120
+            settings = main.Settings.load(config)
+            self.assertIsNone(settings.images)
+        with patch.dict(main.os.environ, environment, clear=True):
+            with self.assertRaisesRegex(ValueError, 'shorter than the retry lifetime'):
+                main.Settings.load(config)
+
+    def test_typhoon_wait_setting_has_a_finite_bounded_collection_window(self):
+        config = SimpleNamespace(SECRET_KEY='unused-test-key', RELAY_URLS='wss://relay.example.test',
+                                 GPSD_HOST='gpsd.example.test', GPSD_PORT=2947)
+        for value in ('0', '-1', '301', 'nan', 'inf', 'invalid'):
+            with self.subTest(value=value), patch.dict(main.os.environ, {'SHIRASU_TYPHOON_WAIT_SECONDS': value}, clear=True):
+                with self.assertRaises(ValueError):
+                    main.Settings.load(config)
+
     def test_settings_load_defaults_and_allow_a_safe_retention_boundary(self):
         config = SimpleNamespace(SECRET_KEY='unused-test-key', RELAY_URLS='wss://relay.example.test',
                                  GPSD_HOST='gpsd.example.test', GPSD_PORT=2947)

@@ -1,0 +1,17 @@
+{
+  "land.geojson": {
+    "source": "https://github.com/nvkelso/natural-earth-vector/blob/master/geojson/ne_50m_land.geojson",
+    "license": "Public domain; https://www.naturalearthdata.com/about/terms-of-use/",
+    "sha256": "e874b27a51d146452be360cafb3cc50c86001074a67d534113e6534682f9826b"
+  },
+  "NotoSansCJKjp-Regular.otf": {
+    "source": "https://github.com/notofonts/noto-cjk/blob/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+    "license": "SIL Open Font License 1.1; OFL.txt",
+    "sha256": "68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5"
+  },
+  "NotoSansCJKjp-Bold.otf": {
+    "source": "https://github.com/notofonts/noto-cjk/blob/main/Sans/OTF/Japanese/NotoSansCJKjp-Bold.otf",
+    "license": "SIL Open Font License 1.1; OFL.txt",
+    "sha256": "e53dcb0dcb2922e45d01aae1ebd2f382bb81d4229b18b6b883bd170678af1f76"
+  }
+}

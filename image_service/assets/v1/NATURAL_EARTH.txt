@@ -1,0 +1,10 @@
+Natural Earth, 1:50m land polygons.
+
+Source:
+https://github.com/nvkelso/natural-earth-vector/blob/master/geojson/ne_50m_land.geojson
+
+Natural Earth data is in the public domain. See the publisher's terms:
+https://www.naturalearthdata.com/about/terms-of-use/
+
+This frozen copy is identified by its SHA256 in manifest.json. The renderer
+only uses land silhouettes, not administrative or warning-area boundaries.

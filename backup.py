@@ -86,6 +86,9 @@ def verify_backup(path):
 
     with _read_connection(path, None) as (connection, identity):
         _validate_schema(connection)
+        # Collections share this database and must survive a restore too.
+        from typhoon import validate_storage
+        validate_storage(connection)
         result = connection.execute('PRAGMA integrity_check').fetchall()
         if [row[0] for row in result] != ['ok']:
             raise ValueError('バックアップのSQLite整合性検査に失敗しました')

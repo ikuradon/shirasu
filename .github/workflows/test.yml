@@ -14,6 +14,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  image-service:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prepare isolated source and build renderer
+        run: |
+          python3 scripts/prepare_image_service.py dist/image-service
+          docker build --pull -f image_service/Dockerfile -t shirasu-images:test dist/image-service
+      - name: Check image dependencies
+        run: docker run --rm --network none shirasu-images:test python -m pip check
+      - name: Check PNGs, signed HTTP responses, and source isolation
+        run: >-
+          docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
+          shirasu-images:test sh -c 'for suite in protocol renderer package; do
+          python -B -m unittest discover -s tests -p "test_image_${suite}.py" -v || exit 1; done'
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

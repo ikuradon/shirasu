@@ -96,6 +96,12 @@ def format_status(snapshot, now):
         ('受信エラー', state.get('last_receiver_error') or 'なし'),
         ('配送エラー', state.get('last_delivery_error') or 'なし'),
     ]
+    if 'images_enabled' in state:
+        rows.extend([
+            ('画像URL', '有効' if state['images_enabled'] else '無効'),
+            ('台風の集約待ち', f"{state.get('typhoon_buffered_reports', 0)}通"),
+            ('画像URL生成エラー', state.get('last_image_error') or 'なし'),
+        ])
     width = max(_width(label) for label, _ in rows)
     lines = [label + ' ' * (width - _width(label) + 2) + _clip(value, 100)
              for label, value in rows]

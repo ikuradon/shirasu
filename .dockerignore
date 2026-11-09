@@ -10,3 +10,8 @@ backups
 .env
 .env.*
 compose.override.yaml
+image_service
+tests/test_image_renderer.py
+tests/test_image_package.py
+dist
+.vercel

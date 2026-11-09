@@ -4,7 +4,7 @@ import argparse
 import asyncio
 from concurrent.futures import TimeoutError as FutureTimeout
 from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import fcntl
 import hashlib
@@ -21,12 +21,13 @@ import time
 from azarashi.reports import dcx
 from nostr_sdk import (
     ClientBuilder, Event, EventBuilder, Keys, Kind, NostrSdkError,
-    RelayStatus, RelayUrl, SignerAuthenticator,
+    RelayStatus, RelayUrl, SignerAuthenticator, Tag,
 )
 
 from outbox import Outbox, event_id_prefix, read_event, read_history, read_status
 from receiver import GpsdReceiver
 from message_format import report_message
+from image_publication import ImagePublisher, image_entry, with_image
 
 
 logger = logging.getLogger('shirasu')
@@ -34,7 +35,7 @@ logger = logging.getLogger('shirasu')
 
 @dataclass
 class Settings:
-    secret_key: str
+    secret_key: str = field(repr=False)
     relay_urls: str
     gpsd_host: str
     gpsd_port: int
@@ -43,6 +44,8 @@ class Settings:
     dedup_seconds: float = 86400
     max_pending: int = 1000
     read_timeout: float = 30
+    images: ImagePublisher | None = None
+    typhoon_wait_seconds: float = 180
 
     @classmethod
     def load(cls, config):
@@ -53,6 +56,8 @@ class Settings:
             dedup_seconds=float(getattr(config, 'DEDUP_SECONDS', 86400)),
             max_pending=int(getattr(config, 'MAX_PENDING', 1000)),
             read_timeout=float(getattr(config, 'GPSD_READ_TIMEOUT', 30)),
+            images=ImagePublisher.from_environment(os.environ),
+            typhoon_wait_seconds=float(os.environ.get('SHIRASU_TYPHOON_WAIT_SECONDS', '180')),
         )
         if (not all(math.isfinite(v) for v in (settings.retry_max_age, settings.dedup_seconds, settings.read_timeout))
                 or settings.retry_max_age < 0 or settings.dedup_seconds <= 0
@@ -60,6 +65,11 @@ class Settings:
             raise ValueError('Invalid retry, retention, capacity, or read-timeout setting')
         if settings.dedup_seconds < settings.retry_max_age + 60:
             raise ValueError('DEDUP_SECONDS must exceed RETRY_MAX_AGE_SECONDS by at least 60 seconds')
+        if (not math.isfinite(settings.typhoon_wait_seconds)
+                or not 1 <= settings.typhoon_wait_seconds <= 300
+                or (settings.images and settings.retry_max_age
+                    and settings.typhoon_wait_seconds >= settings.retry_max_age)):
+            raise ValueError('Typhoon wait must be 1..300 seconds and shorter than the retry lifetime')
         return settings
 
 
@@ -94,8 +104,12 @@ class Nostr:
     def identity(self):
         return self.keys.public_key().to_hex()
 
-    def build_event(self, message):
-        return EventBuilder(Kind(1), message).finalize(self.keys)
+    def build_event(self, message, image_url=None):
+        builder = EventBuilder(Kind(1), message)
+        if image_url is not None:
+            builder = builder.tags([Tag.parse(['imeta', f'url {image_url}',
+                                             'm image/png', 'alt みちびき受信通報の図'])])
+        return builder.finalize(self.keys)
 
     async def connect(self):
         for url in self.urls:
@@ -133,33 +147,104 @@ def is_publishable(report):
 
 
 class Service:
-    def __init__(self, nostr, outbox, stop, clock=time.time):
+    def __init__(self, nostr, outbox, stop, clock=time.time, *, images=None,
+                 typhoon_wait_seconds=180):
         self.nostr = nostr
         self.outbox = outbox
         self.stop = stop
         self.clock = clock
+        self.images = images
+        self.typhoons = None
+        saved_collection = outbox.connection.execute('''
+            SELECT 1 FROM metadata WHERE name = 'typhoon_schema_version'
+            UNION ALL SELECT 1 FROM sqlite_master
+            WHERE type = 'table' AND name = 'typhoon_reports' LIMIT 1
+        ''').fetchone()
+        if images is not None or saved_collection is not None:
+            from typhoon import TyphoonCollector
+            self.typhoons = TyphoonCollector(outbox, wait_seconds=typhoon_wait_seconds,
+                                             collect=images is not None)
         self.wake = asyncio.Event()
         self.state = outbox.snapshot(clock())['status']
         self.state.update(running=True, gpsd_connected=False, relay_connected=False)
+        self.state['images_enabled'] = images is not None
+
+    def _build_event(self, message, entries):
+        if self.images is not None:
+            try:
+                image_url = self.images.url(entries)
+            except (ValueError, TypeError, OverflowError) as error:
+                # Invalid image input must never prevent the readable report.
+                self.state['last_image_error'] = type(error).__name__
+                logger.warning('Image URL unavailable: %s; publishing text', type(error).__name__)
+            else:
+                self.state['last_image_error'] = None
+                return self.nostr.build_event(with_image(message, image_url), image_url=image_url)
+        return self.nostr.build_event(message)
+
+    def _full(self):
+        self.state['dropped_full'] = self.state.get('dropped_full', 0) + 1
+        self.state['last_delivery_error'] = 'Outbox full; received report could not be saved'
+        logger.error('Outbox full; received report could not be saved')
+
+    def _enqueue(self, key, event, now):
+        if self.typhoons is not None:
+            self.outbox.maintain(now)
+            self.typhoons.maintain(now)
+            existing = self.outbox.connection.execute(
+                'SELECT 1 FROM events WHERE identity = ? AND key = ?',
+                (self.outbox.identity, key),
+            ).fetchone()
+            pending = self.outbox.connection.execute(
+                "SELECT COUNT(*) FROM events WHERE identity = ? AND state = 'pending'",
+                (self.outbox.identity,),
+            ).fetchone()[0]
+            # This synchronous section shares the collector's single writer.
+            # Let enqueue refresh a duplicate even when all slots are occupied.
+            if existing is None and pending + self.typhoons.pending_count() >= self.outbox.max_pending:
+                return 'full'
+        return self.outbox.enqueue(key, event.as_json(), event.id().to_hex(), now)
 
     async def accept(self, report):
         now = self.clock()
         self.state['last_received'] = now
         if not is_publishable(report):
             return 'ignored'
-        event = self.nostr.build_event(report_message(report))
-        result = self.outbox.enqueue(report_key(report), event.as_json(), event.id().to_hex(), now)
+        if self.typhoons is not None:
+            result = self.typhoons.accept(report, now)
+            if result != 'immediate':
+                if result == 'full':
+                    self._full()
+                elif result == 'buffered':
+                    self.wake.set()
+                return result
+        entries = ()
+        if self.images is not None:
+            try:
+                entries = (image_entry(report),)
+            except (ValueError, TypeError, OverflowError, AttributeError):
+                pass  # _build_event records the error and preserves the text.
+        event = self._build_event(report_message(report), entries)
+        result = self._enqueue(report_key(report), event, now)
         if result == 'queued':
             self.state['last_queued'] = now
             logger.info('Queued report=%s event=%s', type(report).__name__, event.id().to_hex())
             self.wake.set()
         elif result == 'full':
-            self.state['dropped_full'] = self.state.get('dropped_full', 0) + 1
-            self.state['last_delivery_error'] = 'Outbox full; received report could not be saved'
-            logger.error('Outbox full; could not save report=%s', type(report).__name__)
+            self._full()
         return result
 
     async def publish_one(self):
+        if self.typhoons is not None:
+            from typhoon import typhoon_summary
+            batch = self.typhoons.due(self.clock())
+            if batch is not None:
+                event = self._build_event(typhoon_summary(batch.reports, update=batch.update), batch.entries)
+                result = self.typhoons.complete(batch, event.as_json(), event.id().to_hex(), self.clock())
+                if result == 'queued':
+                    self.state['last_queued'] = self.clock()
+                    logger.info('Queued typhoon summary reports=%s event=%s',
+                                len(batch.entries), event.id().to_hex())
         maintenance = self.outbox.maintain(self.clock())
         if maintenance['expired']:
             logger.warning('Expired %s undelivered reports; retry deadline reached', maintenance['expired'])
@@ -200,6 +285,10 @@ class Service:
 
     def save_status(self):
         now = self.clock()
+        if self.typhoons is not None:
+            self.state['typhoon_buffered_reports'] = self.typhoons.pending_count()
+        else:
+            self.state['typhoon_buffered_reports'] = 0
         for name, value in self.state.items():
             self.outbox.set_status(name, value, now)
         self.outbox.set_status('heartbeat', now, now)
@@ -232,7 +321,8 @@ async def run(settings, stop=None):
         nostr = Nostr(settings.secret_key, settings.relay_urls)
         with Outbox(settings.state_path, nostr.identity, settings.dedup_seconds,
                     settings.retry_max_age, settings.max_pending) as outbox:
-            service = Service(nostr, outbox, stop)
+            service = Service(nostr, outbox, stop, images=settings.images,
+                              typhoon_wait_seconds=settings.typhoon_wait_seconds)
             thread_stop = threading.Event()
 
             def receive(report):
