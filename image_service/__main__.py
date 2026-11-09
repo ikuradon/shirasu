@@ -12,9 +12,14 @@ def main():
     group.add_argument('--serve', action='store_true', help='serve on 127.0.0.1; requires SHIRASU_IMAGE_KEYS')
     parser.add_argument('--output', type=Path, help='new PNG output path for an offline preview')
     parser.add_argument('--port', type=int, default=8080)
-    parser.add_argument('--version', choices=('v1', 'v2', 'v3', 'v4'), default='v1', help='renderer for an offline preview')
+    rendering = parser.add_mutually_exclusive_group()
+    rendering.add_argument('--version', choices=('v1', 'v2', 'v3', 'v4'), default=None,
+                           help='published renderer for offline output (default: v1)')
+    rendering.add_argument('--preview', action='store_true', help='use unpublished offline renderer')
     args = parser.parse_args()
     if args.serve:
+        if args.preview:
+            parser.error('--preview requires --records; unpublished images are offline only')
         if args.output:
             parser.error('--output requires --records')
         from wsgiref.simple_server import make_server, WSGIRequestHandler
@@ -31,7 +36,12 @@ def main():
     else:
         if not args.output:
             parser.error('--records requires --output')
-        if args.version == 'v1':
+        if args.preview:
+            from importlib.util import find_spec
+            if find_spec('image_service.render_preview') is None:
+                parser.error('Preview sources are not included in this package')
+            from image_service.render_preview import render
+        elif args.version in (None, 'v1'):
             from image_service.render import render
         elif args.version == 'v2':
             from image_service.render_v2 import render

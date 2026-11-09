@@ -53,12 +53,21 @@ FILES = (
     'image_service/assets/v3/VOLCANO_NOTICE.txt',
 )
 
+PREVIEW_FILES = (
+    'image_service/render_preview.py',
+    'image_service/nwp_map.py',
+    'image_service/nwp_reports.py',
+    'image_service/assets/preview/nwp_points.json',
+    'image_service/assets/preview/nwp_manifest.json',
+    'image_service/assets/preview/NWP_NOTICE.txt',
+)
 
-def prepare(destination):
+
+def prepare(destination, *, include_preview=False):
     destination = Path(destination).absolute()
     # A fresh directory prevents accidental inclusion of old deployments or keys.
     destination.mkdir(parents=True, exist_ok=False)
-    for name in FILES:
+    for name in FILES + (PREVIEW_FILES if include_preview else ()):
         source = ROOT / name
         if source.is_symlink() or not source.is_file():
             raise ValueError(f'Missing or linked source: {name}')
@@ -82,8 +91,10 @@ def prepare(destination):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('destination', type=Path)
+    parser.add_argument('--include-preview', action='store_true',
+                        help='include unpublished sources for local builds; not for deployment')
     args = parser.parse_args()
-    print(prepare(args.destination))
+    print(prepare(args.destination, include_preview=args.include_preview))
 
 
 if __name__ == '__main__':

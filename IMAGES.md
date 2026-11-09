@@ -123,3 +123,17 @@ docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source \
 ```
 
 ローカルプレビュー・回帰テストはNostrへ投稿しません。
+
+未公開の画像を確認する場合は、`--include-preview` を明示してローカル用のソースを作ります。
+通常の配布用ソースには未公開レンダラー・アセットが入りません。
+
+```sh
+python3 scripts/prepare_image_service.py --include-preview dist/image-preview
+docker build -f image_service/Dockerfile -t shirasu-images:preview dist/image-preview
+docker run --rm --network none \
+  --volume "$PWD/image_service/examples:/samples:ro" --volume /tmp:/output \
+  shirasu-images:preview python -B -m image_service --preview \
+  --records /samples/northwest_pacific_tsunami.json --output /output/nwp-preview.png
+```
+
+これはオフラインの確認専用です。HTTP・署名URL・受信機の画像バージョンは変わりません。

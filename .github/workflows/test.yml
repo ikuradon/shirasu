@@ -39,6 +39,17 @@ jobs:
           image_renderer_v3 image_renderer_v4 image_package image_versions regional_reports marine_regions region_map
           weather_map weather_map_v4 eew_map volcano_map map_v3; do
           python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
+      - name: Build unpublished offline preview
+        run: |
+          python3 scripts/prepare_image_service.py --include-preview dist/image-preview
+          docker build -f image_service/Dockerfile -t shirasu-images:preview dist/image-preview
+          docker run --rm --network none shirasu-images:preview python -B -c \
+            'from image_service.render_preview import verify_assets; verify_assets()'
+      - name: Check forecast points and offline preview isolation
+        run: >-
+          docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
+          shirasu-images:preview sh -c 'for suite in nwp_assets nwp_reports nwp_renderer image_preview_cli; do
+          python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

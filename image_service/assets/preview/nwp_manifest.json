@@ -1,0 +1,47 @@
+{
+  "nwp_points.json": {
+    "source": "https://www.data.jma.go.jp/eqev/data/nwptac/forecastpoint.html",
+    "source_sha256": "4d91a6b422ffdd19e3a20439aa6eca027289e61565cdb66fc5f4897b75202ddb",
+    "retrieved": "2026-11-10",
+    "terms": "https://www.jma.go.jp/jma/kishou/info/coment.html",
+    "sha256": "69d8bc23a4cfc7c809ab46927323ad2b7819c2de75d06cfcefb2d70efeb7c46e",
+    "bytes": 10686,
+    "feature_count": 61,
+    "excluded_non_specific_codes": [
+      99,
+      100
+    ],
+    "reserved_codes_in_mapped_range": [
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      73
+    ],
+    "processing": "Explicit DCR-017 code/name mapping checked against azarashi 0.17.1 and JMA coastal-block names; N/E positive, S/W negative; no interpolation, shifting or inferred positions. Figure numbers retained separately from DCR codes."
+  },
+  "NWP_NOTICE.txt": {
+    "sha256": "8211e9678bfecb23967d328541a1f7c110948d93bb00da4e10b5e5dea0037c76",
+    "bytes": 1691
+  }
+}

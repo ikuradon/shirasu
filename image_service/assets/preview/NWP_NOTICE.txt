@@ -1,0 +1,26 @@
+NWPTAC forecast points / 北西太平洋津波予測地点の加工について
+
+出典: 気象庁 Northwest Pacific Tsunami Advisory Center
+NWPTA FORECAST POINTS AND COASTAL BLOCKS
+https://www.data.jma.go.jp/eqev/data/nwptac/forecastpoint.html
+2026年11月10日取得。入力のSHA-256は nwp_manifest.json に記録。
+気象庁ホームページの利用規約（公共データ利用規約 第1.0版）に基づき利用。
+https://www.jma.go.jp/jma/kishou/info/coment.html
+
+気象庁データを Shirasu が加工して作成。気象庁が作成した画像ではない。
+元表の61地点の緯度・経度を数値化し、南緯を負値に変換。地点の移動や補間は行わない。
+公式表の図中番号とIS-QZSS-DCR-017の沿岸地域コードは別物であり、
+scripts/prepare_nwp_assets.py の明示的な対応表で名称と沿岸ブロックを照合する。
+DCRコード1〜41および66〜86（予約の73を除く）の61地点に対応。
+不明（99）、その他（100）、予約コードには位置を割り当てない。
+nameは公式の地点名、decoder_nameはazarashi 0.17.1の通報名称。
+figure_numberは元表の図中番号であり、通報コードではない。
+
+座標は津波予測の代表地点であり、津波の観測点、浸水域、沿岸全体の
+危険度や未掲載地域の安全を示すものではない。
+
+再生成（azarashi 0.17.1 の環境で実行）:
+  python scripts/prepare_nwp_assets.py
+保存した公式HTMLを使う場合:
+  python scripts/prepare_nwp_assets.py --source /path/to/forecastpoint.html
+出力先は --output で変更できる。このデータは公開前のプレビュー用。

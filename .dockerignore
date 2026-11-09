@@ -24,5 +24,9 @@ tests/test_weather_map_v4.py
 tests/test_eew_map.py
 tests/test_volcano_map.py
 tests/test_map_v3.py
+tests/test_nwp_assets.py
+tests/test_nwp_reports.py
+tests/test_nwp_renderer.py
+tests/test_image_preview_cli.py
 dist
 .vercel
