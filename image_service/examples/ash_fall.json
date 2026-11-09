@@ -1,0 +1,7 @@
+[
+  {
+    "description": "Synthetic training example, not an actual ash fall forecast.",
+    "nmea": "$QZQSM,55,C6AFCDA805000280043F45C67F443233FA2251A116198D0BD0000012EC5A4D8*0D",
+    "received_ms": 1794269460000
+  }
+]

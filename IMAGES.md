@@ -137,3 +137,5 @@ docker run --rm --network none \
 ```
 
 これはオフラインの確認専用です。HTTP・署名URL・受信機の画像バージョンは変わりません。
+降灰予報の訓練例は、同じコマンドの入力を `--records /samples/ash_fall.json`、
+出力を `--output /output/ash-preview.png` にして確認できます。

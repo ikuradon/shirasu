@@ -1,0 +1,27 @@
+JMA volcanic municipality GIS / 気象庁の火山関係市町村境界を加工
+
+出典: 気象庁「予報区等GISデータの一覧」市町村等（火山関係）
+https://www.data.jma.go.jp/developer/gis.html
+https://www.data.jma.go.jp/developer/gis/20241226_AreaInformationCity_volcano_GIS.zip
+2026年11月10日取得。入力SHA-256は municipalities_manifest.json に記録。
+気象庁ホームページの利用規約（公共データ利用規約 第1.0版）に基づき利用。
+https://www.jma.go.jp/jma/kishou/info/coment.html
+気象庁の公表データを Shirasu が加工して作成。気象庁作成の画像ではない。
+
+元のJGD2011経緯度を保持。GISのregioncodeをDCR-017の市町村コードと直接照合し、
+1745の具体的な区域と名称を検証する。1340000のみGIS名「東京都のうち八丈支庁管内」と
+DCR名「東京都八丈支庁」の明示的な名称対応を用いる。「その他の市町村」47コードと、
+元GISでコードが空の13地物には区域を推定・割当てしない。市町村の合成や統合はしない。
+
+Shapely2.1.2 simplify(preserve_topology=True)で許容値最大0.002度から簡略化。
+元形状との面積差が1%以下になるまで許容値を半減する。簡略化でpolygon成分・穴が
+失われないことを確認。残る微小不整合はmake_valid(method="structure")で修復し、
+面積差・polygon数・穴数・実際の許容値をmanifestに記録する。離島の除去や座標丸めはしない。
+隣接境界は個別簡略化に伴う細いずれを含み得る。代表点は最大polygon内に置く描画上の印で、
+灰や噴石の観測位置ではない。境界は予報対象市町村の文脈であり、市町村全域の降灰・
+噴石落下、実際の分布・範囲、未掲載市町村の安全を示さない。
+
+再生成（指定バージョンのGIS環境で実行）:
+  python scripts/prepare_municipality_assets.py --source /path/to/municipalities-volcano.zip
+--sourceを省略すると上記の固定URLを取得する。--outputで出力先を指定できる。
+データは未公開プレビュー用。描画時には外部の地図や予報を取得しない。

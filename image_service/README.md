@@ -66,7 +66,33 @@ python3.12 -m venv /tmp/shirasu-images-venv
 
 未公開コードとアセットは通常の配布パッケージから除外します。ローカルDockerで確認する場合は、
 新しい出力先に `scripts/prepare_image_service.py --include-preview dist/image-preview` を実行して
-ビルドします。プレビューのパッケージは本番デプロイには使用しません。気象など他の画像はv4と同じPNGです。
+ビルドします。プレビューのパッケージは本番デプロイには使用しません。専用プレビューのない画像はv4と同じPNGです。
+
+### 降灰予報のプレビュー
+
+```sh
+/tmp/shirasu-images-venv/bin/python -m image_service --preview \
+  --records image_service/examples/ash_fall.json --output /tmp/ash-preview.png
+```
+
+QZQSMの降灰予報（速報／詳細）に含まれる火山・基点時刻・市町村・基点から1〜6時間・
+現象を表示します。同じ市町村の異なる時間や、降灰と小さな噴石が同時に含まれる場合も残します。
+「基点＋N時間」という通報の時間値を保持し、開始時刻や予報期間の境界を推定しません。
+基点時刻と発表時刻はJSTで区別して表示します。
+
+現象ごとのラベルは[気象庁の降灰予報の説明](https://www.jma.go.jp/jma/kishou/know/kazan/qvaf/qvaf_guide.html)
+の色分けに合わせ、少量は灰色、やや多量は黄、多量は赤。小さな噴石は独立した赤枠にします。
+市町村の輪郭は中立色とし、市町村全域の降灰分布・噴石の落下範囲とは区別します。
+火山には公式代表位置の三角印を付けます。噴煙形状、風向き、灰や噴石の軌道は描きません。
+
+地理データは[気象庁の市町村等（火山関係）GIS](https://www.data.jma.go.jp/developer/gis.html)の
+1745区域をDCRコード・名称と直接照合しています。「その他の市町村」47コードには区域を割り当てません。
+全polygon・穴を保持し、簡略化の面積差を1%以内に収め、離島は必要に応じて小図に残します。
+出典・ハッシュ・除外した地物・加工統計は `assets/preview/municipalities_manifest.json` に記録。
+`scripts/prepare_municipality_assets.py` で再生成できます。GIS用の依存は加工専用環境だけに必要です。
+
+取消、未知の値、基点や火山の不一致、同じ市町村・時間の矛盾する降灰量、地図や読みやすい配置が
+不足する場合は、受信束全体を従来の要旨画像へ渡します。サンプルは桜島の合成訓練通報です。
 
 ## v2 の地域別表示
 

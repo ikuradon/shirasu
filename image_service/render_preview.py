@@ -11,12 +11,15 @@ from image_service import render as base
 from image_service import render_v3
 from image_service import render_v4 as published
 from image_service import nwp_map
+from image_service import ash_map
 from image_service.nwp_reports import nwp_plan
+from image_service.ash_reports import ash_plan
 
 
 def verify_assets():
     published.verify_assets()
     nwp_map.verify_assets()
+    ash_map.verify_assets()
     return True
 
 
@@ -43,20 +46,27 @@ def render(records):
         try:
             reports = base._decode(records)
             first = reports[0]
-            if type(first) is not dcr.NorthwestPacificTsunami:
+            if type(first) not in (dcr.NorthwestPacificTsunami, dcr.AshFall):
                 return published.render(records)
             try:
-                plan = nwp_plan(reports)
-                fig = base._figure()
-                nwp_map.draw_map(fig, plan)
-                _header(fig, first, plan)
+                if type(first) is dcr.AshFall:
+                    plan = ash_plan(reports)
+                    fig = base._figure()
+                    ash_map.draw_map(fig, plan)
+                    render_v3._header(fig, first, plan)
+                else:
+                    plan = nwp_plan(reports)
+                    fig = base._figure()
+                    nwp_map.draw_map(fig, plan)
+                    _header(fig, first, plan)
                 render_v3._footer(fig, plan)
             except ValueError:
                 # Keep the complete bundle in the published summary if a
                 # geographic or semantic value cannot be represented faithfully.
                 return published.render(records)
             for label in fig.findobj(Text):
-                label.set_path_effects([patheffects.withStroke(linewidth=1.2, foreground=base.SEA)])
+                if not (label.get_gid() or '').startswith('ash-hazard-'):
+                    label.set_path_effects([patheffects.withStroke(linewidth=1.2, foreground=base.SEA)])
             output = io.BytesIO()
             fig.savefig(output, format='png', dpi=base.DPI, facecolor=base.SEA,
                         metadata={'Software': 'shirasu-image-preview'})

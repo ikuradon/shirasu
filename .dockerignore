@@ -28,5 +28,8 @@ tests/test_nwp_assets.py
 tests/test_nwp_reports.py
 tests/test_nwp_renderer.py
 tests/test_image_preview_cli.py
+tests/test_ash_reports.py
+tests/test_ash_renderer.py
+tests/test_municipality_assets.py
 dist
 .vercel

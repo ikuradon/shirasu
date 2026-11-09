@@ -60,6 +60,12 @@ PREVIEW_FILES = (
     'image_service/assets/preview/nwp_points.json',
     'image_service/assets/preview/nwp_manifest.json',
     'image_service/assets/preview/NWP_NOTICE.txt',
+    'image_service/ash_map.py',
+    'image_service/ash_reports.py',
+    'image_service/preview_labels.py',
+    'image_service/assets/preview/municipalities.geojson.zlib',
+    'image_service/assets/preview/municipalities_manifest.json',
+    'image_service/assets/preview/MUNICIPALITIES_NOTICE.txt',
 )
 
 
