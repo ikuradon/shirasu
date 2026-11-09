@@ -88,6 +88,94 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
                          {'pending': 0, 'sent': 1, 'expired': 0})
         self.assertEqual(self.service.state['last_published'], self.clock())
 
+    async def test_marine_groups_regions_in_the_durably_signed_publication(self):
+        expected = (
+            '【海上警報】発表（通常）\n'
+            '発表時刻：11月8日 17:35 JST\n\n'
+            '■ 海上着氷警報\n'
+            '・サハリン西方海上\n'
+            '・北海道西方海上\n\n'
+            '■ 海上風警報\n'
+            '・宗谷海峡\n'
+            '・北海道西方海上\n'
+            '・檜山津軽沖\n'
+            '・関東海域南部\n'
+            '・沿海州南部沖\n'
+            '・能登沖\n'
+            f'---\nNMEA: {MARINE_NMEA}'
+        )
+        self.assertEqual(await self.service.accept(self.marine), 'queued')
+        record = self.outbox.next_due(self.clock())
+        event = Event.from_json(record['event_json'])
+        self.assertTrue(event.verify())
+        self.assertEqual(event.author().to_hex(), self.nostr.identity)
+        self.assertEqual(event.content(), expected)
+        self.assertEqual(event.id().to_hex(), record['event_id'])
+
+        self.assertTrue(await self.service.publish_one())
+        delivered = self.nostr.send.await_args.args[0]
+        self.assertEqual(delivered.as_json(), record['event_json'])
+        self.assertEqual(delivered.content(), expected)
+        self.assertEqual(self.outbox.snapshot(self.clock())['counts'],
+                         {'pending': 0, 'sent': 1, 'expired': 0})
+
+    async def test_old_marine_pending_event_keeps_its_signature_through_retry_and_restart(self):
+        old_content = f'{self.marine}\n---\nNMEA: {MARINE_NMEA}'
+        self.assertNotEqual(main.report_message(self.marine), old_content)
+        old_event = self.nostr.build_event(old_content)
+        old_json = old_event.as_json()
+        old_id = old_event.id().to_hex()
+        self.outbox.enqueue(main.report_key(self.marine), old_json, old_id, self.clock())
+
+        self.assertEqual(await self.service.accept(self.marine), 'duplicate')
+        self.assertEqual(self.outbox.next_due(self.clock())['event_json'], old_json)
+        self.nostr.send.side_effect = [main.DeliveryError('relay temporarily unavailable'), None]
+        self.assertTrue(await self.service.publish_one())
+
+        self.reopen()
+        self.clock.now += 1
+        self.assertEqual(await self.service.accept(self.marine), 'duplicate')
+        record = self.outbox.next_due(self.clock())
+        self.assertEqual(record['event_json'], old_json)
+        self.assertEqual(record['event_id'], old_id)
+        self.assertEqual(record['attempts'], 1)
+        self.assertTrue(await self.service.publish_one())
+
+        self.assertEqual(self.nostr.send.await_count, 2)
+        for call in self.nostr.send.await_args_list:
+            event = call.args[0]
+            self.assertTrue(event.verify())
+            self.assertEqual(event.as_json(), old_json)
+            self.assertEqual(event.id().to_hex(), old_id)
+            self.assertEqual(event.content(), old_content)
+        self.assertEqual(self.outbox.snapshot(self.clock())['counts'],
+                         {'pending': 0, 'sent': 1, 'expired': 0})
+
+    async def test_seeded_old_marine_is_not_republished_with_the_new_format(self):
+        old_content = f'{self.marine}\n---\nNMEA: {MARINE_NMEA}'
+        old_event = self.nostr.build_event(old_content)
+        old_json = old_event.as_json()
+        old_id = old_event.id().to_hex()
+        key = main.report_key(self.marine)
+        self.outbox.seed_sent(key, old_json, old_id, self.clock() - 100, self.clock())
+
+        self.reopen()
+        self.clock.now += 5
+        report = azarashi.decode(MARINE_NMEA, timestamp=datetime(2026, 11, 8, 1, tzinfo=timezone.utc))
+        self.assertNotEqual(main.report_message(report), old_content)
+        self.assertEqual(main.report_key(report), key)
+        self.assertEqual(await self.service.accept(report), 'duplicate')
+        self.assertFalse(await self.service.publish_one())
+        self.nostr.send.assert_not_awaited()
+        row = self.outbox.connection.execute(
+            'SELECT event_json, event_id, state FROM events WHERE identity = ? AND key = ?',
+            (self.nostr.identity, key),
+        ).fetchone()
+        self.assertEqual((row['event_json'], row['event_id'], row['state']),
+                         (old_json, old_id, 'sent'))
+        self.assertEqual(self.outbox.snapshot(self.clock())['counts'],
+                         {'pending': 0, 'sent': 1, 'expired': 0})
+
     async def test_duplicates_stay_suppressed_after_database_reopen(self):
         self.assertEqual(await self.service.accept(self.report), 'queued')
         original = self.outbox.next_due(self.clock())['event_id']

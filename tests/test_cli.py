@@ -24,7 +24,7 @@ class InspectionCliTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory(prefix='shirasu-cli-')
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
-        for name in ('main.py', 'outbox.py', 'receiver.py', 'inspection.py'):
+        for name in ('main.py', 'outbox.py', 'receiver.py', 'inspection.py', 'message_format.py'):
             shutil.copyfile(ROOT / name, self.root / name)
         (self.root / 'config.py').write_text(
             "raise RuntimeError('Inspection must never load config or start the daemon')\n",

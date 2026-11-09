@@ -64,7 +64,7 @@ class PreviewCliTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory(prefix='shirasu-preview-cli-')
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
-        for name in ('main.py', 'outbox.py', 'receiver.py', 'inspection.py', 'preview.py'):
+        for name in ('main.py', 'outbox.py', 'receiver.py', 'inspection.py', 'preview.py', 'message_format.py'):
             shutil.copyfile(ROOT / name, self.root / name)
         (self.root / 'config.py').write_text(
             "raise AssertionError('PREVIEW_SIDE_EFFECT: config was imported')\n",

@@ -26,6 +26,7 @@ from nostr_sdk import (
 
 from outbox import Outbox, read_history, read_status
 from receiver import GpsdReceiver
+from message_format import report_message
 
 
 logger = logging.getLogger('shirasu')
@@ -125,10 +126,6 @@ def report_key(report):
     # Match decoder equality, independent of receipt time or satellite PRN.
     prefix = f'{report.message_type}:{type(report).__name__}:'.encode()
     return hashlib.sha256(prefix + bytes(report.raw)).hexdigest()
-
-
-def report_message(report):
-    return f'{report}\n---\nNMEA: {report.nmea}'
 
 
 def is_publishable(report):

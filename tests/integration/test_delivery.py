@@ -139,7 +139,7 @@ class DeliveryIntegrationTests(unittest.IsolatedAsyncioTestCase):
         await self.relay.start()
         self.addAsyncCleanup(self.relay.close)
         self.addAsyncCleanup(self.stop_daemon)
-        for filename in ('main.py', 'receiver.py', 'outbox.py'):
+        for filename in ('main.py', 'receiver.py', 'outbox.py', 'message_format.py'):
             shutil.copyfile(ROOT / filename, self.directory_path / filename)
         self.keys = Keys.generate()
         (self.directory_path / 'config.py').write_text(
