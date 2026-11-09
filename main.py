@@ -14,6 +14,7 @@ import math
 import os
 from pathlib import Path
 import signal
+import sys
 import threading
 import time
 
@@ -23,7 +24,7 @@ from nostr_sdk import (
     RelayStatus, RelayUrl, SignerAuthenticator,
 )
 
-from outbox import Outbox, read_status
+from outbox import Outbox, read_history, read_status
 from receiver import GpsdReceiver
 
 
@@ -293,23 +294,51 @@ def healthy(snapshot, now):
                 and (pending_age is None or pending_age < 90))
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group()
-    group.add_argument('--status', action='store_true', help='print saved runtime state as JSON')
+    group.add_argument('--status', action='store_true', help='print saved runtime state (default: JSON)')
     group.add_argument('--health', action='store_true', help='exit successfully only when healthy')
-    args = parser.parse_args()
+    group.add_argument('--history', action='store_true', help='list saved delivery history (default: text)')
+    parser.add_argument('--format', choices=('text', 'json'), help='output format for --status or --history')
+    parser.add_argument('--state', choices=('pending', 'sent', 'expired'), help='filter --history by delivery state')
+    parser.add_argument('--limit', type=int, help='maximum history rows (default: 20, maximum: 1000)')
+    args = parser.parse_args(argv)
+    if args.format and not (args.status or args.history):
+        parser.error('--format requires --status or --history')
+    if (args.state is not None or args.limit is not None) and not args.history:
+        parser.error('--state and --limit require --history')
+    if args.limit is not None and not 1 <= args.limit <= 1000:
+        parser.error('--limit must be between 1 and 1000')
     logging.basicConfig(level=os.environ.get('SHIRASU_LOG_LEVEL', 'INFO'),
                         format='%(asctime)s %(levelname)s %(name)s %(message)s')
-    try:
-        if args.status or args.health:
-            # Health probes never load the private signing key or create state.
+    if args.status or args.health or args.history:
+        # Inspection commands never load config, start workers, or maintain state.
+        try:
             path = os.environ.get('SHIRASU_STATE_PATH', 'state/shirasu.sqlite3')
-            snapshot = read_status(path)
-            ok = healthy(snapshot, time.time())
+            if args.history:
+                from inspection import format_history, prepare_history
+                history = prepare_history(read_history(path, state=args.state, limit=args.limit or 20))
+                if args.format == 'json':
+                    print(json.dumps(history, ensure_ascii=False, indent=2))
+                else:
+                    print(format_history(history))
+                return 0
+            now = time.time()
+            snapshot = read_status(path, now=now)
+            ok = healthy(snapshot, now)
             if args.status:
-                print(json.dumps(dict(snapshot, healthy=ok), ensure_ascii=False, indent=2))
+                snapshot = dict(snapshot, healthy=ok)
+                if args.format == 'text':
+                    from inspection import format_status
+                    print(format_status(snapshot, now))
+                else:
+                    print(json.dumps(snapshot, ensure_ascii=False, indent=2))
             return 0 if args.status or ok else 1
+        except Exception as error:
+            print(f'保存状態を読み取れません: {error}', file=sys.stderr)
+            return 1
+    try:
         import config
         asyncio.run(run(Settings.load(config)))
         return 0

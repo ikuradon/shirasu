@@ -3,8 +3,9 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from outbox import Outbox, read_status
+from outbox import Outbox, read_history, read_status
 
 
 def signed_note(event_id):
@@ -192,6 +193,117 @@ class OutboxTests(unittest.TestCase):
         box.close()
         restarted = self.open(max_age_seconds=10)
         self.assertEqual(restarted.snapshot(103)['counts'], {'pending': 1, 'sent': 1, 'expired': 0})
+
+    def test_history_returns_newest_receipts_first_with_stable_tie_order(self):
+        box = self.open()
+        for key, timestamp in [('old', 10), ('same-first', 20), ('same-second', 20), ('new', 30)]:
+            self.enqueue(box, key, timestamp)
+        history = read_history(self.path, limit=3)
+        self.assertEqual(history['identity'], 'account-a')
+        self.assertEqual(history['total'], 4)
+        self.assertEqual([row['key'] for row in history['events']], ['new', 'same-second', 'same-first'])
+
+    def test_history_filters_states_and_preserves_delivery_details(self):
+        box = self.open(max_age_seconds=10)
+        self.enqueue(box, 'sent', 10)
+        box.mark_sent('sent', 11)
+        self.enqueue(box, 'expired', 20)
+        box.maintain(30)
+        self.enqueue(box, 'retry', 31)
+        box.mark_failed('retry', 'relay offline', 32, retry_delay=5)
+        self.enqueue(box, 'new', 33)
+
+        pending = read_history(self.path, state='pending', limit=1)
+        self.assertEqual(pending['total'], 2)
+        self.assertEqual(pending['events'][0]['key'], 'new')
+        retry = read_history(self.path, state='pending')['events'][1]
+        self.assertEqual(retry, {
+            'key': 'retry', 'event_id': 'retry-event', 'event_json': signed_note('retry-event'),
+            'state': 'pending', 'attempts': 1, 'created_at': 31, 'last_seen': 31,
+            'next_attempt_at': 37, 'sent_at': None, 'last_error': 'relay offline',
+        })
+        sent = read_history(self.path, state='sent')
+        self.assertEqual(sent['total'], 1)
+        self.assertEqual(sent['events'][0]['sent_at'], 11)
+        expired = read_history(self.path, state='expired')
+        self.assertEqual(expired['total'], 1)
+        self.assertEqual(expired['events'][0]['key'], 'expired')
+
+    def test_history_default_limit_and_upper_boundary_do_not_hide_total(self):
+        box = self.open()
+        for index in range(25):
+            self.enqueue(box, f'report-{index}', index)
+        history = read_history(self.path)
+        self.assertEqual(history['total'], 25)
+        self.assertEqual(len(history['events']), 20)
+        self.assertEqual(len(read_history(self.path, limit=1000)['events']), 25)
+
+    def test_history_uses_current_account_and_binds_explicit_identity(self):
+        first = self.open('account-a')
+        self.enqueue(first, 'same-report', 10, 'first-event')
+        second = self.open('account-b')
+        self.enqueue(second, 'same-report', 11, 'second-event')
+        self.assertEqual(read_history(self.path)['events'][0]['event_id'], 'second-event')
+        self.assertEqual(read_history(self.path, identity='account-a')['events'][0]['event_id'], 'first-event')
+        self.assertEqual(read_history(self.path, identity="' OR 1=1 --")['total'], 0)
+
+    def test_history_never_runs_maintenance_or_modifies_saved_state(self):
+        box = self.open(max_age_seconds=10, dedup_seconds=20)
+        self.enqueue(box, 'sent', 0)
+        box.mark_sent('sent', 1)
+        self.enqueue(box, 'pending', 2)
+        box.set_status('running', True, 3)
+        before = read_status(self.path, now=1000)
+        records_before = list(box.connection.iterdump())
+        history = read_history(self.path)
+        self.assertEqual(history['total'], 2)
+        self.assertEqual(history['events'][0]['state'], 'pending')
+        self.assertEqual(read_status(self.path, now=1000), before)
+        self.assertEqual(list(box.connection.iterdump()), records_before)
+        box.close()
+        self.assertEqual(read_history(self.path), history)
+
+    def test_history_count_and_rows_share_a_snapshot_during_concurrent_write(self):
+        box = self.open()
+        self.enqueue(box, 'first', 10)
+        connect = sqlite3.connect
+
+        def open_reader(*args, **kwargs):
+            connection = connect(*args, **kwargs)
+
+            def concurrent_write(statement):
+                if statement.lstrip().startswith('SELECT key,'):
+                    self.enqueue(box, 'concurrent', 11)
+
+            connection.set_trace_callback(concurrent_write)
+            return connection
+
+        with patch('outbox.sqlite3.connect', side_effect=open_reader):
+            history = read_history(self.path)
+        self.assertEqual(history['total'], 1)
+        self.assertEqual([row['key'] for row in history['events']], ['first'])
+        self.assertEqual(read_history(self.path)['total'], 2)
+
+    def test_history_missing_database_and_invalid_filters_create_nothing(self):
+        for options in ({'state': 'unknown'}, {'state': "pending' OR 1=1 --"},
+                        *({'limit': value} for value in (0, -1, 1001, True, 1.5, '20'))):
+            with self.subTest(options=options):
+                with self.assertRaises(ValueError):
+                    read_history(self.path, **options)
+        with self.assertRaises(sqlite3.OperationalError):
+            read_history(self.path)
+        self.assertFalse(self.path.parent.exists())
+
+    def test_history_rejects_unknown_schema_and_uninitialized_identity(self):
+        box = self.open()
+        box.connection.execute('PRAGMA user_version = 99')
+        with self.assertRaisesRegex(RuntimeError, 'Unsupported outbox database version'):
+            read_history(self.path)
+        box.connection.execute('PRAGMA user_version = 1')
+        with box.connection:
+            box.connection.execute("DELETE FROM metadata WHERE name = 'current_identity'")
+        with self.assertRaisesRegex(RuntimeError, 'identity has not been initialized'):
+            read_history(self.path)
 
 
 if __name__ == '__main__':

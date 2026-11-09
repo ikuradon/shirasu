@@ -5,6 +5,7 @@ committed before delivery and its signed JSON is never replaced by a duplicate
 report, so a retry after a crash uses the same Nostr event ID.
 """
 
+from contextlib import contextmanager
 import json
 import math
 from pathlib import Path
@@ -54,15 +55,15 @@ def _snapshot(connection, identity, now):
     }
 
 
-def read_status(path, now=None, identity=None):
-    """Read saved state without creating a database or changing any records."""
-    now = _timestamp(time.time() if now is None else now)
+@contextmanager
+def _read_connection(path, identity):
+    """Open one read-only snapshot shared by all queries in an inspection."""
     uri = Path(path).resolve().as_uri() + '?mode=ro'
     connection = sqlite3.connect(uri, uri=True, timeout=5)
     connection.row_factory = sqlite3.Row
     try:
         connection.execute('PRAGMA query_only = ON')
-        # Keep counts and status from the same snapshot while the daemon writes.
+        # Keep counts and rows from the same snapshot while the daemon writes.
         connection.execute('BEGIN')
         if connection.execute('PRAGMA user_version').fetchone()[0] != SCHEMA_VERSION:
             raise RuntimeError('Unsupported outbox database version')
@@ -73,9 +74,44 @@ def read_status(path, now=None, identity=None):
             if row is None:
                 raise RuntimeError('Outbox identity has not been initialized')
             identity = row['value']
-        return _snapshot(connection, identity, now)
+        yield connection, identity
     finally:
         connection.close()
+
+
+def read_status(path, now=None, identity=None):
+    """Read saved state without creating a database or changing any records."""
+    now = _timestamp(time.time() if now is None else now)
+    with _read_connection(path, identity) as (connection, identity):
+        return _snapshot(connection, identity, now)
+
+
+def read_history(path, *, state=None, limit=20, identity=None):
+    """Inspect stored delivery records without expiring, purging or retrying them.
+
+    total is the filtered count before limiting. Newest received records appear
+    first, with reverse insertion order breaking ties in receipt timestamps.
+    """
+    if state not in (None, 'pending', 'sent', 'expired'):
+        raise ValueError('state must be pending, sent, expired, or None')
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000:
+        raise ValueError('limit must be an integer between 1 and 1000')
+    with _read_connection(path, identity) as (connection, identity):
+        condition = 'identity = ?'
+        parameters = [identity]
+        if state is not None:
+            condition += ' AND state = ?'
+            parameters.append(state)
+        total = connection.execute(
+            f'SELECT COUNT(*) FROM events WHERE {condition}', parameters,
+        ).fetchone()[0]
+        rows = connection.execute(f'''
+            SELECT key, event_id, event_json, state, attempts, created_at,
+                   last_seen, next_attempt_at, sent_at, last_error
+            FROM events WHERE {condition}
+            ORDER BY created_at DESC, rowid DESC LIMIT ?
+        ''', [*parameters, limit])
+        return {'identity': identity, 'total': total, 'events': [dict(row) for row in rows]}
 
 
 class Outbox:
