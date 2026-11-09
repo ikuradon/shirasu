@@ -10,6 +10,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
+from backup_worker import _archive_path, _read_status as read_backup_status
 from main import healthy
 from outbox import read_status
 
@@ -31,6 +32,17 @@ METRICS = {
     'delivery_failed': ('gauge', 'Whether an unresolved delivery error is recorded.'),
     'dropped_reports_total': ('counter', 'Reports that could not be saved because the outbox was full.'),
     'expired_reports': ('gauge', 'Expired reports still retained in the outbox.'),
+    'backup_state_readable': ('gauge', 'Whether the saved backup worker state could be read.'),
+    'backup_healthy': ('gauge', 'Whether the saved backup worker state passes its health check.'),
+    'backup_process_running': ('gauge', 'Whether the backup worker last recorded itself as running.'),
+    'backup_heartbeat_timestamp_seconds': ('gauge', 'Unix time of the last backup worker heartbeat.'),
+    'backup_last_attempt_timestamp_seconds': ('gauge', 'Unix time of the last backup attempt; zero if never attempted.'),
+    'backup_last_success_timestamp_seconds': ('gauge', 'Unix time of the last successful backup; zero if never successful.'),
+    'backup_has_success': ('gauge', 'Whether a successful backup has been recorded.'),
+    'backup_interval_seconds': ('gauge', 'Interval configured in the running backup worker.'),
+    'backup_failed': ('gauge', 'Whether an unresolved backup creation or validation error is recorded.'),
+    'backup_retention_failed': ('gauge', 'Whether an unresolved backup retention error is recorded.'),
+    'backup_last_file_present': ('gauge', 'Whether the last saved backup names an existing regular archive file.'),
 }
 
 
@@ -42,13 +54,21 @@ def number(value):
 
 
 class Collector:
-    def __init__(self, path, clock=time.time):
+    def __init__(self, path, clock=time.time, *, backup_dir=None):
         self.path = path
         self.clock = clock
+        self.backup_dir = backup_dir
         self._error = None
+        self._backup_error = None
         self._lock = threading.Lock()
 
     def collect(self):
+        values = self.collect_delivery()
+        if self.backup_dir is not None:
+            values.update(self.collect_backup())
+        return values
+
+    def collect_delivery(self):
         values = {'state_readable': 0, 'healthy': 0}
         try:
             now = self.clock()
@@ -82,6 +102,57 @@ class Collector:
             if self._error is not None:
                 logger.info('Saved state is readable again')
             self._error = None
+        return values
+
+    def collect_backup(self):
+        try:
+            now = number(self.clock())
+            state = read_backup_status(self.backup_dir)
+            if state is None:
+                raise ValueError('Invalid backup worker state')
+            # Read one status snapshot and only inspect the named file. Scrapes
+            # never validate signatures, create archives or perform maintenance.
+            heartbeat = number(state['heartbeat'])
+            attempt = state.get('last_attempt')
+            success = state.get('last_success')
+            interval = number(state['interval_seconds'])
+            # Keep all numeric fields representable even when malformed data
+            # contains arbitrarily large JSON integers.
+            number(state['keep_count'])
+            if state.get('next_attempt_at') is not None:
+                number(state['next_attempt_at'])
+            file_present = _archive_path(self.backup_dir, state.get('last_file')) is not None
+            values = {
+                'backup_state_readable': 1,
+                'backup_process_running': int(state['running']),
+                'backup_heartbeat_timestamp_seconds': heartbeat,
+                'backup_last_attempt_timestamp_seconds': 0 if attempt is None else number(attempt),
+                'backup_last_success_timestamp_seconds': 0 if success is None else number(success),
+                'backup_has_success': int(success is not None),
+                'backup_interval_seconds': interval,
+                'backup_failed': int(bool(state.get('last_error'))),
+                'backup_retention_failed': int(bool(state.get('retention_error'))),
+                'backup_last_file_present': int(file_present),
+                # Match backup_worker.healthy using this same saved snapshot;
+                # the persisted interval describes the worker actually running.
+                'backup_healthy': int(bool(
+                    state['running'] and 0 <= now - heartbeat <= 90
+                    and success is not None and 0 <= now - success <= interval + 120
+                    and (attempt is None or attempt <= now)
+                    and not state.get('last_error') and not state.get('retention_error')
+                    and file_present
+                )),
+            }
+        except Exception as error:
+            with self._lock:
+                if self._backup_error is None:
+                    logger.warning('Saved backup state unavailable: %s', type(error).__name__)
+                self._backup_error = type(error).__name__
+            return {'backup_state_readable': 0, 'backup_healthy': 0}
+        with self._lock:
+            if self._backup_error is not None:
+                logger.info('Saved backup state is readable again')
+            self._backup_error = None
         return values
 
     def render(self):
@@ -147,12 +218,13 @@ def main():
     logging.basicConfig(level=os.environ.get('SHIRASU_LOG_LEVEL', 'INFO'),
                         format='%(asctime)s %(levelname)s %(name)s %(message)s')
     path = os.environ.get('SHIRASU_STATE_PATH', 'state/shirasu.sqlite3')
+    backup_dir = os.environ.get('SHIRASU_BACKUP_DIR', 'backups/auto')
 
     def stop(signum, frame):
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, stop)
-    with MetricsServer((args.host, args.port), Collector(path)) as server:
+    with MetricsServer((args.host, args.port), Collector(path, backup_dir=backup_dir)) as server:
         logger.info('Metrics listening on %s:%s', args.host, server.server_port)
         try:
             server.serve_forever()

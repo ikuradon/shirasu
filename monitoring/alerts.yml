@@ -82,3 +82,96 @@ groups:
         annotations:
           summary: Shirasu が通報を保存できませんでした
           description: 過去10分に送信待ちの容量不足による保存失敗がありました。配送状態とキュー上限を確認してください。
+
+      - alert: ShirasuBackupStateUnavailable
+        expr: |
+          (
+            shirasu_backup_state_readable{job="shirasu"} == 0
+            or (
+              up{job="shirasu"} == 1
+              unless on(job, instance) shirasu_backup_state_readable{job="shirasu"}
+            )
+          )
+          and on(job, instance) up{job="shirasu"} == 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Shirasu のバックアップ状態を読み取れません
+          description: バックアップ状態が1分以上読めないか、メトリクスがありません。backupサービス、保存先マウント、監視イメージを確認してください。
+
+      - alert: ShirasuBackupWorkerStalled
+        expr: |
+          (
+            shirasu_backup_process_running{job="shirasu"} == 0
+            or time() - shirasu_backup_heartbeat_timestamp_seconds{job="shirasu"} >= 90
+            or shirasu_backup_heartbeat_timestamp_seconds{job="shirasu"} - time() > 30
+            or shirasu_backup_last_attempt_timestamp_seconds{job="shirasu"} - time() > 30
+          )
+          and shirasu_backup_state_readable{job="shirasu"} == 1
+          and up{job="shirasu"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Shirasu の自動バックアップ処理が停止または停滞しています
+          description: 処理の停止、90秒以上の状態更新停滞、または時計の異常が2分以上続いています。backupサービスの状態とログを確認してください。
+
+      - alert: ShirasuBackupOverdue
+        expr: |
+          (
+            shirasu_backup_has_success{job="shirasu"} == 0
+            or (
+              shirasu_backup_has_success{job="shirasu"} == 1
+              and (
+                time() - shirasu_backup_last_success_timestamp_seconds{job="shirasu"}
+                  >= 2 * shirasu_backup_interval_seconds{job="shirasu"}
+                or shirasu_backup_last_success_timestamp_seconds{job="shirasu"} - time() > 30
+                or shirasu_backup_last_file_present{job="shirasu"} == 0
+              )
+            )
+          )
+          and shirasu_backup_process_running{job="shirasu"} == 1
+          and time() - shirasu_backup_heartbeat_timestamp_seconds{job="shirasu"} < 90
+          and shirasu_backup_heartbeat_timestamp_seconds{job="shirasu"} - time() <= 30
+          and shirasu_backup_last_attempt_timestamp_seconds{job="shirasu"} - time() <= 30
+          and shirasu_backup_state_readable{job="shirasu"} == 1
+          and up{job="shirasu"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Shirasu の利用可能なバックアップを確認してください
+          description: 未成功、設定間隔の2倍以上成功なし、成功時刻の異常、または最新ファイルの欠落が2分以上続いています。バックアップの実行結果と保存先を確認してください。
+
+      - alert: ShirasuBackupFailed
+        expr: |
+          shirasu_backup_failed{job="shirasu"} == 1
+          and shirasu_backup_process_running{job="shirasu"} == 1
+          and time() - shirasu_backup_heartbeat_timestamp_seconds{job="shirasu"} < 90
+          and shirasu_backup_heartbeat_timestamp_seconds{job="shirasu"} - time() <= 30
+          and shirasu_backup_last_attempt_timestamp_seconds{job="shirasu"} - time() <= 30
+          and shirasu_backup_state_readable{job="shirasu"} == 1
+          and up{job="shirasu"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Shirasu のバックアップ作成・検証が失敗しています
+          description: バックアップの作成・検証エラーが2分以上解消していません。backupサービスのログ、状態DB、保存先容量・権限を確認してください。
+
+      - alert: ShirasuBackupRetentionFailed
+        expr: |
+          shirasu_backup_retention_failed{job="shirasu"} == 1
+          and shirasu_backup_process_running{job="shirasu"} == 1
+          and time() - shirasu_backup_heartbeat_timestamp_seconds{job="shirasu"} < 90
+          and shirasu_backup_heartbeat_timestamp_seconds{job="shirasu"} - time() <= 30
+          and shirasu_backup_last_attempt_timestamp_seconds{job="shirasu"} - time() <= 30
+          and shirasu_backup_state_readable{job="shirasu"} == 1
+          and up{job="shirasu"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Shirasu のバックアップ世代整理が失敗しています
+          description: バックアップ取得後の世代整理エラーが2分以上続いています。成功したバックアップは保存されています。保存先の権限とbackupサービスのログを確認してください。

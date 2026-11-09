@@ -21,6 +21,8 @@ docker compose exec -T backup cat /backups/status.json
 
 成功・失敗と世代整理の結果は `docker compose logs backup`、最終成功日時・保存ファイル名・直近エラーは `status.json` で確認できます。ヘルスチェックは状態更新の停滞、成功からの経過時間、ファイルの欠落、直近のバックアップ・世代整理失敗を検出します。外部への通知先は引き続き保留です。
 
+`metrics` サービスもこの状態ファイルを読み取り専用で参照し、最終成功時刻・実行間隔・失敗状態をPrometheusに公開します。状態欠落、ワーカー停止、2周期以上の成功欠落、作成・世代整理失敗をアラート評価します。条件とメトリクスは [監視手順](monitoring/README.md#自動バックアップの監視) を参照してください。
+
 実行間隔と保持数は環境変数またはリポジトリの `.env` で変更し、`docker compose up -d backup` で反映します。以下は既定値です。
 
 ```dotenv

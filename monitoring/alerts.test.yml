@@ -313,3 +313,635 @@ tests:
   - eval_time: 11m
     alertname: ShirasuReportsDropped
     exp_alerts: []
+
+- name: Backup unreadable and missing series are detected per target and recover
+  interval: 1m
+  input_series:
+  - series: up{job="shirasu",instance="unreadable:9016"}
+    values: 1x16
+  - series: shirasu_backup_state_readable{job="shirasu",instance="unreadable:9016"}
+    values: 0x3 1x8
+  - series: shirasu_backup_process_running{job="shirasu",instance="unreadable:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="unreadable:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="unreadable:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="unreadable:9016"}
+    values: 0x12
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="unreadable:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="unreadable:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="unreadable:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="unreadable:9016"}
+    values: 1x12
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="unreadable:9016"}
+    values: 1x12
+  - series: up{job="shirasu",instance="legacy:9016"}
+    values: 1x16
+  - series: shirasu_backup_state_readable{job="shirasu",instance="legacy:9016"}
+    values: _ _ _ _ 1x8
+  - series: shirasu_backup_process_running{job="shirasu",instance="legacy:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="legacy:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="legacy:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="legacy:9016"}
+    values: 0x12
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="legacy:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="legacy:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="legacy:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="legacy:9016"}
+    values: 1x12
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="legacy:9016"}
+    values: 1x12
+  alert_rule_test:
+  - eval_time: 0m
+    alertname: ShirasuBackupStateUnavailable
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: ShirasuBackupStateUnavailable
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        instance: unreadable:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu のバックアップ状態を読み取れません
+        description: バックアップ状態が1分以上読めないか、メトリクスがありません。backupサービス、保存先マウント、監視イメージを確認してください。
+    - exp_labels:
+        job: shirasu
+        instance: legacy:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu のバックアップ状態を読み取れません
+        description: バックアップ状態が1分以上読めないか、メトリクスがありません。backupサービス、保存先マウント、監視イメージを確認してください。
+  - eval_time: 4m
+    alertname: ShirasuBackupStateUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ShirasuBackupWorkerStalled
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ShirasuBackupOverdue
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ShirasuBackupFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ShirasuBackupRetentionFailed
+    exp_alerts: []
+- name: Backup creation and retention failures are independent of receiver database health and recover
+  interval: 1m
+  input_series:
+  - series: up{job="shirasu",instance="creation:9016"}
+    values: 1x16
+  - series: shirasu_backup_state_readable{job="shirasu",instance="creation:9016"}
+    values: 1x16
+  - series: shirasu_backup_process_running{job="shirasu",instance="creation:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="creation:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="creation:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="creation:9016"}
+    values: 1x16
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="creation:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="creation:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="creation:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="creation:9016"}
+    values: 1x3 0x8
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="creation:9016"}
+    values: 0x16
+  - series: shirasu_state_readable{job="shirasu",instance="creation:9016"}
+    values: 0x12
+  - series: up{job="shirasu",instance="retention:9016"}
+    values: 1x16
+  - series: shirasu_backup_state_readable{job="shirasu",instance="retention:9016"}
+    values: 1x16
+  - series: shirasu_backup_process_running{job="shirasu",instance="retention:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="retention:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="retention:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="retention:9016"}
+    values: 1x16
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="retention:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="retention:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="retention:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="retention:9016"}
+    values: 0x16
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="retention:9016"}
+    values: 1x3 0x8
+  - series: shirasu_state_readable{job="shirasu",instance="retention:9016"}
+    values: 0x12
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: ShirasuBackupFailed
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: ShirasuBackupRetentionFailed
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ShirasuBackupFailed
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        instance: creation:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu のバックアップ作成・検証が失敗しています
+        description: バックアップの作成・検証エラーが2分以上解消していません。backupサービスのログ、状態DB、保存先容量・権限を確認してください。
+  - eval_time: 2m
+    alertname: ShirasuBackupRetentionFailed
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        instance: retention:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu のバックアップ世代整理が失敗しています
+        description: バックアップ取得後の世代整理エラーが2分以上続いています。成功したバックアップは保存されています。保存先の権限とbackupサービスのログを確認してください。
+  - eval_time: 4m
+    alertname: ShirasuBackupFailed
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ShirasuBackupRetentionFailed
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ShirasuBackupOverdue
+    exp_alerts: []
+- name: Stopped frozen and future-dated backup workers suppress dependent alerts until recovery
+  interval: 1m
+  input_series:
+  - series: up{job="shirasu",instance="stopped:9016"}
+    values: 1x16
+  - series: shirasu_backup_state_readable{job="shirasu",instance="stopped:9016"}
+    values: 1x16
+  - series: shirasu_backup_process_running{job="shirasu",instance="stopped:9016"}
+    values: 0x5 1x5
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="stopped:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="stopped:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="stopped:9016"}
+    values: 0x12
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="stopped:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="stopped:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="stopped:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="stopped:9016"}
+    values: 1x12
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="stopped:9016"}
+    values: 1x12
+  - series: up{job="shirasu",instance="frozen:9016"}
+    values: 1x16
+  - series: shirasu_backup_state_readable{job="shirasu",instance="frozen:9016"}
+    values: 1x16
+  - series: shirasu_backup_process_running{job="shirasu",instance="frozen:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="frozen:9016"}
+    values: 0x5 360+60x5
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="frozen:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="frozen:9016"}
+    values: 0x12
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="frozen:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="frozen:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="frozen:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="frozen:9016"}
+    values: 1x12
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="frozen:9016"}
+    values: 1x12
+  - series: up{job="shirasu",instance="future-heartbeat:9016"}
+    values: 1x16
+  - series: shirasu_backup_state_readable{job="shirasu",instance="future-heartbeat:9016"}
+    values: 1x16
+  - series: shirasu_backup_process_running{job="shirasu",instance="future-heartbeat:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="future-heartbeat:9016"}
+    values: 360+60x5 360+60x5
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="future-heartbeat:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="future-heartbeat:9016"}
+    values: 0x12
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="future-heartbeat:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="future-heartbeat:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="future-heartbeat:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="future-heartbeat:9016"}
+    values: 1x12
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="future-heartbeat:9016"}
+    values: 1x12
+  - series: up{job="shirasu",instance="future-attempt:9016"}
+    values: 1x16
+  - series: shirasu_backup_state_readable{job="shirasu",instance="future-attempt:9016"}
+    values: 1x16
+  - series: shirasu_backup_process_running{job="shirasu",instance="future-attempt:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="future-attempt:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="future-attempt:9016"}
+    values: 360+60x5 0x5
+  - series: shirasu_backup_has_success{job="shirasu",instance="future-attempt:9016"}
+    values: 0x12
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="future-attempt:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="future-attempt:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="future-attempt:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="future-attempt:9016"}
+    values: 1x12
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="future-attempt:9016"}
+    values: 1x12
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: ShirasuBackupWorkerStalled
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ShirasuBackupWorkerStalled
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        instance: stopped:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu の自動バックアップ処理が停止または停滞しています
+        description: 処理の停止、90秒以上の状態更新停滞、または時計の異常が2分以上続いています。backupサービスの状態とログを確認してください。
+    - exp_labels:
+        job: shirasu
+        instance: future-heartbeat:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu の自動バックアップ処理が停止または停滞しています
+        description: 処理の停止、90秒以上の状態更新停滞、または時計の異常が2分以上続いています。backupサービスの状態とログを確認してください。
+    - exp_labels:
+        job: shirasu
+        instance: future-attempt:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu の自動バックアップ処理が停止または停滞しています
+        description: 処理の停止、90秒以上の状態更新停滞、または時計の異常が2分以上続いています。backupサービスの状態とログを確認してください。
+  - eval_time: 4m
+    alertname: ShirasuBackupWorkerStalled
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        instance: stopped:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu の自動バックアップ処理が停止または停滞しています
+        description: 処理の停止、90秒以上の状態更新停滞、または時計の異常が2分以上続いています。backupサービスの状態とログを確認してください。
+    - exp_labels:
+        job: shirasu
+        instance: frozen:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu の自動バックアップ処理が停止または停滞しています
+        description: 処理の停止、90秒以上の状態更新停滞、または時計の異常が2分以上続いています。backupサービスの状態とログを確認してください。
+    - exp_labels:
+        job: shirasu
+        instance: future-heartbeat:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu の自動バックアップ処理が停止または停滞しています
+        description: 処理の停止、90秒以上の状態更新停滞、または時計の異常が2分以上続いています。backupサービスの状態とログを確認してください。
+    - exp_labels:
+        job: shirasu
+        instance: future-attempt:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu の自動バックアップ処理が停止または停滞しています
+        description: 処理の停止、90秒以上の状態更新停滞、または時計の異常が2分以上続いています。backupサービスの状態とログを確認してください。
+  - eval_time: 6m
+    alertname: ShirasuBackupWorkerStalled
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ShirasuBackupOverdue
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ShirasuBackupOverdue
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ShirasuBackupFailed
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ShirasuBackupFailed
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ShirasuBackupRetentionFailed
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: ShirasuBackupRetentionFailed
+    exp_alerts: []
+- name: Backup age uses twice each configured interval and clears on a new success
+  interval: 1m
+  input_series:
+  - series: up{job="shirasu",instance="short:9016"}
+    values: 1x16
+  - series: shirasu_backup_state_readable{job="shirasu",instance="short:9016"}
+    values: 1x16
+  - series: shirasu_backup_process_running{job="shirasu",instance="short:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="short:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="short:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="short:9016"}
+    values: 1x16
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="short:9016"}
+    values: 0x5 360+60x10
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="short:9016"}
+    values: 60x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="short:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="short:9016"}
+    values: 0x16
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="short:9016"}
+    values: 0x16
+  - series: up{job="shirasu",instance="long:9016"}
+    values: 1x16
+  - series: shirasu_backup_state_readable{job="shirasu",instance="long:9016"}
+    values: 1x16
+  - series: shirasu_backup_process_running{job="shirasu",instance="long:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="long:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="long:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="long:9016"}
+    values: 1x16
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="long:9016"}
+    values: 0x13 840+60x2
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="long:9016"}
+    values: 300x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="long:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="long:9016"}
+    values: 0x16
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="long:9016"}
+    values: 0x16
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: ShirasuBackupOverdue
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ShirasuBackupOverdue
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ShirasuBackupOverdue
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        instance: short:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu の利用可能なバックアップを確認してください
+        description: 未成功、設定間隔の2倍以上成功なし、成功時刻の異常、または最新ファイルの欠落が2分以上続いています。バックアップの実行結果と保存先を確認してください。
+  - eval_time: 6m
+    alertname: ShirasuBackupOverdue
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ShirasuBackupOverdue
+    exp_alerts: []
+  - eval_time: 12m
+    alertname: ShirasuBackupOverdue
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        instance: long:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu の利用可能なバックアップを確認してください
+        description: 未成功、設定間隔の2倍以上成功なし、成功時刻の異常、または最新ファイルの欠落が2分以上続いています。バックアップの実行結果と保存先を確認してください。
+  - eval_time: 14m
+    alertname: ShirasuBackupOverdue
+    exp_alerts: []
+- name: Never succeeded missing file and future success differ from a valid epoch-zero success
+  interval: 1m
+  input_series:
+  - series: up{job="shirasu",instance="never:9016"}
+    values: 1x16
+  - series: shirasu_backup_state_readable{job="shirasu",instance="never:9016"}
+    values: 1x16
+  - series: shirasu_backup_process_running{job="shirasu",instance="never:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="never:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="never:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="never:9016"}
+    values: 0x3 1x8
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="never:9016"}
+    values: 0x3 240+60x8
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="never:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="never:9016"}
+    values: 0x3 1x8
+  - series: shirasu_backup_failed{job="shirasu",instance="never:9016"}
+    values: 0x16
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="never:9016"}
+    values: 0x16
+  - series: up{job="shirasu",instance="missing-file:9016"}
+    values: 1x16
+  - series: shirasu_backup_state_readable{job="shirasu",instance="missing-file:9016"}
+    values: 1x16
+  - series: shirasu_backup_process_running{job="shirasu",instance="missing-file:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="missing-file:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="missing-file:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="missing-file:9016"}
+    values: 1x16
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="missing-file:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="missing-file:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="missing-file:9016"}
+    values: 0x3 1x8
+  - series: shirasu_backup_failed{job="shirasu",instance="missing-file:9016"}
+    values: 0x16
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="missing-file:9016"}
+    values: 0x16
+  - series: up{job="shirasu",instance="future-success:9016"}
+    values: 1x16
+  - series: shirasu_backup_state_readable{job="shirasu",instance="future-success:9016"}
+    values: 1x16
+  - series: shirasu_backup_process_running{job="shirasu",instance="future-success:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="future-success:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="future-success:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="future-success:9016"}
+    values: 1x16
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="future-success:9016"}
+    values: 360+60x3 240+60x8
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="future-success:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="future-success:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="future-success:9016"}
+    values: 0x16
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="future-success:9016"}
+    values: 0x16
+  - series: up{job="shirasu",instance="epoch-zero:9016"}
+    values: 1x16
+  - series: shirasu_backup_state_readable{job="shirasu",instance="epoch-zero:9016"}
+    values: 1x16
+  - series: shirasu_backup_process_running{job="shirasu",instance="epoch-zero:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="epoch-zero:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="epoch-zero:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="epoch-zero:9016"}
+    values: 1x16
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="epoch-zero:9016"}
+    values: 0x12
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="epoch-zero:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="epoch-zero:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="epoch-zero:9016"}
+    values: 0x16
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="epoch-zero:9016"}
+    values: 0x16
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: ShirasuBackupOverdue
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: ShirasuBackupOverdue
+    exp_alerts:
+    - exp_labels:
+        job: shirasu
+        instance: never:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu の利用可能なバックアップを確認してください
+        description: 未成功、設定間隔の2倍以上成功なし、成功時刻の異常、または最新ファイルの欠落が2分以上続いています。バックアップの実行結果と保存先を確認してください。
+    - exp_labels:
+        job: shirasu
+        instance: missing-file:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu の利用可能なバックアップを確認してください
+        description: 未成功、設定間隔の2倍以上成功なし、成功時刻の異常、または最新ファイルの欠落が2分以上続いています。バックアップの実行結果と保存先を確認してください。
+    - exp_labels:
+        job: shirasu
+        instance: future-success:9016
+        severity: warning
+      exp_annotations:
+        summary: Shirasu の利用可能なバックアップを確認してください
+        description: 未成功、設定間隔の2倍以上成功なし、成功時刻の異常、または最新ファイルの欠落が2分以上続いています。バックアップの実行結果と保存先を確認してください。
+  - eval_time: 4m
+    alertname: ShirasuBackupOverdue
+    exp_alerts: []
+- name: Exporter outage suppresses every backup alert even if saved states are bad
+  interval: 1m
+  input_series:
+  - series: up{job="shirasu",instance="unreadable:9016"}
+    values: 0x12
+  - series: shirasu_backup_state_readable{job="shirasu",instance="unreadable:9016"}
+    values: 0x12
+  - series: shirasu_backup_process_running{job="shirasu",instance="unreadable:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="unreadable:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="unreadable:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="unreadable:9016"}
+    values: 1x16
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="unreadable:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="unreadable:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="unreadable:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="unreadable:9016"}
+    values: 0x16
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="unreadable:9016"}
+    values: 0x16
+  - series: up{job="shirasu",instance="stopped:9016"}
+    values: 0x12
+  - series: shirasu_backup_state_readable{job="shirasu",instance="stopped:9016"}
+    values: 1x16
+  - series: shirasu_backup_process_running{job="shirasu",instance="stopped:9016"}
+    values: 0x12
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="stopped:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="stopped:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="stopped:9016"}
+    values: 0x12
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="stopped:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="stopped:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="stopped:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="stopped:9016"}
+    values: 1x12
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="stopped:9016"}
+    values: 1x12
+  - series: up{job="shirasu",instance="running:9016"}
+    values: 0x12
+  - series: shirasu_backup_state_readable{job="shirasu",instance="running:9016"}
+    values: 1x16
+  - series: shirasu_backup_process_running{job="shirasu",instance="running:9016"}
+    values: 1x16
+  - series: shirasu_backup_heartbeat_timestamp_seconds{job="shirasu",instance="running:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_last_attempt_timestamp_seconds{job="shirasu",instance="running:9016"}
+    values: 0x16
+  - series: shirasu_backup_has_success{job="shirasu",instance="running:9016"}
+    values: 0x12
+  - series: shirasu_backup_last_success_timestamp_seconds{job="shirasu",instance="running:9016"}
+    values: 0+60x16
+  - series: shirasu_backup_interval_seconds{job="shirasu",instance="running:9016"}
+    values: 3600x16
+  - series: shirasu_backup_last_file_present{job="shirasu",instance="running:9016"}
+    values: 1x16
+  - series: shirasu_backup_failed{job="shirasu",instance="running:9016"}
+    values: 1x12
+  - series: shirasu_backup_retention_failed{job="shirasu",instance="running:9016"}
+    values: 1x12
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: ShirasuBackupStateUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ShirasuBackupWorkerStalled
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ShirasuBackupOverdue
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ShirasuBackupFailed
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: ShirasuBackupRetentionFailed
+    exp_alerts: []

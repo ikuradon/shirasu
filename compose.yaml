@@ -40,12 +40,17 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
       SHIRASU_STATE_PATH: /data/shirasu.sqlite3
+      SHIRASU_BACKUP_DIR: /backups
     ports:
       - "127.0.0.1:9016:9016"
     volumes:
       # SQL uses mode=ro + query_only. SQLite still needs to create WAL/SHM
       # helpers when reading a database whose writer has stopped cleanly.
       - shirasu-state:/data
+      - type: bind
+        source: ./backups/auto
+        target: /backups
+        read_only: true
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9016/healthz', timeout=2).close()"]
       interval: 30s
