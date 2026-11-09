@@ -13,5 +13,9 @@ compose.override.yaml
 image_service
 tests/test_image_renderer.py
 tests/test_image_package.py
+tests/test_regional_reports.py
+tests/test_marine_regions.py
+tests/test_region_map.py
+tests/test_image_renderer_v2.py
 dist
 .vercel

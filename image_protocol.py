@@ -4,7 +4,7 @@ Only the shared signing key authorizes new inputs. A published URL has no
 expiry: readers can reuse it, and a renderer can recreate its PNG after CDN
 eviction. This module deliberately has no third-party dependencies or I/O.
 
-v1 payload: canonical UTF-8 JSON ``{"r":[[offset_ms,nmea],...],"t":base_ms}``,
+v1/v2 payload: canonical UTF-8 JSON ``{"r":[[offset_ms,nmea],...],"t":base_ms}``,
 compressed with zlib and encoded as unpadded base64url. The base is the earliest
 receipt timestamp; records are sorted by receipt timestamp and NMEA text.
 """
@@ -20,6 +20,7 @@ import zlib
 
 
 VERSION = 'v1'
+SUPPORTED_VERSIONS = ('v1', 'v2')
 MAX_REPORTS = 32
 MAX_PATH_LENGTH = 8192
 MAX_COMPRESSED_BYTES = 4096
@@ -35,6 +36,26 @@ _NMEA = re.compile(r'\$QZQSM,[0-9]{2},[0-9A-Fa-f]{63}\*[0-9A-Fa-f]{2}', re.ASCII
 
 class ProtocolError(ValueError):
     """An invalid signing configuration or image URL input."""
+
+
+def validate_version(value):
+    """Validate a renderer generation without changing the default for old callers."""
+    if not isinstance(value, str) or value not in SUPPORTED_VERSIONS:
+        raise ProtocolError('Unsupported image URL version')
+    return value
+
+
+def path_version(path):
+    """Read a supported generation; this does not authenticate the URL.
+
+    Call parse_path before selecting a renderer from this value.
+    """
+    if not isinstance(path, str) or len(path) > MAX_PATH_LENGTH:
+        raise ProtocolError('Invalid image URL path')
+    parts = path.split('/')
+    if len(parts) != 4 or parts[0]:
+        raise ProtocolError('Unsupported image URL path or version')
+    return validate_version(parts[1])
 
 
 def _key_id(value):
@@ -113,8 +134,8 @@ def _decode64(value, maximum):
     return decoded
 
 
-def _signature(key_id, payload, secret):
-    message = _DOMAIN + VERSION.encode('ascii') + b'\x00' + key_id.encode('ascii') + b'\x00' + payload.encode('ascii')
+def _signature(key_id, payload, secret, version):
+    message = _DOMAIN + version.encode('ascii') + b'\x00' + key_id.encode('ascii') + b'\x00' + payload.encode('ascii')
     return hmac.new(secret, message, hashlib.sha256).digest()
 
 
@@ -159,12 +180,13 @@ def load_keys(value):
     return keys
 
 
-def make_path(reports, key_id, secret):
+def make_path(reports, key_id, secret, *, version=VERSION):
     """Return a signed absolute URL path without performing any network I/O.
 
     ``reports`` contains ``(nmea, received_at_ms)`` pairs. Receipt timestamps
     must come from the saved inputs, not from the time a reader opens the URL.
     """
+    version = validate_version(version)
     key_id, secret = _key_id(key_id), _secret(secret)
     raw = _json(_records(reports))
     if len(raw) > MAX_EXPANDED_BYTES:
@@ -173,25 +195,22 @@ def make_path(reports, key_id, secret):
     if len(compressed) > MAX_COMPRESSED_BYTES:
         raise ProtocolError('Compressed image input exceeds the size limit')
     payload = _encode64(compressed)
-    signature = _encode64(_signature(key_id, payload, secret))
-    path = f'/{VERSION}/{key_id}/{payload}.{signature}.png'
+    signature = _encode64(_signature(key_id, payload, secret, version))
+    path = f'/{version}/{key_id}/{payload}.{signature}.png'
     if len(path) > MAX_PATH_LENGTH:
         raise ProtocolError('Image URL exceeds the size limit')
     return path
 
 
 def parse_path(path, keys):
-    """Authenticate a v1 path, then safely expand and validate its reports.
+    """Authenticate a supported path, then safely expand and validate its reports.
 
     The HMAC covers the compressed representation. Unauthenticated input is
     never decompressed or parsed as JSON. No expiry check is made: published
     URLs remain valid while their verification key and renderer are retained.
     """
-    if not isinstance(path, str) or len(path) > MAX_PATH_LENGTH:
-        raise ProtocolError('Invalid image URL path')
+    version = path_version(path)
     parts = path.split('/')
-    if len(parts) != 4 or parts[0] or parts[1] != VERSION:
-        raise ProtocolError('Unsupported image URL path or version')
     key_id = _key_id(parts[2])
     filename = parts[3].split('.')
     if len(filename) != 3 or filename[2] != 'png':
@@ -202,7 +221,7 @@ def parse_path(path, keys):
     if not isinstance(keys, Mapping) or key_id not in keys:
         raise ProtocolError('Unknown image signing key')
     secret = _secret(keys[key_id])
-    if len(signed) != 32 or not hmac.compare_digest(signed, _signature(key_id, payload, secret)):
+    if len(signed) != 32 or not hmac.compare_digest(signed, _signature(key_id, payload, secret, version)):
         raise ProtocolError('Invalid image URL signature')
     try:
         decompressor = zlib.decompressobj()

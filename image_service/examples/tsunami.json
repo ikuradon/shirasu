@@ -1,0 +1,7 @@
+[
+  {
+    "description": "Synthetic training fixture; not an observed event. 訓練用の合成サンプルです。実際の災害情報ではありません。",
+    "received_ms": 1794235860000,
+    "nmea": "$QZQSM,55,C6AFADA5D9000254000033CF34B0F50D367FF33E8000000000000012F7E28FC*09"
+  }
+]

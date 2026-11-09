@@ -1,0 +1,40 @@
+JMA regional map assets / 気象庁区域データの加工について
+
+出典: 気象庁ホームページ「地理情報システム（GIS）データ」および
+「あなたの街の防災情報」の表示用区域データ（2026年11月10日取得）。
+https://www.data.jma.go.jp/developer/gis.html
+https://www.jma.go.jp/bosai/map.html
+
+気象庁ホームページの利用規約（公共データ利用規約 第1.0版）に基づき利用。
+https://www.jma.go.jp/jma/kishou/info/coment.html
+気象庁区域データを Shirasu が加工して作成。気象庁が作成した画像ではない。
+加工データを再利用・表示する場合も出典と加工した旨を表示すること。
+
+marine.geojson: 気象庁 GIS「地方海上予報区」（2019年1月25日版）の37基本区域。
+島を示す穴を保持し、都道府県データと同じ方法・許容値で簡略化。元GISの海岸に
+ある自己接触・微小な重複が簡略化後も残った場合、Shapely make_valid の
+structure 方法で修復する。修復前後の成分・穴の数と面積変化はmanifestに記録。
+非ポリゴンの生成や区域面積の百万分の一以上の変化があれば生成を中止する。
+ラベル代表点
+は気象庁の表示用 gravity 座標。名称・コードを QZQSM と照合。公式ウェブ表示用
+GeoJSONは島の穴を独立polygonとして平坦化しているため、境界の元データには
+採用せず、正式GISのpolygon/hole構造を使用した。
+tsunami.geojson: 気象庁の表示用津波予報区66区域。海岸線座標は取得元のまま。
+名称は IS-QZSS-DCR-017（azarashi 0.17.1）、代表点は最長線分の中点から算出。
+groups.json: 受信コードを基本区域へ展開する表。津波集約区域の構成は次の
+気象庁資料の津波-63～65頁、別表1で確認（2022年にJMA XMLからは廃止された
+集約区域も QZQSM に残るため収録）。未知・その他の区域には形状を割り当てない。
+https://www.data.jma.go.jp/suishin/jyouhou/pdf/370.pdf
+https://xml.kishou.go.jp/20220621_jmaxml_info.pdf
+
+prefectures.geojson: 気象庁 GIS「地震情報／都道府県等」（2019年1月25日版）
+の47区域をコード01～47から1～47に変換。元の JGD2011 の経緯度を保持し、
+各区域を Shapely 2.1.2 の topology-preserving simplify（許容値0.002度）で
+簡略化。元の全ポリゴン成分と穴の個数を検証し保持。座標の丸め・離島の除外・
+別区域への付け替えは行っていない。隣接区域を一体に簡略化していないため、
+簡略化の誤差による細い隙間や重なりが生じることがある。代表点は最大面積の
+ポリゴン内の点で、観測点や震央ではない。県内の一様な震度を意味しない。
+
+いずれも概況画像用の簡略地図であり、正確な境界、避難対象区域、津波浸水域、
+津波の到達位置を示すデータではない。個別の入力URL・SHA-256・変換条件は
+manifest.json、再生成手順は scripts/prepare_region_assets.py を参照。

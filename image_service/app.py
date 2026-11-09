@@ -3,7 +3,7 @@
 import hashlib
 import os
 
-from image_protocol import load_keys, parse_path
+from image_protocol import MAX_PATH_LENGTH, SUPPORTED_VERSIONS, load_keys, parse_path, path_version
 
 
 def app(environ, start_response):
@@ -22,9 +22,9 @@ def app(environ, start_response):
         return error('405 Method Not Allowed', 'method not allowed', [('Allow', 'GET, HEAD')])
     if environ.get('QUERY_STRING'):
         return error('400 Bad Request', 'query parameters are not supported')
-    if len(path) > 8192:
+    if len(path) > MAX_PATH_LENGTH:
         return error('414 URI Too Long', 'image URL is too long')
-    if path != '/healthz' and not path.startswith('/v1/'):
+    if path != '/healthz' and not path.startswith(tuple(f'/{version}/' for version in SUPPORTED_VERSIONS)):
         return error('404 Not Found', 'not found')
     try:
         keys = load_keys(os.environ.get('SHIRASU_IMAGE_KEYS', ''))
@@ -33,7 +33,9 @@ def app(environ, start_response):
     if path == '/healthz':
         try:
             from image_service.render import verify_assets
+            from image_service.render_v2 import verify_assets as verify_v2_assets
             verify_assets()
+            verify_v2_assets()
         except Exception:
             return error('503 Service Unavailable', 'renderer is unavailable')
         return respond('200 OK', b'ok\n', [('Content-Type', 'text/plain'), ('Cache-Control', 'no-store')])
@@ -42,7 +44,10 @@ def app(environ, start_response):
     except ValueError:
         return error('403 Forbidden', 'invalid image URL')
     try:
-        from image_service.render import render
+        if path_version(path) == 'v1':
+            from image_service.render import render
+        else:
+            from image_service.render_v2 import render
         image = render(records)
     except (ValueError, OverflowError):
         return error('400 Bad Request', 'invalid report bundle')

@@ -28,11 +28,16 @@ jobs:
           docker build --pull -f image_service/Dockerfile -t shirasu-images:test dist/image-service
       - name: Check image dependencies
         run: docker run --rm --network none shirasu-images:test python -m pip check
+      - name: Check bundled renderers and map assets
+        run: >-
+          docker run --rm --network none shirasu-images:test python -B -c
+          'from image_service.render_v2 import verify_assets; verify_assets()'
       - name: Check PNGs, signed HTTP responses, and source isolation
         run: >-
           docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
-          shirasu-images:test sh -c 'for suite in protocol renderer package; do
-          python -B -m unittest discover -s tests -p "test_image_${suite}.py" -v || exit 1; done'
+          shirasu-images:test sh -c 'for suite in image_protocol image_renderer image_renderer_v2
+          image_package image_versions regional_reports marine_regions region_map; do
+          python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

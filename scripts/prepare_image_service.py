@@ -13,6 +13,10 @@ FILES = (
     'image_service/__main__.py',
     'image_service/app.py',
     'image_service/render.py',
+    'image_service/render_v2.py',
+    'image_service/region_map.py',
+    'image_service/regional_reports.py',
+    'image_service/marine_regions.py',
     'image_service/assets/v1/manifest.json',
     'image_service/assets/v1/land.geojson',
     'image_service/assets/v1/NotoSansCJKjp-Regular.otf',
@@ -20,6 +24,12 @@ FILES = (
     'image_service/assets/v1/OFL.txt',
     'image_service/assets/v1/FONT_NOTICE.txt',
     'image_service/assets/v1/NATURAL_EARTH.txt',
+    'image_service/assets/v2/manifest.json',
+    'image_service/assets/v2/JMA_NOTICE.txt',
+    'image_service/assets/v2/marine.geojson',
+    'image_service/assets/v2/tsunami.geojson',
+    'image_service/assets/v2/prefectures.geojson',
+    'image_service/assets/v2/groups.json',
 )
 
 
@@ -40,7 +50,9 @@ def prepare(destination):
     (destination / '.python-version').write_text('3.12\n')
     (destination / 'vercel.json').write_text(json.dumps({
         '$schema': 'https://openapi.vercel.sh/vercel.json',
-        'functions': {'api/image.py': {'maxDuration': 30}},
+        # Leave room for a nationwide regional map to fall back to its summary
+        # after bounded label placement, including a cold Python process.
+        'functions': {'api/image.py': {'maxDuration': 60}},
         'rewrites': [{'source': '/(.*)', 'destination': '/api/image'}],
     }, indent=2) + '\n')
     return destination

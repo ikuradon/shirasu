@@ -1,0 +1,740 @@
+{
+  "marine.geojson": {
+    "source": [
+      {
+        "url": "https://www.data.jma.go.jp/developer/gis/20190125_AreaMarineAJ_GIS.zip",
+        "sha256": "1abc1e7314b940d7c518934a0117cc8b33f8a3f57534ed6ee0a419530bcf8e84",
+        "retrieved": "2026-11-10"
+      },
+      {
+        "url": "https://www.jma.go.jp/bosai/common/const/geojson/marines.json",
+        "sha256": "d90b16ed99e5b9c93cc286752a228d3fe2e487adef51771e61107998eb4d0854",
+        "retrieved": "2026-11-10"
+      },
+      {
+        "url": "https://www.jma.go.jp/bosai/common/const/label_pos/marines.json",
+        "sha256": "6f987a1bf904f969272851e9e3b211783a9c2dfcaedcbd3377c09400f662066d",
+        "retrieved": "2026-11-10"
+      }
+    ],
+    "feature_count": 37,
+    "coordinate_reference": "Source JGD2011 longitude/latitude retained; display map only.",
+    "processing": "Official GIS geometry; Shapely 2.1.2 simplify(0.002, preserve_topology=True) preserves every source component/hole before repair; residual invalid geometry repaired using make_valid(method=\"structure\"). Repair counts and area changes recorded below; non-polygon output or relative area change >= 1e-6 rejected. No rounding. Shared boundaries may differ within tolerance. Web geometry is not used because island holes are flattened into independent polygon shells.",
+    "anchor": "Official web display gravity coordinates.",
+    "simplification_tolerance_degrees": 0.002,
+    "validation": [
+      {
+        "code": "1010",
+        "components": 1,
+        "holes": 4,
+        "relative_area_change": 3.667052483672567e-05,
+        "source_valid": true,
+        "pre_repair_components": 1,
+        "pre_repair_holes": 4,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "1020",
+        "components": 1,
+        "holes": 1,
+        "relative_area_change": 1.4971209655003508e-06,
+        "source_valid": true,
+        "pre_repair_components": 1,
+        "pre_repair_holes": 1,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "1030",
+        "components": 2,
+        "holes": 370,
+        "relative_area_change": 0.0003144669232983394,
+        "source_valid": false,
+        "pre_repair_components": 2,
+        "pre_repair_holes": 370,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "1040",
+        "components": 2,
+        "holes": 429,
+        "relative_area_change": 0.00028503746269104886,
+        "source_valid": false,
+        "pre_repair_components": 2,
+        "pre_repair_holes": 429,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "1050",
+        "components": 9,
+        "holes": 2450,
+        "relative_area_change": 1.9100390632883733e-05,
+        "source_valid": false,
+        "pre_repair_components": 9,
+        "pre_repair_holes": 2450,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "1110",
+        "components": 1,
+        "holes": 986,
+        "relative_area_change": 1.2498050383921425e-05,
+        "source_valid": true,
+        "pre_repair_components": 1,
+        "pre_repair_holes": 986,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "1120",
+        "components": 3,
+        "holes": 1306,
+        "relative_area_change": 0.00018740983407543855,
+        "source_valid": false,
+        "pre_repair_components": 3,
+        "pre_repair_holes": 1306,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "1130",
+        "components": 2,
+        "holes": 498,
+        "relative_area_change": 0.0004599910450555901,
+        "source_valid": false,
+        "pre_repair_components": 2,
+        "pre_repair_holes": 498,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "1140",
+        "components": 5,
+        "holes": 1246,
+        "relative_area_change": 0.00046291985596232137,
+        "source_valid": false,
+        "pre_repair_components": 6,
+        "pre_repair_holes": 1246,
+        "repair_area_change_square_degrees": 5.49039147479391e-10
+      },
+      {
+        "code": "1150",
+        "components": 1,
+        "holes": 3145,
+        "relative_area_change": 7.82045092638744e-06,
+        "source_valid": false,
+        "pre_repair_components": 1,
+        "pre_repair_holes": 3145,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "2010",
+        "components": 1,
+        "holes": 0,
+        "relative_area_change": 2.2335412208470226e-07,
+        "source_valid": true,
+        "pre_repair_components": 1,
+        "pre_repair_holes": 0,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "2020",
+        "components": 216,
+        "holes": 11981,
+        "relative_area_change": 2.0120298440923687e-05,
+        "source_valid": false,
+        "pre_repair_components": 254,
+        "pre_repair_holes": 11981,
+        "repair_area_change_square_degrees": 2.5735918285363368e-08
+      },
+      {
+        "code": "3010",
+        "components": 111,
+        "holes": 3619,
+        "relative_area_change": 1.562719707620486e-05,
+        "source_valid": false,
+        "pre_repair_components": 116,
+        "pre_repair_holes": 3618,
+        "repair_area_change_square_degrees": 4.257145747033064e-09
+      },
+      {
+        "code": "3020",
+        "components": 1,
+        "holes": 348,
+        "relative_area_change": 3.784081847307318e-06,
+        "source_valid": false,
+        "pre_repair_components": 1,
+        "pre_repair_holes": 348,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "3110",
+        "components": 1,
+        "holes": 1,
+        "relative_area_change": 4.751286246556589e-06,
+        "source_valid": true,
+        "pre_repair_components": 1,
+        "pre_repair_holes": 1,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "3120",
+        "components": 58,
+        "holes": 1926,
+        "relative_area_change": 6.852978028818967e-05,
+        "source_valid": false,
+        "pre_repair_components": 60,
+        "pre_repair_holes": 1926,
+        "repair_area_change_square_degrees": 2.225979400805045e-09
+      },
+      {
+        "code": "3130",
+        "components": 13,
+        "holes": 2387,
+        "relative_area_change": 1.5646610568370384e-05,
+        "source_valid": false,
+        "pre_repair_components": 13,
+        "pre_repair_holes": 2386,
+        "repair_area_change_square_degrees": 1.347792988326546e-09
+      },
+      {
+        "code": "3140",
+        "components": 7,
+        "holes": 1704,
+        "relative_area_change": 1.2645621265348816e-05,
+        "source_valid": false,
+        "pre_repair_components": 8,
+        "pre_repair_holes": 1704,
+        "repair_area_change_square_degrees": 5.331344254955184e-10
+      },
+      {
+        "code": "3210",
+        "components": 30,
+        "holes": 1697,
+        "relative_area_change": 0.00016259093306220465,
+        "source_valid": false,
+        "pre_repair_components": 33,
+        "pre_repair_holes": 1697,
+        "repair_area_change_square_degrees": 1.6829915239213733e-09
+      },
+      {
+        "code": "3220",
+        "components": 59,
+        "holes": 5564,
+        "relative_area_change": 0.0001481059159276335,
+        "source_valid": false,
+        "pre_repair_components": 62,
+        "pre_repair_holes": 5563,
+        "repair_area_change_square_degrees": 2.5573914097520856e-09
+      },
+      {
+        "code": "3230",
+        "components": 1,
+        "holes": 0,
+        "relative_area_change": 8.151813527886161e-16,
+        "source_valid": true,
+        "pre_repair_components": 1,
+        "pre_repair_holes": 0,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "4010",
+        "components": 74,
+        "holes": 8573,
+        "relative_area_change": 0.0003462894530999086,
+        "source_valid": false,
+        "pre_repair_components": 80,
+        "pre_repair_holes": 8573,
+        "repair_area_change_square_degrees": 4.569284950406427e-09
+      },
+      {
+        "code": "4020",
+        "components": 64,
+        "holes": 8417,
+        "relative_area_change": 0.0002036642168022618,
+        "source_valid": false,
+        "pre_repair_components": 70,
+        "pre_repair_holes": 8417,
+        "repair_area_change_square_degrees": 4.0457326377918434e-09
+      },
+      {
+        "code": "4030",
+        "components": 1,
+        "holes": 0,
+        "relative_area_change": 3.3575044290825558e-15,
+        "source_valid": true,
+        "pre_repair_components": 1,
+        "pre_repair_holes": 0,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "4110",
+        "components": 1,
+        "holes": 0,
+        "relative_area_change": 9.851813211999593e-07,
+        "source_valid": true,
+        "pre_repair_components": 1,
+        "pre_repair_holes": 0,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "4120",
+        "components": 51,
+        "holes": 6153,
+        "relative_area_change": 9.338573899727665e-05,
+        "source_valid": false,
+        "pre_repair_components": 56,
+        "pre_repair_holes": 6152,
+        "repair_area_change_square_degrees": 2.726146419718134e-09
+      },
+      {
+        "code": "4130",
+        "components": 26,
+        "holes": 1815,
+        "relative_area_change": 3.594917602467356e-05,
+        "source_valid": false,
+        "pre_repair_components": 26,
+        "pre_repair_holes": 1814,
+        "repair_area_change_square_degrees": 3.552713678800501e-15
+      },
+      {
+        "code": "5000",
+        "components": 50,
+        "holes": 4055,
+        "relative_area_change": 3.82975006654464e-05,
+        "source_valid": false,
+        "pre_repair_components": 54,
+        "pre_repair_holes": 4054,
+        "repair_area_change_square_degrees": 2.1665460536723913e-09
+      },
+      {
+        "code": "5110",
+        "components": 1,
+        "holes": 43,
+        "relative_area_change": 7.850633917559752e-05,
+        "source_valid": true,
+        "pre_repair_components": 1,
+        "pre_repair_holes": 43,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "5120",
+        "components": 48,
+        "holes": 8617,
+        "relative_area_change": 9.452252061218444e-05,
+        "source_valid": false,
+        "pre_repair_components": 49,
+        "pre_repair_holes": 8617,
+        "repair_area_change_square_degrees": 5.735145691687649e-10
+      },
+      {
+        "code": "5130",
+        "components": 1,
+        "holes": 22,
+        "relative_area_change": 4.002533436363557e-05,
+        "source_valid": true,
+        "pre_repair_components": 1,
+        "pre_repair_holes": 22,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "5210",
+        "components": 18,
+        "holes": 1316,
+        "relative_area_change": 7.287460184729075e-05,
+        "source_valid": false,
+        "pre_repair_components": 21,
+        "pre_repair_holes": 1316,
+        "repair_area_change_square_degrees": 2.2696937662658456e-09
+      },
+      {
+        "code": "5220",
+        "components": 39,
+        "holes": 5827,
+        "relative_area_change": 5.6275781487651554e-05,
+        "source_valid": false,
+        "pre_repair_components": 40,
+        "pre_repair_holes": 5827,
+        "repair_area_change_square_degrees": 6.786731177044203e-10
+      },
+      {
+        "code": "5230",
+        "components": 24,
+        "holes": 2100,
+        "relative_area_change": 4.4375891952491865e-06,
+        "source_valid": false,
+        "pre_repair_components": 24,
+        "pre_repair_holes": 2100,
+        "repair_area_change_square_degrees": 0.0
+      },
+      {
+        "code": "6010",
+        "components": 41,
+        "holes": 2237,
+        "relative_area_change": 1.8446617662564015e-05,
+        "source_valid": false,
+        "pre_repair_components": 44,
+        "pre_repair_holes": 2237,
+        "repair_area_change_square_degrees": 1.2147047812050005e-09
+      },
+      {
+        "code": "6020",
+        "components": 20,
+        "holes": 1240,
+        "relative_area_change": 1.8175448907255462e-05,
+        "source_valid": false,
+        "pre_repair_components": 22,
+        "pre_repair_holes": 1240,
+        "repair_area_change_square_degrees": 1.3559287026509992e-09
+      },
+      {
+        "code": "6030",
+        "components": 4,
+        "holes": 364,
+        "relative_area_change": 8.258916210086924e-08,
+        "source_valid": false,
+        "pre_repair_components": 4,
+        "pre_repair_holes": 364,
+        "repair_area_change_square_degrees": 0.0
+      }
+    ],
+    "sha256": "e1822013968c537f09b368fad2cbee4bf569c03be30e8d5b3a8de441805310e7",
+    "bytes": 15192453,
+    "terms": "https://www.jma.go.jp/jma/kishou/info/coment.html"
+  },
+  "tsunami.geojson": {
+    "source": [
+      {
+        "url": "https://www.jma.go.jp/bosai/common/const/geojson/tsunami.json",
+        "sha256": "1acde2b6c6a43843fe171781e8126a8db82ef2dd42a2187db66a3a708fab1dc3",
+        "retrieved": "2026-11-10"
+      }
+    ],
+    "feature_count": 66,
+    "processing": "Official web display coastline unchanged; names from IS-QZSS-DCR-017 via azarashi 0.17.1; anchor at half of longest line.",
+    "sha256": "37dd2016ee738c775ea6a81f2f96aaccc822da632b9e2e0aeefda59330f102e4",
+    "bytes": 120447,
+    "terms": "https://www.jma.go.jp/jma/kishou/info/coment.html"
+  },
+  "prefectures.geojson": {
+    "source": [
+      {
+        "url": "https://www.data.jma.go.jp/developer/gis/20190125_AreaInformationPrefectureEarthquake_GIS.zip",
+        "sha256": "5f36a66e2a2bbdc2eb04d4c7be0dc9d710903040d4b721716a0b1368d80da235",
+        "retrieved": "2026-11-10"
+      }
+    ],
+    "feature_count": 47,
+    "coordinate_reference": "Source JGD2011 longitude/latitude retained; display map only.",
+    "processing": "Shapely 2.1.2 simplify(0.002, preserve_topology=True) per prefecture; every component/hole retained; no rounding. Shared boundaries may differ within simplification tolerance.",
+    "anchor": "Interior representative point of largest polygon; not an observation point.",
+    "simplification_tolerance_degrees": 0.002,
+    "validation": [
+      {
+        "code": "1",
+        "components": 9419,
+        "holes": 0,
+        "relative_area_change": 0.0005817022545239414
+      },
+      {
+        "code": "2",
+        "components": 2200,
+        "holes": 0,
+        "relative_area_change": 0.00040351239256877547
+      },
+      {
+        "code": "3",
+        "components": 7815,
+        "holes": 0,
+        "relative_area_change": 0.0004916078831641071
+      },
+      {
+        "code": "4",
+        "components": 7148,
+        "holes": 1,
+        "relative_area_change": 5.354475356996201e-05
+      },
+      {
+        "code": "5",
+        "components": 2444,
+        "holes": 0,
+        "relative_area_change": 0.0004710153810480644
+      },
+      {
+        "code": "6",
+        "components": 650,
+        "holes": 0,
+        "relative_area_change": 0.0002484617803506709
+      },
+      {
+        "code": "7",
+        "components": 222,
+        "holes": 0,
+        "relative_area_change": 0.00029101442406979775
+      },
+      {
+        "code": "8",
+        "components": 109,
+        "holes": 0,
+        "relative_area_change": 0.0006339179534641732
+      },
+      {
+        "code": "9",
+        "components": 1,
+        "holes": 0,
+        "relative_area_change": 0.0002883271559681018
+      },
+      {
+        "code": "10",
+        "components": 1,
+        "holes": 1,
+        "relative_area_change": 6.573382711063395e-05
+      },
+      {
+        "code": "11",
+        "components": 2,
+        "holes": 0,
+        "relative_area_change": 0.0004764648759553373
+      },
+      {
+        "code": "12",
+        "components": 1439,
+        "holes": 0,
+        "relative_area_change": 0.0007067557824477982
+      },
+      {
+        "code": "13",
+        "components": 6151,
+        "holes": 1,
+        "relative_area_change": 0.004007845120374979
+      },
+      {
+        "code": "14",
+        "components": 1227,
+        "holes": 1,
+        "relative_area_change": 0.00028357887691444485
+      },
+      {
+        "code": "15",
+        "components": 2629,
+        "holes": 0,
+        "relative_area_change": 0.00012003606587749672
+      },
+      {
+        "code": "16",
+        "components": 38,
+        "holes": 0,
+        "relative_area_change": 0.00023788561054769632
+      },
+      {
+        "code": "17",
+        "components": 1674,
+        "holes": 0,
+        "relative_area_change": 0.0009187847180538455
+      },
+      {
+        "code": "18",
+        "components": 2931,
+        "holes": 0,
+        "relative_area_change": 0.0005976051562336309
+      },
+      {
+        "code": "19",
+        "components": 1,
+        "holes": 0,
+        "relative_area_change": 0.00015774317022324165
+      },
+      {
+        "code": "20",
+        "components": 1,
+        "holes": 0,
+        "relative_area_change": 4.773797900482835e-05
+      },
+      {
+        "code": "21",
+        "components": 1,
+        "holes": 0,
+        "relative_area_change": 5.890156308458459e-05
+      },
+      {
+        "code": "22",
+        "components": 1693,
+        "holes": 0,
+        "relative_area_change": 0.0005453571355521668
+      },
+      {
+        "code": "23",
+        "components": 1055,
+        "holes": 0,
+        "relative_area_change": 0.00024507296421363893
+      },
+      {
+        "code": "24",
+        "components": 7433,
+        "holes": 0,
+        "relative_area_change": 0.0007026185015842219
+      },
+      {
+        "code": "25",
+        "components": 1,
+        "holes": 0,
+        "relative_area_change": 0.0003520605205231319
+      },
+      {
+        "code": "26",
+        "components": 958,
+        "holes": 0,
+        "relative_area_change": 0.0005164027336400029
+      },
+      {
+        "code": "27",
+        "components": 52,
+        "holes": 0,
+        "relative_area_change": 0.0016510061701703806
+      },
+      {
+        "code": "28",
+        "components": 2134,
+        "holes": 0,
+        "relative_area_change": 9.409842556225047e-05
+      },
+      {
+        "code": "29",
+        "components": 1,
+        "holes": 0,
+        "relative_area_change": 0.00021696137132493396
+      },
+      {
+        "code": "30",
+        "components": 3795,
+        "holes": 0,
+        "relative_area_change": 0.0007618177309245477
+      },
+      {
+        "code": "31",
+        "components": 809,
+        "holes": 0,
+        "relative_area_change": 0.00080987381754992
+      },
+      {
+        "code": "32",
+        "components": 3441,
+        "holes": 0,
+        "relative_area_change": 0.0011814967205633752
+      },
+      {
+        "code": "33",
+        "components": 381,
+        "holes": 0,
+        "relative_area_change": 0.00023520411568272212
+      },
+      {
+        "code": "34",
+        "components": 528,
+        "holes": 0,
+        "relative_area_change": 6.404614859208509e-05
+      },
+      {
+        "code": "35",
+        "components": 2979,
+        "holes": 3,
+        "relative_area_change": 0.00018671155015849626
+      },
+      {
+        "code": "36",
+        "components": 3487,
+        "holes": 0,
+        "relative_area_change": 0.0004372716957648306
+      },
+      {
+        "code": "37",
+        "components": 653,
+        "holes": 0,
+        "relative_area_change": 0.00027909034628301725
+      },
+      {
+        "code": "38",
+        "components": 4916,
+        "holes": 0,
+        "relative_area_change": 0.0004792844329916573
+      },
+      {
+        "code": "39",
+        "components": 3769,
+        "holes": 0,
+        "relative_area_change": 0.00023956536603034496
+      },
+      {
+        "code": "40",
+        "components": 1980,
+        "holes": 0,
+        "relative_area_change": 0.0005634399067532299
+      },
+      {
+        "code": "41",
+        "components": 296,
+        "holes": 0,
+        "relative_area_change": 0.00018241596923675645
+      },
+      {
+        "code": "42",
+        "components": 9161,
+        "holes": 3,
+        "relative_area_change": 0.005613760602158715
+      },
+      {
+        "code": "43",
+        "components": 1907,
+        "holes": 0,
+        "relative_area_change": 0.00024300215467076025
+      },
+      {
+        "code": "44",
+        "components": 2342,
+        "holes": 0,
+        "relative_area_change": 0.00053891035615602
+      },
+      {
+        "code": "45",
+        "components": 1655,
+        "holes": 0,
+        "relative_area_change": 4.8885906645326744e-05
+      },
+      {
+        "code": "46",
+        "components": 8091,
+        "holes": 2,
+        "relative_area_change": 0.00032585099223624665
+      },
+      {
+        "code": "47",
+        "components": 4828,
+        "holes": 1,
+        "relative_area_change": 0.0042757300582229535
+      }
+    ],
+    "sha256": "9b818cfa7b79118413c3636595354abf8f2a49493a6e32a0cc9e72b29b935890",
+    "bytes": 20731984,
+    "terms": "https://www.jma.go.jp/jma/kishou/info/coment.html"
+  },
+  "groups.json": {
+    "source": [
+      {
+        "url": "https://www.data.jma.go.jp/suishin/jyouhou/pdf/370.pdf",
+        "sha256": "55d99304305c8c96064fa34a95a2a012b801eadecfa56c51f9460e2ae517fce2",
+        "retrieved": "2026-11-10"
+      }
+    ],
+    "processing": "Explicit JMA aggregate membership; 11 marine and 32 tsunami aggregates; checked against azarashi 0.17.1 DCR-017 tables. Tsunami source pages 津波-63..65, 別表1.",
+    "sha256": "c3ac70f722e296f7d0d16f1d252048f444314f3a47e5fdf249d86cc3adb89100",
+    "bytes": 984,
+    "terms": "https://www.jma.go.jp/jma/kishou/info/coment.html"
+  },
+  "JMA_NOTICE.txt": {
+    "source": [
+      {
+        "url": "https://www.jma.go.jp/jma/kishou/info/coment.html",
+        "retrieved": "2026-11-10"
+      }
+    ],
+    "sha256": "5b9e873f1a3ce2ed0fa12f4074536525c9749f60d610cdea907389b80c73ccbd",
+    "bytes": 3157,
+    "terms": "https://www.jma.go.jp/jma/kishou/info/coment.html"
+  }
+}

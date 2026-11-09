@@ -8,7 +8,7 @@ import math
 import re
 from urllib.parse import urlsplit
 
-from image_protocol import load_keys, make_path
+from image_protocol import VERSION, load_keys, make_path, validate_version
 
 
 @dataclass(frozen=True)
@@ -16,6 +16,7 @@ class ImagePublisher:
     base_url: str
     key_id: str
     secret: bytes = field(repr=False)
+    version: str = VERSION
 
     def __post_init__(self):
         error = 'SHIRASU_IMAGE_BASE_URL must be an HTTPS origin without credentials, path or query'
@@ -48,6 +49,7 @@ class ImagePublisher:
         if not isinstance(self.secret, bytes):
             raise ValueError('Image signing key must be bytes')
         load_keys(json.dumps({self.key_id: self.secret.hex()}))
+        validate_version(self.version)
         object.__setattr__(self, 'base_url', self.base_url.rstrip('/'))
 
     @classmethod
@@ -61,10 +63,11 @@ class ImagePublisher:
             raise ValueError('Set all three SHIRASU_IMAGE_BASE_URL, SHIRASU_IMAGE_KEY_ID and SHIRASU_IMAGE_SIGNING_KEY')
         base, key_id, key_hex = values
         keys = load_keys(json.dumps({key_id: key_hex}))
-        return cls(base, key_id, keys[key_id])
+        return cls(base, key_id, keys[key_id],
+                   version=environment.get('SHIRASU_IMAGE_VERSION', VERSION))
 
     def url(self, entries):
-        return self.base_url + make_path(entries, self.key_id, self.secret)
+        return self.base_url + make_path(entries, self.key_id, self.secret, version=self.version)
 
 
 def image_entry(report):
