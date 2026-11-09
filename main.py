@@ -3,9 +3,9 @@
 import argparse
 import asyncio
 from concurrent.futures import TimeoutError as FutureTimeout
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import fcntl
 import hashlib
 import json
@@ -131,6 +131,10 @@ def report_message(report):
     return f'{report}\n---\nNMEA: {report.nmea}'
 
 
+def is_publishable(report):
+    return not isinstance(report, (dcx.NullMsg, dcx.Unknown))
+
+
 class Service:
     def __init__(self, nostr, outbox, stop, clock=time.time):
         self.nostr = nostr
@@ -144,7 +148,7 @@ class Service:
     async def accept(self, report):
         now = self.clock()
         self.state['last_received'] = now
-        if isinstance(report, (dcx.NullMsg, dcx.Unknown)):
+        if not is_publishable(report):
             return 'ignored'
         event = self.nostr.build_event(report_message(report))
         result = self.outbox.enqueue(report_key(report), event.as_json(), event.id().to_hex(), now)
@@ -294,15 +298,57 @@ def healthy(snapshot, now):
                 and (pending_age is None or pending_age < 90))
 
 
+def received_at(value):
+    try:
+        timestamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        if timestamp.utcoffset() is None:
+            raise ValueError('timezone is required')
+        return timestamp.astimezone(timezone.utc)
+    except (ValueError, OverflowError) as error:
+        raise argparse.ArgumentTypeError('use an ISO 8601 date/time with a timezone, e.g. 2026-11-08T12:00:00+09:00') from error
+
+
+def run_preview(args):
+    from preview import preview_stream
+
+    timestamp = args.received_at or datetime.now(timezone.utc)
+    total = dict(decoded=0, shown=0, ignored=0, errors=0)
+    for filename in args.preview:
+        try:
+            # Standard input belongs to the caller; only close files opened here.
+            source = nullcontext(sys.stdin.buffer) if filename == '-' else open(filename, 'rb')
+            with source as stream:
+                counts = preview_stream(
+                    stream, input_format=args.input_format or 'nmea', received_at=timestamp,
+                    message_formatter=report_message, report_filter=is_publishable,
+                    stdout=sys.stdout, stderr=sys.stderr, source_name=filename,
+                )
+            for name in total:
+                total[name] += counts[name]
+        except (OSError, ValueError) as error:
+            total['errors'] += 1
+            message = ' '.join(str(error).split())
+            message = ''.join(char for char in message if char.isprintable())
+            print(f'入力を読み取れません: {message}', file=sys.stderr)
+    print(f"プレビュー: 読取 {total['decoded']}件 / 表示 {total['shown']}件 / "
+          f"除外 {total['ignored']}件 / エラー {total['errors']}件", file=sys.stderr)
+    if not total['decoded']:
+        print('通報データが見つかりません。入力ファイルと --input-format を確認してください。', file=sys.stderr)
+    return 1 if total['errors'] or not total['decoded'] else 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--status', action='store_true', help='print saved runtime state (default: JSON)')
     group.add_argument('--health', action='store_true', help='exit successfully only when healthy')
     group.add_argument('--history', action='store_true', help='list saved delivery history (default: text)')
+    group.add_argument('--preview', nargs='+', metavar='FILE', help='preview reports from files; use - for standard input')
     parser.add_argument('--format', choices=('text', 'json'), help='output format for --status or --history')
     parser.add_argument('--state', choices=('pending', 'sent', 'expired'), help='filter --history by delivery state')
     parser.add_argument('--limit', type=int, help='maximum history rows (default: 20, maximum: 1000)')
+    parser.add_argument('--input-format', choices=('nmea', 'ubx'), help='preview input format (default: nmea)')
+    parser.add_argument('--received-at', type=received_at, help='preview reference date/time with timezone (default: current UTC time)')
     args = parser.parse_args(argv)
     if args.format and not (args.status or args.history):
         parser.error('--format requires --status or --history')
@@ -310,8 +356,14 @@ def main(argv=None):
         parser.error('--state and --limit require --history')
     if args.limit is not None and not 1 <= args.limit <= 1000:
         parser.error('--limit must be between 1 and 1000')
+    if (args.input_format is not None or args.received_at is not None) and not args.preview:
+        parser.error('--input-format and --received-at require --preview')
+    if args.preview and args.preview.count('-') > 1:
+        parser.error('standard input (-) can only be used once')
     logging.basicConfig(level=os.environ.get('SHIRASU_LOG_LEVEL', 'INFO'),
                         format='%(asctime)s %(levelname)s %(name)s %(message)s')
+    if args.preview:
+        return run_preview(args)
     if args.status or args.health or args.history:
         # Inspection commands never load config, start workers, or maintain state.
         try:
