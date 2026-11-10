@@ -55,6 +55,10 @@ FILES = (
 
 PREVIEW_FILES = (
     'image_service/render_preview.py',
+    'image_service/preview_wide_layout.py',
+    'image_service/preview_wide_regions.py',
+    'image_service/preview_wide_points.py',
+    'image_service/preview_wide_special.py',
     'image_service/nwp_map.py',
     'image_service/nwp_reports.py',
     'image_service/assets/preview/nwp_points.json',

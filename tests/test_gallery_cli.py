@@ -181,8 +181,9 @@ class GalleryRenderingTests(unittest.TestCase):
             self.assertIs(base.Figure.savefig, original_savefig)
             self.assertEqual(manifest['error_count'], 0)
             row, = manifest['cases']
-            for image in row['images'].values():
-                self.assertEqual((image['width'], image['height']), (1440, 1200))
+            for slot, image in row['images'].items():
+                expected = (1920, 1080) if slot == 'preview' else (1440, 1200)
+                self.assertEqual((image['width'], image['height']), expected)
                 self.assertEqual(image['kind'], 'map')
                 self.assertTrue((output / image['path']).is_file())
             published_png = (output / row['images']['published']['path']).read_bytes()

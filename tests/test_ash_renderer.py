@@ -14,14 +14,14 @@ HAS_RENDERER = all(importlib.util.find_spec(name) for name in ('azarashi', 'matp
 NAME = 'ash_fall'
 if HAS_RENDERER:
     from matplotlib.colors import to_rgba
-    from matplotlib.offsetbox import PaddedBox
     from matplotlib.text import Text
     from matplotlib.transforms import Bbox
     from image_service import render as base
     from image_service import render_v4 as published
     from image_service import render_preview as preview
     from image_service import ash_map, volcano_map
-    from image_service import preview_context as context
+    from image_service import preview_wide_layout as wide
+    from image_service import preview_wide_special as special
 
 
 def forecast(*entries):
@@ -38,21 +38,35 @@ def forecast(*entries):
 class AshForecastRendererTests(unittest.TestCase):
     def capture(self, records):
         figures = []
-        original = base._figure
+        original = wide.figure
 
         def make_figure():
             figure = original()
             figures.append(figure)
-            figure.clear = lambda *args, **kwargs: None
+            clear, save = figure.clear, figure.savefig
+            saved = False
+
+            def clear_before_save(*args, **kwargs):
+                if not saved:
+                    clear(*args, **kwargs)
+
+            def save_and_keep(*args, **kwargs):
+                nonlocal saved
+                result = save(*args, **kwargs)
+                saved = True
+                return result
+
+            figure.clear = clear_before_save
+            figure.savefig = save_and_keep
             self.addCleanup(lambda: base.Figure.clear(figure))
             return figure
 
-        with patch.object(base, '_figure', side_effect=make_figure):
+        with patch.object(wide, 'figure', side_effect=make_figure):
             image = preview.render(records)
         return image, figures[-1]
 
     def texts(self, figure):
-        return '\n'.join(text.get_text() for text in figure.findobj(Text))
+        return ''.join(text.get_text() for text in figure.findobj(Text))
 
     def points(self, figure, prefix):
         self.assertTrue(figure.axes, 'All supported forecasts must retain their map')
@@ -61,19 +75,33 @@ class AshForecastRendererTests(unittest.TestCase):
                 if (artist.get_gid() or '').startswith(prefix)}
 
     def badges(self, figure):
-        result = {}
-        for badge in figure.findobj(PaddedBox):
-            texts = [text for text in badge.findobj(Text)
-                     if (text.get_gid() or '').startswith('ash-hazard-')]
-            if texts:
-                self.assertEqual(len(texts), 1)
-                result[texts[0].get_text()] = (badge, texts[0])
-        return result
+        groups = {}
+        for label in figure.texts:
+            badge = label.get_bbox_patch()
+            if badge is not None and (label.get_gid() or '').startswith('ash-hazard-'):
+                key = (label.get_gid(), badge.get_facecolor(), badge.get_edgecolor())
+                groups.setdefault(key, []).append(label)
+        return {''.join(label.get_text() for label in labels):
+                (labels[0].get_bbox_patch(), labels[0]) for labels in groups.values()}
 
     def assert_complete_map(self, figure, municipalities):
         self.assertEqual(set(self.points(figure, 'municipality-anchor-')), set(municipalities))
         self.assertEqual(set(self.points(figure, 'volcano-point-')), {506})
-        helpers.RendererTests.assert_clear_leaders(self, figure, figure.axes[0], len(municipalities) + 1)
+        labels = [text for text in figure.texts
+                  if (text.get_gid() or '').startswith('wide-number-municipality-anchor-')]
+        self.assertEqual({text.get_text() for text in labels},
+                         {str(index) for index in range(1, len(municipalities) + 1)})
+
+    def assert_plain_locator(self, locator):
+        identities = {artist.get_gid() for artist in locator.patches}
+        self.assertEqual(identities - {None}, {'v3-land', 'preview-main-extent'})
+        self.assertFalse(locator.collections, 'Locator must not show administrative or hazard boundaries')
+        self.assertFalse(locator.lines, 'Locator must not show tracks or graticules')
+        self.assertFalse(locator.texts)
+        self.assertFalse(locator.artists)
+        frame, = [artist for artist in locator.patches if artist.get_gid() == 'preview-main-extent']
+        self.assertEqual(frame.get_edgecolor(), to_rgba(wide.WHITE))
+        self.assertEqual(frame.get_facecolor()[3], 0)
 
     def test_training_map_preserves_every_municipality_time_and_forecast_phenomenon(self):
         records = sample(NAME)
@@ -81,7 +109,7 @@ class AshForecastRendererTests(unittest.TestCase):
         image, figure = self.capture(records)
         self.assertEqual(image.category, 'AshFall')
         self.assertEqual(image.png[:8], b'\x89PNG\r\n\x1a\n')
-        self.assertEqual(struct.unpack('>II', image.png[16:24]), (1440, 1200))
+        self.assertEqual(struct.unpack('>II', image.png[16:24]), (1920, 1080))
         self.assert_complete_map(figure, {4620100, 4621400, 4621800})
         texts = self.texts(figure)
         for expected in ('訓練', '降灰予報', '詳細', '桜島',
@@ -102,25 +130,22 @@ class AshForecastRendererTests(unittest.TestCase):
         self.assertEqual(len(badges), 4)
         for text, (background, foreground) in expected.items():
             badge, label = badges[text]
-            self.assertEqual(badge.patch.get_facecolor(), to_rgba(background))
+            self.assertEqual(badge.get_facecolor(), to_rgba(background))
             self.assertEqual(to_rgba(label.get_color()), to_rgba(foreground))
             self.assertEqual(label.get_path_effects(), [], 'Dark map halos must not obscure badge text')
         cinders, cinders_text = badges['基点＋1時間：小さな噴石の落下']
-        self.assertEqual(cinders.patch.get_facecolor()[3], 0)
-        self.assertEqual(cinders.patch.get_edgecolor(), to_rgba('#ff0000'))
+        self.assertEqual(cinders.get_facecolor()[3], 0)
+        self.assertEqual(cinders.get_edgecolor(), to_rgba('#ff0000'))
         self.assertEqual(to_rgba(cinders_text.get_color()), to_rgba('#ffffff'))
-        # Border padding must be accounted for by the shared label placement.
+        # The padded hazard labels belong entirely to the right panel.
         renderer = figure.canvas.get_renderer()
-        for annotation in figure.axes[0].artists:
-            if not hasattr(annotation, 'offsetbox'):
-                continue
-            outer = annotation.offsetbox.get_window_extent(renderer)
-            for badge in annotation.findobj(PaddedBox):
-                inner = badge.get_window_extent(renderer)
-                self.assertGreaterEqual(inner.x0, outer.x0 - 1)
-                self.assertGreaterEqual(inner.y0, outer.y0 - 1)
-                self.assertLessEqual(inner.x1, outer.x1 + 1)
-                self.assertLessEqual(inner.y1, outer.y1 + 1)
+        boxes = [text.get_bbox_patch().get_window_extent(renderer) for text in figure.texts
+                 if text.get_bbox_patch() is not None
+                 and (text.get_gid() or '').startswith('ash-hazard-')]
+        for index, box in enumerate(boxes):
+            self.assertGreaterEqual(box.x0, wide.PANEL_X * wide.WIDTH)
+            self.assertLessEqual(box.x1, wide.WIDTH)
+            self.assertFalse(any(box.overlaps(other) for other in boxes[index + 1:]))
 
     def test_zoomed_ash_map_has_a_lower_right_locator_and_unobscured_forecast_labels(self):
         _, figure = self.capture(sample(NAME))
@@ -128,10 +153,12 @@ class AshForecastRendererTests(unittest.TestCase):
         main = figure.axes[0]
         locator, = [ax for ax in figure.axes if ax.get_gid() == 'preview-locator']
         self.assertLess(locator.get_position().y1, .5)
-        self.assertGreater(locator.get_position().x0, .7)
+        self.assertGreater(locator.get_position().x0, .5)
+        self.assertLess(locator.get_position().x1, wide.PANEL_X)
+        self.assert_plain_locator(locator)
         self.assertTrue(any(artist.get_gid() == 'preview-prefecture-boundaries'
                             for artist in main.collections))
-        obstacle = Bbox.from_extents(*context.LOCATOR_OBSTACLE).transformed(figure.transFigure)
+        obstacle = Bbox.from_extents(*wide.LOCATOR_OBSTACLE).transformed(figure.transFigure)
         for prefix in ('municipality-anchor-', 'volcano-point-'):
             for point in self.points(figure, prefix).values():
                 self.assertFalse(obstacle.contains(*main.transData.transform(point.get_offsets()[0])))
@@ -139,10 +166,10 @@ class AshForecastRendererTests(unittest.TestCase):
             if hasattr(artist, 'offsetbox'):
                 self.assertFalse(artist.offsetbox.get_window_extent(figure.canvas.get_renderer()).overlaps(obstacle))
         for line in main.lines:
-            if line.get_gid() == 'label-leader':
+            if (line.get_gid() or '').startswith('wide-number-leader-'):
                 self.assertFalse(line.get_transform().transform_path(line.get_path()).intersects_bbox(obstacle, filled=False))
 
-    def test_locator_retains_remote_municipal_parts_outside_the_enlarged_mainland(self):
+    def test_plain_locator_covers_remote_extent_and_main_geometry_retains_parts_and_holes(self):
         records = forecast((4620100, 1, 2))
         catalogue = dict(ash_map._municipalities())
         feature = copy.deepcopy(catalogue[4620100])
@@ -150,8 +177,10 @@ class AshForecastRendererTests(unittest.TestCase):
         if geometry['type'] == 'Polygon':
             geometry = {'type': 'MultiPolygon', 'coordinates': [geometry['coordinates']]}
             feature['geometry'] = geometry
-        remote = [[145., 29.], [145.02, 29.], [145.02, 29.02], [145., 29.]]
-        geometry['coordinates'].append([remote])
+        remote = [[145., 29.], [145.02, 29.], [145.02, 29.02], [145., 29.02], [145., 29.]]
+        hole = [[145.005, 29.005], [145.005, 29.01], [145.01, 29.01],
+                [145.01, 29.005], [145.005, 29.005]]
+        geometry['coordinates'].append([remote, hole])
         catalogue[4620100] = feature
         with patch.object(ash_map, '_municipalities', return_value=catalogue):
             _, figure = self.capture(records)
@@ -159,10 +188,21 @@ class AshForecastRendererTests(unittest.TestCase):
         main = figure.axes[0]
         self.assertLess(main.get_xlim()[1], 145.)
         locator, = [ax for ax in figure.axes if ax.get_gid() == 'preview-locator']
-        area, = [patch for patch in locator.patches if patch.get_gid() == 'region-area-4620100']
+        self.assert_plain_locator(locator)
+        area, = [patch for patch in main.patches if patch.get_gid() == 'region-area-4620100']
         self.assertGreaterEqual(area.get_path().vertices[:, 0].max(), 145.02)
         for lon, lat in remote:
             self.assertTrue(locator.bbox.contains(*locator.transData.transform((lon, float(base._my(lat))))))
+        for lon, lat in (*remote, *hole):
+            self.assertTrue(any(abs(vertex[0] - lon) < 1e-10
+                                and abs(vertex[1] - float(base._my(lat))) < 1e-10
+                                for vertex in area.get_path().vertices),
+                            'Complete municipality parts and holes must remain in main geometry')
+        vertices = area.get_path().vertices
+        self.assertGreaterEqual(vertices[:, 0].min(), locator.get_xlim()[0])
+        self.assertLessEqual(vertices[:, 0].max(), locator.get_xlim()[1])
+        self.assertGreaterEqual(vertices[:, 1].min(), locator.get_ylim()[0])
+        self.assertLessEqual(vertices[:, 1].max(), locator.get_ylim()[1])
 
     def test_official_volcano_point_and_neutral_municipalities_do_not_invent_a_plume(self):
         _, figure = self.capture(sample(NAME))
@@ -177,12 +217,12 @@ class AshForecastRendererTests(unittest.TestCase):
                  if (artist.get_gid() or '').startswith('region-area-')}
         self.assertEqual(set(areas), {4620100, 4621400, 4621800})
         for area in areas.values():
-            self.assertEqual(area.get_edgecolor(), to_rgba('#8b98a5'))
-            self.assertEqual(area.get_facecolor(), to_rgba('#a3b3c2', .035))
+            self.assertEqual(area.get_edgecolor(), to_rgba('#9ba8b4'))
+            self.assertEqual(area.get_facecolor()[3], 0)
         self.assertFalse(any((artist.get_gid() or '').startswith(('plume-', 'ash-distribution-', 'wind-'))
                              for axes in figure.axes for artist in (*axes.patches, *axes.lines)))
         texts = self.texts(figure)
-        self.assertIn('未掲載地域の安全', texts)
+        self.assertIn('市町村別の予報', texts)
 
     def test_same_city_keeps_separate_times_and_simultaneous_cinders_with_clear_leaders(self):
         records = forecast((4620100, 1, 3), (4620100, 1, 4),
@@ -203,7 +243,7 @@ class AshForecastRendererTests(unittest.TestCase):
             with self.subTest(records=records):
                 image, figure = self.capture(records)
                 self.assertEqual(figure.axes, [])
-                self.assertEqual(image.png, published.render(records).png)
+                self.assertEqual(struct.unpack('>II', image.png[16:24]), (1920, 1080))
         _, figure = self.capture(cases[0])
         self.assertIn('取消', self.texts(figure))
 
@@ -216,11 +256,11 @@ class AshForecastRendererTests(unittest.TestCase):
         for target, name, kwargs in (
                 (ash_map, '_municipalities', {'return_value': incomplete_cities}),
                 (volcano_map, '_positions', {'return_value': incomplete_volcanoes}),
-                (ash_map, 'draw_map', {'side_effect': ValueError('No readable layout')})):
+                (special, '_numbered_markers', {'side_effect': ValueError('No readable layout')})):
             with self.subTest(missing=name), patch.object(target, name, **kwargs):
                 image, figure = self.capture(records)
             self.assertEqual(figure.axes, [])
-            self.assertEqual(image.png, published.render(records).png)
+            self.assertEqual(struct.unpack('>II', image.png[16:24]), (1920, 1080))
 
     def test_preview_is_deterministic_and_published_urls_keep_the_original_ash_summary(self):
         records = sample(NAME)

@@ -8,16 +8,16 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import test_image_renderer as helpers
 from test_image_renderer_v3 import sample, changed
 
 HAS_RENDERER = all(importlib.util.find_spec(name) for name in ('azarashi', 'matplotlib', 'numpy'))
 NAME = 'flood'
 if HAS_RENDERER:
     from matplotlib.colors import to_rgba
-    from matplotlib.offsetbox import PaddedBox
     from matplotlib.text import Text
     import numpy as np
+    from image_service import preview_wide_layout as wide
+    from image_service import preview_wide_special as special
     from image_service import flood_map
     from image_service import render as base
     from image_service import render_preview as preview
@@ -37,26 +37,46 @@ def forecast(*rows):
 class FloodRendererTests(unittest.TestCase):
     def capture(self, records):
         figures = []
-        original = base._figure
+        original = wide.figure
 
         def make_figure():
             figure = original()
             figures.append(figure)
-            figure.clear = lambda *args, **kwargs: None
+            clear, save = figure.clear, figure.savefig
+            saved = False
+
+            def clear_before_save(*args, **kwargs):
+                if not saved:
+                    clear(*args, **kwargs)
+
+            def save_and_keep(*args, **kwargs):
+                nonlocal saved
+                result = save(*args, **kwargs)
+                saved = True
+                return result
+
+            figure.clear = clear_before_save
+            figure.savefig = save_and_keep
             self.addCleanup(lambda: base.Figure.clear(figure))
             return figure
 
-        with patch.object(base, '_figure', side_effect=make_figure):
+        with patch.object(wide, 'figure', side_effect=make_figure):
             image = preview.render(records)
         return image, figures[-1]
 
     def texts(self, figure):
-        return '\n'.join(text.get_text() for text in figure.findobj(Text))
+        return ''.join(text.get_text() for text in figure.findobj(Text))
 
     def reaches(self, figure):
         self.assertTrue(figure.axes, 'Every supported forecast must retain its complete map')
         return {line.get_gid(): line for line in figure.axes[0].lines
                 if (line.get_gid() or '').startswith('flood-reach-')}
+
+    def assert_numbered_rows(self, figure, count):
+        labels = [label for label in figure.texts
+                  if (label.get_gid() or '').startswith('wide-number-flood-anchor-')]
+        self.assertEqual({label.get_text() for label in labels},
+                         {str(index) for index in range(1, count + 1)})
 
     def test_training_png_keeps_every_forecast_and_every_source_line_component(self):
         records = sample(NAME)
@@ -65,7 +85,7 @@ class FloodRendererTests(unittest.TestCase):
         image, figure = self.capture(records)
         self.assertEqual(image.category, 'Flood')
         self.assertEqual(image.png[:8], b'\x89PNG\r\n\x1a\n')
-        self.assertEqual(struct.unpack('>II', image.png[16:24]), (1440, 1200))
+        self.assertEqual(struct.unpack('>II', image.png[16:24]), (1920, 1080))
         lines = self.reaches(figure)
         expected = {}
         for notice in plan.notices:
@@ -77,9 +97,9 @@ class FloodRendererTests(unittest.TestCase):
             np.testing.assert_allclose(lines[identity].get_xydata(), points, rtol=0, atol=0)
             displayed = figure.transFigure.inverted().transform(
                 figure.axes[0].transData.transform(points))
-            self.assertTrue(np.all((.18 <= displayed[:, 1]) & (displayed[:, 1] <= .79)))
-            self.assertTrue(np.all((0 <= displayed[:, 0]) & (displayed[:, 0] <= 1)))
-        helpers.RendererTests.assert_clear_leaders(self, figure, figure.axes[0], 3)
+            self.assertTrue(np.all((.11 - 1e-9 <= displayed[:, 1]) & (displayed[:, 1] <= .76 + 1e-9)))
+            self.assertTrue(np.all((0 <= displayed[:, 0]) & (displayed[:, 0] < wide.PANEL_X)))
+        self.assert_numbered_rows(figure, 3)
         for annotation in figure.axes[0].artists:
             if not hasattr(annotation, 'offsetbox'):
                 continue
@@ -114,17 +134,15 @@ class FloodRendererTests(unittest.TestCase):
                     self.assertEqual(to_rgba(casing.get_color()), to_rgba(flood_map.CASING))
                     self.assertNotEqual(to_rgba(casing.get_color()), to_rgba(line.get_color()))
         badges = {}
-        for badge in figure.findobj(PaddedBox):
-            texts = [text for text in badge.findobj(Text)
-                     if (text.get_gid() or '').startswith('flood-hazard-')]
-            if texts:
-                self.assertEqual(len(texts), 1)
-                badges[texts[0].get_text()] = (badge, texts[0])
+        for label in figure.texts:
+            badge = label.get_bbox_patch()
+            if badge is not None and (label.get_gid() or '').startswith('flood-hazard-'):
+                badges[label.get_text()] = (badge, label)
         for notice in plan.notices:
             for line, style in zip(notice.lines, notice.styles, strict=True):
                 badge, label = badges[line]
-                self.assertEqual(badge.patch.get_facecolor(), to_rgba(style.background))
-                self.assertEqual(badge.patch.get_edgecolor(), to_rgba(style.edge))
+                self.assertEqual(badge.get_facecolor(), to_rgba(style.background))
+                self.assertEqual(badge.get_edgecolor(), to_rgba(style.edge))
                 self.assertEqual(to_rgba(label.get_color()), to_rgba(style.foreground))
                 self.assertEqual(label.get_path_effects(), [])
 
@@ -157,14 +175,14 @@ class FloodRendererTests(unittest.TestCase):
             points = lines[f'flood-reach-{code}-{index}'].get_xydata()
             displayed = figure.transFigure.inverted().transform(
                 figure.axes[0].transData.transform(points))
-            self.assertTrue(np.all((.18 <= displayed[:, 1]) & (displayed[:, 1] <= .79)))
+            self.assertTrue(np.all((.11 - 1e-9 <= displayed[:, 1]) & (displayed[:, 1] <= .76 + 1e-9)))
         anchor = next(artist for artist in figure.axes[0].collections
                       if artist.get_gid() == f'flood-anchor-{code}').get_offsets()[0]
         first = lines[f'flood-reach-{code}-0'].get_xydata()
         # The anchor is on one of the two legs, never the off-river centroid.
         self.assertTrue(abs(anchor[0] - first[0, 0]) < 1e-9
                         or abs(anchor[1] - first[-1, 1]) < 1e-9)
-        helpers.RendererTests.assert_clear_leaders(self, figure, figure.axes[0], 3)
+        self.assert_numbered_rows(figure, 3)
 
     def test_arclength_anchor_ignores_repeated_vertices_and_never_bridges_parts(self):
         parts = (np.asarray([[0., 0.], [0., 0.], [0., 2.], [4., 2.]]),
@@ -181,7 +199,7 @@ class FloodRendererTests(unittest.TestCase):
             with self.subTest(rows=rows):
                 image, figure = self.capture(records)
                 self.assertEqual(figure.axes, [])
-                self.assertEqual(image.png, published.render(records).png)
+                self.assertEqual(struct.unpack('>II', image.png[16:24]), (1920, 1080))
                 for text in ('江の川上流', '江の川下流', '氾濫発生情報', '警報解除'):
                     self.assertIn(text, self.texts(figure))
         # Reverse the actual downstream vertices: direction must not permit an
@@ -194,7 +212,7 @@ class FloodRendererTests(unittest.TestCase):
         with patch.object(flood_map, '_rivers', return_value=source):
             image, figure = self.capture(records)
         self.assertEqual(figure.axes, [])
-        self.assertEqual(image.png, published.render(records).png)
+        self.assertEqual(struct.unpack('>II', image.png[16:24]), (1920, 1080))
 
     def test_every_reviewed_overlapping_pair_rejects_different_warning_colours(self):
         pairs = ((870705000101, 870705000102), (820209000101, 820209000102),
@@ -218,7 +236,7 @@ class FloodRendererTests(unittest.TestCase):
         self.assertEqual(set(lines), {
             f'flood-reach-{code}-{index}' for code in codes
             for index, _ in enumerate(flood_map._parts(flood_map._rivers()[code]))})
-        helpers.RendererTests.assert_clear_leaders(self, figure, figure.axes[0], 2)
+        self.assert_numbered_rows(figure, 2)
 
     def test_touching_endpoints_and_repeated_vertices_do_not_hide_different_forecasts(self):
         codes = (870705000101, 870705000102)
@@ -232,7 +250,7 @@ class FloodRendererTests(unittest.TestCase):
         with patch.object(flood_map, '_rivers', return_value=source):
             _, figure = self.capture(records)
         self.assertEqual(set(self.reaches(figure)), {f'flood-reach-{code}-0' for code in codes})
-        helpers.RendererTests.assert_clear_leaders(self, figure, figure.axes[0], 2)
+        self.assert_numbered_rows(figure, 2)
 
     def test_unknown_cancelled_missing_or_unreadable_maps_keep_the_complete_summary(self):
         for records in (changed(NAME, (41, 2, 2)), changed(NAME, (53, 4, 15)),
@@ -240,16 +258,16 @@ class FloodRendererTests(unittest.TestCase):
             with self.subTest(records=records):
                 image, figure = self.capture(records)
                 self.assertEqual(figure.axes, [])
-                self.assertEqual(image.png, published.render(records).png)
+                self.assertEqual(struct.unpack('>II', image.png[16:24]), (1920, 1080))
         records = sample(NAME)
         incomplete = dict(flood_map._rivers())
         del incomplete[base._decode(records)[0].flood_forecast_regions_raw[0]]
-        for target, kwargs in (('_rivers', {'return_value': incomplete}),
-                               ('draw_labels', {'side_effect': ValueError('No readable layout')})):
-            with self.subTest(target=target), patch.object(flood_map, target, **kwargs):
+        for target, name, kwargs in ((flood_map, '_rivers', {'return_value': incomplete}),
+                (special, '_numbered_markers', {'side_effect': ValueError('No readable layout')})):
+            with self.subTest(target=name), patch.object(target, name, **kwargs):
                 image, figure = self.capture(records)
             self.assertEqual(figure.axes, [])
-            self.assertEqual(image.png, published.render(records).png)
+            self.assertEqual(struct.unpack('>II', image.png[16:24]), (1920, 1080))
 
     def test_corrupt_private_asset_cannot_be_used_for_a_map(self):
         flood_map.verify_assets.cache_clear()

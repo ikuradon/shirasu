@@ -63,7 +63,8 @@ class PublicQzqsmImageTests(unittest.TestCase):
         with patch.object(base.Figure, 'savefig', save):
             image = renderer.render(records)
         self.assertEqual(image.png[:8], b'\x89PNG\r\n\x1a\n')
-        self.assertEqual(struct.unpack('>II', image.png[16:24]), (1440, 1200))
+        expected = (1920, 1080) if renderer is preview else (1440, 1200)
+        self.assertEqual(struct.unpack('>II', image.png[16:24]), expected)
         return image, snapshots[-1]
 
     def test_recorded_categories_reach_published_png_with_received_content(self):
@@ -172,8 +173,13 @@ class PublicQzqsmImageTests(unittest.TestCase):
         text = snapshot['texts']
         for phrase in ('訓練', '詳細', '阿蘇山', '阿蘇市', '高森町', '南阿蘇村'):
             self.assertIn(phrase, text)
-        for hour in range(1, 7):
-            self.assertEqual(text.count(f'基点＋{hour}時間：'), 3)
+        # Equal phenomena may share a label, but the discrete forecast hours
+        # remain explicit (an interval must not be invented).
+        compact = text.replace('\n', '')
+        self.assertEqual(compact.count('基点＋1時間：やや多量の降灰'), 2)
+        self.assertEqual(compact.count('基点＋2・3・4・5・6時間：少量の降灰'), 2)
+        self.assertEqual(compact.count('基点＋1・2・3・4・5・6時間：少量の降灰'), 1)
+        self.assertNotIn('1〜6時間', compact)
         anchors = {gid for gid in snapshot['collection_gids']
                    if gid.startswith('municipality-anchor-')}
         self.assertEqual(anchors, {'municipality-anchor-4321400',
