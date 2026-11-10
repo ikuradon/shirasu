@@ -41,7 +41,7 @@ python3.12 -m venv /tmp/shirasu-images-venv
 
 ## オフライン画像ギャラリー
 
-15種類・23ケースについて、公開済み版と作業版を横に並べるHTMLとPNGを一括生成します。
+15種類・25ケースについて、公開済み版と作業版を横に並べるHTMLとPNGを一括生成します。
 画像サービス用の依存関係と、[洪水の流路データ](#指定河川洪水予報のプレビュー)を準備した後、
 リポジトリルートで次の1コマンドを実行します。
 
@@ -198,9 +198,37 @@ All Clearは解除として表示し、取消や安全宣言には変換しま�
 
 `preview_dcx_reports.py` が候補を検証し、`preview_wide_dcx.py` が各候補の描画失敗時も含めて
 全体を消去して次の段階へ切り替えます。地図・トピックとも長い指示文は投稿本文で読みます。
-ギャラリーには元の4受信例に加え、`dcx-ellipse`・`dcx-municipality`・`dcx-prefectures`を収録しています。
-後者3件はVnや区域フィールドを変更してCRCを再計算した**合成訓練例**であり、
+ギャラリーには元の4受信例に加え、`dcx-ellipse`・`dcx-municipality`・`dcx-prefectures`・
+`dcx-ward`（札幌市中央区）・`dcx-wards`（中央区と北区）を収録しています。
+後者5件はVnや区域フィールドを変更してCRCを再計算した**合成訓練例**であり、
 受信原本と区別して変更内容・元ファイル・チェックサムを記録します。
+
+### DCXの政令市区境界
+
+未公開DCXは、既存の市町村データに加えて現行20政令市171区を表示できます。
+[気象庁の市町村等（地震津波関係）GIS](https://www.data.jma.go.jp/developer/gis.html)の
+2024年11月28日版を固定し、`regioncode = DCX区域コード × 100` と名称を直接照合しました。
+JGD2011座標を保持し、全1,638のpolygon成分・6個の穴を残したまま簡略化します。
+主図の県境・周辺地名・純粋な地図だけのミニマップは共通配置を使用します。
+
+DCXコード表には、現行区とは別に再編前の15区も残っています。旧浜松7区、旧大阪4区、
+旧神戸2区、旧北九州2区はこのGISにないため未収録です。同名の大阪市北区・浜松市天竜区も
+コードを区別し、現行境界へ置き換えません。再編は[浜松市](https://www.city.hamamatsu.shizuoka.jp/kikaku/kuseido/index.html)、
+[大阪市北区](https://www.city.osaka.lg.jp/kita/page/0000001321.html)、
+[大阪市の区域の推移](https://www.city.osaka.lg.jp/shimin/cmsfiles/contents/0000631/631502/01-02kuikinosuii.pdf)、
+[神戸市公文書館](https://www.kobe-city-archives.jp/modern_history/)、
+[北九州市](https://www.city.kitakyushu.lg.jp/kokurakita/file_0003.html)の資料で確認しています。
+既存市町村データにない北方領土5村も今回の補完対象外です。
+複数の指定区域に1つでも未収録区域があれば、その候補全体をトピックへ戻します。
+
+`preview_dcx_areas.py` が厳密なコード検索を行い、区を市全域に拡大しません。
+DCX専用の `assets/preview/dcx_wards.geojson.zlib`、`dcx_wards_manifest.json`、
+`DCX_WARDS_NOTICE.txt` に境界・出典・取得日・SHA-256・処理統計・旧15区のコードを記録します。
+既存の降灰用アセットと公開済みv1〜v4は変更しません。国内Vn=0の表示方針も維持します。
+
+再生成は `python scripts/prepare_dcx_ward_assets.py --source /path/to/municipalities-quake.zip`。
+`--source` 省略時は固定された公式ZIPを取得します。加工専用環境の依存は
+`azarashi==0.17.1`、`pyshp==2.3.1`、`shapely==2.1.2` です。描画時の外部取得は不要です。
 
 ### 震度マーカーの調査と表示範囲
 

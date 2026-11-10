@@ -11,7 +11,7 @@ from azarashi.reports import dcx
 from matplotlib.patches import Ellipse as SymbolEllipse, PathPatch, Polygon
 from matplotlib.path import Path
 
-from image_service import ash_map, region_map
+from image_service import preview_dcx_areas, region_map
 from image_service import preview_wide_layout as wide
 from image_service import render as base
 from image_service.preview_dcx_geometry import ellipse_ring
@@ -105,7 +105,7 @@ def _area(fig, report, plan):
         if area.layer == 'prefectures':
             features = region_map._layer('prefectures').get(area.code)
         elif area.layer == 'municipalities':
-            feature = ash_map._municipalities().get(area.code)
+            feature = preview_dcx_areas.municipality(area.code)
             features = (feature,) if feature else None
         else:
             raise PreviewFallback('unknown_area', stage='area', detail='未対応の区域レイヤー',

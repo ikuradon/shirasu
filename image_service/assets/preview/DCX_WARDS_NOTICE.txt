@@ -1,0 +1,26 @@
+JMA earthquake/tsunami municipality GIS / 気象庁の政令市区境界を加工
+
+出典: 気象庁「予報区等GISデータの一覧」市町村等（地震津波関係）
+https://www.data.jma.go.jp/developer/gis.html
+https://www.data.jma.go.jp/developer/gis/20241128_AreaInformationCity_quake_GIS.zip
+2026年11月11日取得。入力SHA-256は dcx_wards_manifest.json に記録。
+気象庁ホームページの利用規約（公共データ利用規約 第1.0版）に基づき利用。
+https://www.jma.go.jp/jma/kishou/info/coment.html
+気象庁の公表データを Shirasu が加工して作成。気象庁作成の画像ではない。
+
+配布ページに明記されたJGD2011経緯度を保持。regioncodeをDCXのJISコード×100と
+直接照合し、regionnameを「都道府県名＋市名＋のうち＋区名」と照合する。
+現行20政令市171区のみを収録。DCX定義に残る旧15区は未収録としてmanifestに明記し、
+現行区や市全域への代替・合成を行わない。同名の旧大阪市北区・旧浜松市天竜区も区別する。
+他の市町村・コードのない地物は採用しない。DCR用の既存市町村アセットは変更しない。
+
+Shapely2.1.2 simplify(preserve_topology=True)、最大許容値0.002度で簡略化。
+面積差1%以下まで許容値を半減し、polygon成分・穴の個数を保存する。
+必要な微小修復も成分・穴を保存し、処理統計をmanifestへ記録。離島の除去・座標丸めなし。
+隣接区の境界は個別簡略化による細いずれを含み得る。区域は受信した通報の対象であり、
+被害範囲や区全域への均一な影響を示さない。未指定区域の安全も示さない。
+
+再生成（指定バージョンのGIS環境）:
+  python scripts/prepare_dcx_ward_assets.py --source /path/to/municipalities-quake.zip
+--source省略時は固定URLを取得する。--outputで出力先を指定できる。
+未公開DCXプレビュー専用。描画時の外部データ取得は行わない。

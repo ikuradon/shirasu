@@ -28,7 +28,7 @@ class GalleryCatalogTests(unittest.TestCase):
         self.cases = {case.slug: case for case in load_cases()}
 
     def test_catalog_covers_image_categories_with_stable_unique_output_names(self):
-        self.assertEqual(len(self.cases), 23)
+        self.assertEqual(len(self.cases), 25)
         self.assertEqual({case.category for case in self.cases.values()}, {
             'Typhoon', 'Hypocenter', 'Weather', 'EarthquakeEarlyWarning', 'SeismicIntensity',
             'Tsunami', 'Volcano', 'AshFall', 'Flood', 'NorthwestPacificTsunami', 'Marine',
@@ -103,6 +103,8 @@ class GalleryCatalogTests(unittest.TestCase):
     def test_synthetic_dcx_preserves_source_provenance_and_only_changes_declared_fields(self):
         variants = (
             ('dcx-municipality', 'dcx-lalert', ((146, 16),)),
+            ('dcx-ward', 'dcx-lalert', ()),
+            ('dcx-wards', 'dcx-jalert', ((146, 1), (147, 64))),
             ('dcx-prefectures', 'dcx-jalert', ((147, 64),)),
             ('dcx-ellipse', 'dcx-mtinfo', ((162, 52),)),
         )
@@ -121,6 +123,7 @@ class GalleryCatalogTests(unittest.TestCase):
                 self.assertNotEqual(case.records[0][0], original.records[0][0])
                 self.assertEqual(case.records[0][1], original.records[0][1])
                 self.assertEqual(decoded(original)[0].camf.vn, 0)
+                # The independent decoder verifies CRC-24Q and the NMEA checksum.
                 report = decoded(case)[0]
                 self.assertEqual((report.camf.vn, report.camf.a1), (1, 0))
                 self.assertEqual((report.camf.sdmt, report.camf.sdm),
@@ -139,6 +142,16 @@ class GalleryCatalogTests(unittest.TestCase):
         self.assertEqual(municipality.ex1_target_area_ja, '北海道函館市')
         self.assertFalse(municipality.ignore_ex1)
         self.assertTrue(municipality.ignore_a12_to_a16)
+        ward = decoded(self.cases['dcx-ward'])[0]
+        self.assertEqual(ward.camf.ex1, 1101)
+        self.assertEqual(ward.ex1_target_area_ja, '札幌市中央区')
+        self.assertFalse(ward.ignore_ex1)
+        self.assertTrue(ward.ignore_a12_to_a16)
+        wards = decoded(self.cases['dcx-wards'])[0]
+        self.assertEqual(wards.camf.ex8, 1)
+        self.assertEqual(wards.camf.ex9, (1101 << 48) | (1102 << 32))
+        self.assertEqual(wards.ex9_target_area_list_ja, ['札幌市中央区', '札幌市北区'])
+        self.assertFalse(wards.ignore_ex8_to_ex9)
         prefectures = decoded(self.cases['dcx-prefectures'])[0]
         self.assertEqual(prefectures.camf.ex8, 0)
         self.assertEqual(prefectures.camf.ex9, 7 << 17)

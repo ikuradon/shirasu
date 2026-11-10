@@ -15,6 +15,7 @@ if HAS_RENDERER:
     from image_service import ash_map, region_map
     from image_service import render as base
     from image_service import preview_wide_dcx as dcx_images
+    from image_service import preview_dcx_areas as dcx_areas
     from image_service import preview_wide_layout as wide
     from image_service.preview_dcx_reports import Point, dcx_plan
     from scripts.gallery_catalog import load_cases
@@ -80,6 +81,8 @@ class DcxRenderingTests(unittest.TestCase):
 
     def test_municipal_and_prefectural_maps_keep_every_received_component(self):
         for slug, expected_codes in (('dcx-municipality', {120200}),
+                                     ('dcx-ward', {110100}),
+                                     ('dcx-wards', {110100, 110200}),
                                      ('dcx-prefectures', {1, 2, 3})):
             with self.subTest(slug=slug):
                 _, fig = self.capture(self.cases[slug].records)
@@ -88,7 +91,7 @@ class DcxRenderingTests(unittest.TestCase):
                 self.assertEqual({int(p.get_gid().rsplit('-', 1)[1]) for p in actual}, expected_codes)
                 expected_count = 0
                 for code in expected_codes:
-                    features = ((ash_map._municipalities()[code],) if code > 47 else
+                    features = ((dcx_areas.municipality(code),) if code > 47 else
                                 region_map._layer('prefectures')[code])
                     expected_count += sum(len(part) for f in features
                                           for part in region_map._geometry(f, 'prefectures', 139.))
@@ -113,12 +116,40 @@ class DcxRenderingTests(unittest.TestCase):
         self.assert_topic(fallback)
 
     def test_missing_ward_boundary_is_not_replaced_with_whole_sapporo(self):
-        sentence, at = self.cases['dcx-lalert'].records[0]
-        records = ((change_fields(sentence, ((214, 6, 1),)), at),)
+        records = self.cases['dcx-ward'].records
         report, = base._decode(records)
         self.assertEqual(dcx_plan((report,)).areas[0].code, 110100)
-        _, fig = self.capture(records)
+        self.assertIn(110000, ash_map._municipalities(), 'The parent city is available but is not a substitute')
+        original = dcx_areas.municipality
+        with patch.object(dcx_areas, 'municipality',
+                          side_effect=lambda code: None if code == 110100 else original(code)):
+            _, fig = self.capture(records)
         self.assert_topic(fig)
+
+    def test_one_missing_ward_discards_the_entire_received_jalert_area_list(self):
+        records = self.cases['dcx-wards'].records
+        self.assertEqual(tuple(area.code for area in dcx_plan(base._decode(records)).areas),
+                         (110100, 110200))
+        original = dcx_areas.municipality
+        with patch.object(dcx_areas, 'municipality',
+                          side_effect=lambda code: None if code == 110200 else original(code)):
+            _, fig = self.capture(records)
+        self.assert_topic(fig)
+
+    def test_retired_ward_is_not_replaced_by_a_current_ward_with_the_same_name(self):
+        sentence, at = self.cases['dcx-wards'].records[0]
+        for retired, current in ((27101, 27127), (22137, 22140)):
+            with self.subTest(retired=retired):
+                self.assertIsNotNone(dcx_areas.municipality(current * 100))
+                self.assertIsNone(dcx_areas.municipality(retired * 100))
+                # A valid Sapporo ward preceding the obsolete code must not
+                # survive as a plausible partial area map.
+                bits = (1101 << 48) | (retired << 32)
+                records = ((change_fields(sentence, ((147, 64, bits),)), at),)
+                plan = dcx_plan(base._decode(records))
+                self.assertEqual(tuple(area.code for area in plan.areas), (110100, retired * 100))
+                _, fig = self.capture(records)
+                self.assert_topic(fig)
 
     def test_partial_area_failure_discards_every_previously_drawn_region(self):
         records = self.cases['dcx-prefectures'].records

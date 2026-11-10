@@ -9,7 +9,7 @@ from matplotlib.text import Text
 
 from image_service import render as base
 from image_service import render_v4 as published
-from image_service import nwp_map, ash_map, flood_map
+from image_service import nwp_map, ash_map, flood_map, preview_dcx_areas
 from image_service import preview_wide_layout as layout
 from image_service import preview_wide_regions as regions
 from image_service import preview_wide_points as points
@@ -46,6 +46,7 @@ def verify_assets():
     nwp_map.verify_assets()
     ash_map.verify_assets()
     flood_map.verify_assets()
+    preview_dcx_areas.verify_assets()
     return True
 
 

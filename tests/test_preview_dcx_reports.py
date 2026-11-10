@@ -17,6 +17,7 @@ if HAS_DECODER:
 HAS_RENDERER = HAS_DECODER and all(importlib.util.find_spec(name) for name in ('numpy', 'matplotlib'))
 if HAS_RENDERER:
     from image_service import preview_wide_dcx as dcx_images
+    from image_service import preview_dcx_areas as dcx_areas
     from image_service.preview_diagnostics import PreviewFallback, error_reasons
 
 
@@ -65,12 +66,24 @@ class DcxReportTests(unittest.TestCase):
                 self.assertEqual(fallback.reasons[-1].code, 'unknown_area' if code else 'no_area')
                 self.assertEqual(fallback.reasons[-1].stage, 'area')
 
-    def test_missing_ward_asset_is_not_silently_replaced_with_its_city(self):
+    def test_ward_code_is_not_silently_replaced_with_its_city(self):
         # Asset availability is the renderer's responsibility. Preserve the
         # exact defined ward code so it can reject the *whole* candidate.
         plan = self.plan(0)
         self.assertEqual(plan.areas, (Area('municipalities', 110100, '札幌市中央区'),))
         self.assertNotEqual(plan.areas[0].code, 110000)
+
+    def test_current_and_retired_ward_codes_keep_their_distinct_identity(self):
+        # Old and current wards may share a name. The semantic layer must not
+        # rewrite one code to another to obtain an available boundary.
+        bits = (27101 << 48) | (27127 << 32) | (1101 << 16) | 1102
+        plan = self.plan(115, (146, 1, 1), (147, 64, bits))
+        self.assertEqual(plan.areas, (
+            Area('municipalities', 2710100, '大阪市北区'),
+            Area('municipalities', 2712700, '大阪市北区'),
+            Area('municipalities', 110100, '札幌市中央区'),
+            Area('municipalities', 110200, '札幌市北区'),
+        ))
 
     def test_jalert_prefecture_mask_keeps_every_selected_prefecture(self):
         plan = self.plan(115, (146, 1, 0), (147, 64, 7 << 17))
@@ -246,7 +259,7 @@ class DcxDiagnosticRenderingTests(unittest.TestCase):
 
     def test_missing_boundary_retains_exact_code_and_falls_back_as_a_whole(self):
         report, fig = self.report(0), Mock()
-        with patch.object(dcx_images.ash_map, '_municipalities', return_value={}), \
+        with patch.object(dcx_areas, 'municipality', return_value=None), \
                 patch.object(dcx_images, '_topic'), patch.object(dcx_images.wide, 'validate'):
             plan = dcx_images.draw_dcx(fig, (report,))
         self.assertEqual(plan.scope_kind, 'topic')
