@@ -9,24 +9,15 @@ import re
 
 import numpy as np
 from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
 
-from image_service import ash_map, flood_map, nwp_map, volcano_map
+from image_service import ash_map, volcano_map
 from image_service import preview_wide_layout as wide
 from image_service import region_map as geometry
 from image_service import render as base
-from image_service.ash_reports import ash_plan
-from image_service.flood_reports import flood_plan
-from image_service.nwp_reports import nwp_plan
-
-FLOOD_CREDIT = ('流路：国土数値情報を基に気象庁加工 / 県境：気象庁 / '
-                '画像：Shirasu / 受信：みちびき / 地形：Natural Earth')
-NWP_POTENTIALS = {
-    1: '破壊的津波の可能性：海洋全域',
-    2: '破壊的津波の可能性：地域規模',
-    3: '破壊的津波の可能性：震源付近（局地的）',
-    4: '局地的な破壊的津波の可能性はごく小さい',
-}
-
+from image_service.ash_reports import ash_plan, STYLES as ASH_STYLES
+from image_service.preview_wide_flood import draw_flood
+from image_service.preview_wide_tsunami import draw_nwp
 
 def _numbered_markers(fig, view, points, notices, *, prefix):
     """Use bounded numeric labels to associate real map anchors with rows.
@@ -94,64 +85,107 @@ def _neutral_areas(ax, leaves):
             artist.set_alpha(1.)
 
 
-def _ash_sidebar_lines(notice):
-    """Compact repeated phenomena without inventing a continuous time range."""
-    grouped = {}
+def _ash_hours(notice):
+    """Retain discrete hours and simultaneous ash/cinders in separate lanes."""
+    hours = {hour: {} for hour in range(1, 7)}
     for line, style in zip(notice.lines, notice.styles, strict=True):
         match = re.fullmatch(r'基点＋([1-6])時間：(.+)', line)
-        if match is None:
+        if match is None or style not in ASH_STYLES.values() or match[2] != style.label:
             raise ValueError('Unknown ash forecast line format')
-        hour, phenomenon = int(match[1]), match[2]
-        grouped.setdefault((phenomenon, style), set()).add(hour)
-    lines, styles = [], []
-    for (phenomenon, style), hours in grouped.items():
-        hours_text = '・'.join(str(hour) for hour in sorted(hours))
-        lines.append(f'基点＋{hours_text}時間：{phenomenon}')
-        styles.append(style)
-    return tuple(lines), tuple(styles)
+        code = next(code for code, expected in ASH_STYLES.items() if style == expected)
+        lane = 'cinders' if code == 4 else 'ash'
+        if lane in hours[int(match[1])] and hours[int(match[1])][lane] != code:
+            raise ValueError('Conflicting ash forecasts in one time cell')
+        hours[int(match[1])][lane] = code
+    return hours
 
 
-def draw_flood(fig, reports):
-    reports = tuple(reports)
-    plan = flood_plan(reports)
-    if not 1 <= len(plan.notices) <= 16:
-        raise ValueError('Unsupported number of flood forecast reaches')
-    catalogue = flood_map._rivers()
-    reaches, sequences, anchors, seen, segment_levels = [], [], [], set(), {}
-    for notice in plan.notices:
-        feature = catalogue.get(notice.code)
-        if feature is None or notice.code in seen:
-            raise ValueError('Missing or duplicated flood forecast geometry')
-        seen.add(notice.code)
-        parts = flood_map._parts(feature)
-        flood_map._check_shared_segments(feature, notice.warning_level, segment_levels)
-        reaches.append(parts)
-        sequences.extend(parts)
-        anchors.append(flood_map._anchor(parts))
-    # Validate the complete bundle, including shared source segments, before
-    # adding any artists. A conflicting reach must not become a partial map.
-    view = wide.map_axes(fig, sequences, full=sequences, minimum=.6)
-    for notice, parts in zip(plan.notices, reaches, strict=True):
-        def dash(width):
-            return (0, (12 / width, 8 / width)) if notice.warning_level == 1 else '-'
-        for index, part in enumerate(parts):
-            identity = f'{notice.code}-{index}'
-            for kind, color, width, zorder in (
-                    ('shadow', wide.SEA, 7, 4), ('casing', flood_map.CASING, 5, 5),
-                    ('reach', notice.color, 3.2, 6)):
-                view.ax.plot(*part.T, color=color, linewidth=width, linestyle=dash(width),
-                             solid_capstyle='round', zorder=zorder,
-                             gid=f'flood-{kind}-{identity}')
-    _numbered_markers(fig, view, anchors, plan.notices, prefix='flood-anchor')
-    wide.header(fig, reports[0], plan.title, '線は洪水予報の対象区間 / 浸水範囲ではありません',
-                credit=FLOOD_CREDIT)
-    rows = [wide.Row(f'{index} {notice.title}', notice.lines, styles=notice.styles,
-                     gid=f'flood-hazard-{notice.code}')
-            for index, notice in enumerate(plan.notices, 1)]
-    wide.sidebar(fig, '河川の予報区間', rows,
-                 footnote='解除は氾濫注意情報への切替を含む'
-                 if any(notice.warning_level == 1 for notice in plan.notices) else None)
-    return plan
+def _ash_timeline(fig, plan):
+    """Fit the entire municipality/time matrix before drawing any sidebar row."""
+    rows = [(notice, _ash_hours(notice)) for notice in plan.notices]
+    width = (wide.PANEL_RIGHT - wide.PANEL_LEFT) * wide.WIDTH
+    active = {code for _, hours in rows for value in hours.values() for code in value.values()}
+    start = .929 * wide.HEIGHT
+    # Reserve the volcano, full base date, column headings, and a complete key.
+    legend_height = 28 * len(active) + 72
+    for size in (18, 17, 16, 15, 14):
+        step = (size + 1) * wide.DPI / 72 * 1.24
+        cell_height = 52 if size >= 17 else 46
+        layout = []
+        for notice, hours in rows:
+            titles = wide._wrap(fig, notice.title, size + 1, width - 40, True)
+            cinders = any('cinders' in value for value in hours.values())
+            height = len(titles) * step + 12 + cell_height + 24
+            if cinders:
+                height += 27 + cell_height
+            layout.append((notice, hours, titles, cinders, height))
+        if start - 155 - sum(row[4] for row in layout) - legend_height >= .06 * wide.HEIGHT:
+            break
+    else:
+        raise ValueError('Complete ash time matrix does not fit')
+
+    def label(x, y, value, font_size, color=wide.WHITE, **kwargs):
+        item = wide.text(fig, x, y / wide.HEIGHT, value, font_size, color,
+                         va='top', **kwargs)
+        item._wide_sidebar = True
+        return item
+
+    label(wide.PANEL_LEFT, start, plan.volcano_name, 21, bold=True)
+    label(wide.PANEL_LEFT, start - 43,
+          f'基点 {base._time(plan.base_time, full=True)} JST', 14, wide.MUTED)
+    label(wide.PANEL_LEFT, start - 79, '基点からの時間', 14, wide.MUTED)
+    gap = 5
+    cell_width = (width - 5 * gap) / 6
+    centres = [wide.PANEL_LEFT + (index * (cell_width + gap) + cell_width / 2) / wide.WIDTH
+               for index in range(6)]
+    for hour, x in enumerate(centres, 1):
+        label(x, start - 113, f'＋{hour}', 14, ha='center', bold=True)
+    label(wide.PANEL_RIGHT, start - 79, '単位：時間', 12, wide.MUTED, ha='right')
+    y = start - 155
+    for index, (notice, hours, titles, cinders, height) in enumerate(layout, 1):
+        title_y = y
+        label(wide.PANEL_LEFT, y, str(index), size + 1, bold=True)
+        for line in titles:
+            label(wide.PANEL_LEFT + 32 / wide.WIDTH, y, line, size + 1,
+                  bold=True, gid=f'ash-municipality-{notice.code}')
+            y -= step
+        y -= 12
+        for lane in ('ash', 'cinders') if cinders else ('ash',):
+            if lane == 'cinders':
+                label(wide.PANEL_LEFT, y, '小さな噴石', 12, wide.MUTED)
+                y -= 27
+            for hour, x in enumerate(centres, 1):
+                code = hours[hour].get(lane)
+                style = ASH_STYLES.get(code)
+                face = style.background if style and code != 4 else '#22282e'
+                edge = style.edge if style else '#53606b'
+                identity = f'ash-cell-{notice.code}-{hour}-{lane}'
+                patch = Rectangle((x - cell_width / 2 / wide.WIDTH, (y - cell_height) / wide.HEIGHT),
+                                  cell_width / wide.WIDTH, cell_height / wide.HEIGHT,
+                                  transform=fig.transFigure, facecolor=face, edgecolor=edge,
+                                  linewidth=1.5 if code == 4 else .65, zorder=23, gid=identity)
+                fig.add_artist(patch)
+                value = {1: '少量', 2: 'やや\n多量', 3: '多量', 4: '◆'}.get(code, '—')
+                text = wide.text(fig, x, (y - cell_height / 2) / wide.HEIGHT, value, 12,
+                                 style.foreground if style else wide.MUTED, bold=bool(style),
+                                 ha='center', va='center', linespacing=1.03, zorder=24,
+                                 gid=f'{identity}-{code or "missing"}')
+                text._wide_sidebar = True
+                # The cell already provides contrast; suppress the generic
+                # dark text halo which would muddy black-on-yellow labels.
+                text.set_bbox(dict(facecolor='none', edgecolor='none', pad=0))
+            y -= cell_height + 8
+        y = title_y - height
+    y -= 8
+    for code in sorted(active):
+        style = ASH_STYLES[code]
+        fig.add_artist(Rectangle((wide.PANEL_LEFT, (y - 20) / wide.HEIGHT),
+                                 18 / wide.WIDTH, 18 / wide.HEIGHT, transform=fig.transFigure,
+                                 facecolor=style.background, edgecolor=style.edge,
+                                 linewidth=1.5, zorder=23, gid=f'ash-legend-{code}'))
+        label(wide.PANEL_LEFT + 28 / wide.WIDTH, y, style.label, 12)
+        y -= 28
+    label(wide.PANEL_LEFT, y - 8, '—：この時間の記載なし', 12, wide.MUTED)
 
 
 def draw_ash(fig, reports):
@@ -166,8 +200,7 @@ def draw_ash(fig, reports):
     lon, lat = geometry._position(location['coordinates'])
     reference, volcano_point = lon, (lon, float(base._my(lat)))
     leaves, anchors, full, principal = {}, [], [], []
-    rows = []
-    for index, notice in enumerate(plan.notices, 1):
+    for notice in plan.notices:
         feature = catalogue.get(notice.code)
         if feature is None or notice.code in leaves:
             raise ValueError('Missing or duplicated municipality geometry')
@@ -178,13 +211,13 @@ def draw_ash(fig, reports):
                              - sum(abs(geometry._signed_area(hole)) for hole in polygon[1:])))
         x, y = geometry._position(feature['properties']['anchor'])
         anchors.append((x + round((reference - x) / 360) * 360, float(base._my(y))))
-        lines, styles = _ash_sidebar_lines(notice)
-        rows.append(wide.Row(f'{index} {notice.title}', lines, styles=styles,
-                             gid=f'ash-hazard-{notice.code}'))
     points = np.asarray([*anchors, volcano_point])
     full.append(points)
     principal.append(points)
-    view = wide.map_axes(fig, principal, full=full, minimum=1.2,
+    # Compact inland municipalities (for example Aso) must not fill the
+    # viewport with anonymous land. Keep enough surrounding coastal context
+    # while still fitting every received municipality and the volcano.
+    view = wide.map_axes(fig, principal, full=full, minimum=3.,
                          force_locator=True)
     _neutral_areas(view.ax, leaves)
     _numbered_markers(fig, view, anchors, plan.notices, prefix='municipality-anchor')
@@ -192,34 +225,5 @@ def draw_ash(fig, reports):
                     edgecolor=wide.SEA, linewidth=1.1, zorder=8,
                     gid=f'volcano-point-{plan.volcano_code}')
     wide.header(fig, reports[0], plan.title, '市町村別の予報 / ▲ 火山の代表位置')
-    wide.sidebar(fig, plan.volcano_name, rows,
-                 intro=(f'基点 {base._time(plan.base_time, full=True)} JST',))
-    return plan
-
-
-def draw_nwp(fig, reports):
-    reports = tuple(reports)
-    plan = nwp_plan(reports)
-    if not 1 <= len(plan.notices) <= 16:
-        raise ValueError('Unsupported number of NWPTAC forecast points')
-    catalogue, positions, seen = nwp_map._positions(), [], set()
-    reference = None
-    for notice in plan.notices:
-        if notice.code not in catalogue or notice.code in seen:
-            raise ValueError('Unknown or repeated NWPTAC forecast point')
-        seen.add(notice.code)
-        row = catalogue[notice.code]
-        lon, lat = row['longitude'], row['latitude']
-        if reference is None:
-            reference = lon
-        positions.append((lon + round((reference - lon) / 360) * 360, float(base._my(lat))))
-    sequences = (np.asarray(positions),)
-    view = wide.map_axes(fig, sequences, full=sequences, minimum=14.)
-    _numbered_markers(fig, view, positions, plan.notices, prefix='nwp-point')
-    wide.header(fig, reports[0], plan.title, '予測地点ごとの津波高・到達予想 / UTC', utc=True)
-    rows = [wide.Row(f'{index} {notice.title}', notice.lines,
-                     gid=f'nwp-forecast-{notice.code}')
-            for index, notice in enumerate(plan.notices, 1)]
-    wide.sidebar(fig, '予測地点 / UTC', rows,
-                 intro=(NWP_POTENTIALS[reports[0].tsunamigenic_potential_raw],))
+    _ash_timeline(fig, plan)
     return plan

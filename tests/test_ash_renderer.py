@@ -74,15 +74,26 @@ class AshForecastRendererTests(unittest.TestCase):
                 for artist in figure.axes[0].collections
                 if (artist.get_gid() or '').startswith(prefix)}
 
-    def badges(self, figure):
-        groups = {}
+    def cells(self, figure):
+        """Pair real time-cell rectangles with their separate text artists."""
+        labels = {}
         for label in figure.texts:
-            badge = label.get_bbox_patch()
-            if badge is not None and (label.get_gid() or '').startswith('ash-hazard-'):
-                key = (label.get_gid(), badge.get_facecolor(), badge.get_edgecolor())
-                groups.setdefault(key, []).append(label)
-        return {''.join(label.get_text() for label in labels):
-                (labels[0].get_bbox_patch(), labels[0]) for labels in groups.values()}
+            identity = label.get_gid() or ''
+            if identity.startswith('ash-cell-'):
+                cell_identity, _ = identity.rsplit('-', 1)
+                self.assertNotIn(cell_identity, labels)
+                labels[cell_identity] = label
+        cells = {}
+        for patch in figure.artists:
+            identity = patch.get_gid() or ''
+            if identity.startswith('ash-cell-'):
+                _, _, municipality, hour, lane = identity.split('-')
+                key = int(municipality), int(hour), lane
+                self.assertNotIn(key, cells)
+                cells[key] = patch, labels.pop(identity)
+        self.assertFalse(labels, 'Every forecast value must have a visible time cell')
+        self.assertTrue(cells, 'Supported forecasts must retain the time matrix')
+        return cells
 
     def assert_complete_map(self, figure, municipalities):
         self.assertEqual(set(self.points(figure, 'municipality-anchor-')), set(municipalities))
@@ -105,7 +116,8 @@ class AshForecastRendererTests(unittest.TestCase):
 
     def test_training_map_preserves_every_municipality_time_and_forecast_phenomenon(self):
         records = sample(NAME)
-        self.assertEqual(base._decode(records)[0].report_classification_no, 7)
+        reports = base._decode(records)
+        self.assertEqual(reports[0].report_classification_no, 7)
         image, figure = self.capture(records)
         self.assertEqual(image.category, 'AshFall')
         self.assertEqual(image.png[:8], b'\x89PNG\r\n\x1a\n')
@@ -115,37 +127,67 @@ class AshForecastRendererTests(unittest.TestCase):
         for expected in ('訓練', '降灰予報', '詳細', '桜島',
                          '鹿児島市', '垂水市', '霧島市',
                          '2026/11/10 09:10', '2026/11/10 09:00', 'JST',
-                         '基点＋1時間：多量の降灰', '基点＋1時間：小さな噴石の落下',
-                         '基点＋2時間：やや多量の降灰', '基点＋3時間：少量の降灰'):
+                         '基点からの時間', '単位：時間', '—：この時間の記載なし',
+                         '多量の降灰', '小さな噴石の落下', 'やや多量の降灰', '少量の降灰'):
             self.assertIn(expected, texts)
+        for hour in range(1, 7):
+            self.assertIn(f'＋{hour}', texts)
+        received = {(municipality, hour, 'cinders' if phenomenon == 4 else 'ash'): phenomenon
+                    for report in reports
+                    for municipality, hour, phenomenon in zip(
+                        report.local_governments_raw, report.expected_ash_fall_times_raw,
+                        report.ash_fall_warning_codes_raw, strict=True)}
+        self.assertEqual(received, {(4620100, 1, 'ash'): 3, (4620100, 1, 'cinders'): 4,
+                                    (4621400, 2, 'ash'): 2, (4621800, 3, 'ash'): 1})
+        cells = self.cells(figure)
+        self.assertEqual(len(cells), 24)
+        displayed = {key: int(label.get_gid().rsplit('-', 1)[1])
+                     for key, (_, label) in cells.items()
+                     if not label.get_gid().endswith('-missing')}
+        self.assertEqual(displayed, received)
+        for key, (_, label) in cells.items():
+            if key not in received:
+                self.assertEqual(label.get_text(), '—')
 
-    def test_actual_badges_distinguish_ash_amounts_and_cinders_without_losing_borders(self):
+    def test_actual_cells_distinguish_ash_amounts_and_cinders_without_losing_borders(self):
         _, figure = self.capture(sample(NAME))
-        badges = self.badges(figure)
+        cells = self.cells(figure)
         expected = {
-            '基点＋1時間：多量の降灰': ('#ff0000', '#ffffff'),
-            '基点＋2時間：やや多量の降灰': ('#ffff00', '#000000'),
-            '基点＋3時間：少量の降灰': ('#d9d9d9', '#000000'),
+            (4620100, 1, 'ash'): ('多量', '#ff0000', '#ffffff'),
+            (4621400, 2, 'ash'): ('やや\n多量', '#ffff00', '#000000'),
+            (4621800, 3, 'ash'): ('少量', '#d9d9d9', '#000000'),
         }
-        self.assertEqual(len(badges), 4)
-        for text, (background, foreground) in expected.items():
-            badge, label = badges[text]
-            self.assertEqual(badge.get_facecolor(), to_rgba(background))
+        for key, (text, background, foreground) in expected.items():
+            cell, label = cells[key]
+            self.assertEqual(label.get_text(), text)
+            self.assertEqual(cell.get_facecolor(), to_rgba(background))
+            self.assertEqual(cell.get_edgecolor(), to_rgba(background))
             self.assertEqual(to_rgba(label.get_color()), to_rgba(foreground))
-            self.assertEqual(label.get_path_effects(), [], 'Dark map halos must not obscure badge text')
-        cinders, cinders_text = badges['基点＋1時間：小さな噴石の落下']
-        self.assertEqual(cinders.get_facecolor()[3], 0)
+            self.assertEqual(label.get_path_effects(), [], 'Dark map halos must not obscure cell text')
+        cinders, cinders_text = cells[(4620100, 1, 'cinders')]
+        self.assertEqual(cinders_text.get_text(), '◆')
+        self.assertEqual(cinders.get_facecolor(), cells[(4620100, 2, 'cinders')][0].get_facecolor())
+        self.assertNotEqual(cinders.get_facecolor(), to_rgba('#ff0000'))
         self.assertEqual(cinders.get_edgecolor(), to_rgba('#ff0000'))
         self.assertEqual(to_rgba(cinders_text.get_color()), to_rgba('#ffffff'))
-        # The padded hazard labels belong entirely to the right panel.
+        self.assertEqual(cinders_text.get_path_effects(), [])
+        heavy = cells[(4620100, 1, 'ash')][0]
+        self.assertEqual(cinders.get_x(), heavy.get_x(), 'Simultaneous phenomena share the same hour')
+        self.assertLess(cinders.get_y(), heavy.get_y(), 'Cinders have an independent lane')
+        # Check the actual coloured rectangles, not the invisible text halo
+        # suppressors, for clipping, overlap and complete text containment.
         renderer = figure.canvas.get_renderer()
-        boxes = [text.get_bbox_patch().get_window_extent(renderer) for text in figure.texts
-                 if text.get_bbox_patch() is not None
-                 and (text.get_gid() or '').startswith('ash-hazard-')]
+        boxes = [patch.get_window_extent(renderer) for patch, _ in cells.values()]
         for index, box in enumerate(boxes):
             self.assertGreaterEqual(box.x0, wide.PANEL_X * wide.WIDTH)
             self.assertLessEqual(box.x1, wide.WIDTH)
+            self.assertGreaterEqual(box.y0, 0)
+            self.assertLessEqual(box.y1, wide.HEIGHT)
             self.assertFalse(any(box.overlaps(other) for other in boxes[index + 1:]))
+        for patch, label in cells.values():
+            box, text_box = patch.get_window_extent(renderer), label.get_window_extent(renderer)
+            self.assertTrue(box.contains(text_box.x0, text_box.y0))
+            self.assertTrue(box.contains(text_box.x1, text_box.y1))
 
     def test_zoomed_ash_map_has_a_lower_right_locator_and_unobscured_forecast_labels(self):
         _, figure = self.capture(sample(NAME))
@@ -229,9 +271,18 @@ class AshForecastRendererTests(unittest.TestCase):
                            (4620100, 2, 2), (4620100, 3, 1))
         _, figure = self.capture(records + records)
         self.assert_complete_map(figure, {4620100})
-        self.assertEqual(set(self.badges(figure)), {
-            '基点＋1時間：多量の降灰', '基点＋1時間：小さな噴石の落下',
-            '基点＋2時間：やや多量の降灰', '基点＋3時間：少量の降灰'})
+        cells = self.cells(figure)
+        self.assertEqual(len(cells), 12, 'Repeated reception must not create extra time lanes')
+        displayed = {key: label.get_text() for key, (_, label) in cells.items()
+                     if not label.get_gid().endswith('-missing')}
+        self.assertEqual(displayed, {(4620100, 1, 'ash'): '多量',
+                                    (4620100, 1, 'cinders'): '◆',
+                                    (4620100, 2, 'ash'): 'やや\n多量',
+                                    (4620100, 3, 'ash'): '少量'})
+        for hour in (4, 5, 6):
+            self.assertEqual(cells[(4620100, hour, 'ash')][1].get_text(), '—')
+        for hour in (2, 3, 4, 5, 6):
+            self.assertEqual(cells[(4620100, hour, 'cinders')][1].get_text(), '—')
 
     def test_cancelled_unknown_or_conflicting_forecasts_use_the_complete_summary(self):
         cases = [changed(NAME, (41, 2, 2)), changed(NAME, (69, 2, 0)),

@@ -17,6 +17,7 @@ from matplotlib.path import Path
 from image_service import render as base
 from image_service import map_base_v3 as terrain
 from image_service import preview_context as context
+from image_service import preview_scale as scale
 from image_service import region_map as geometry
 
 WIDTH, HEIGHT, DPI = 1920, 1080, 120
@@ -55,6 +56,7 @@ class MapView:
     limits: tuple
     visible_limits: tuple
     obstacles: tuple
+    places: tuple = ()
 
 
 def figure():
@@ -293,12 +295,14 @@ def _axes(fig, limits, *, position=(0, 0, 1, 1), graticule=True):
 
 def map_axes(fig, sequences, *, full=(), minimum=4., force_locator=False):
     sequences, full = tuple(sequences), tuple(full)
-    limits = _limits(sequences, BODY, minimum=minimum)
+    surroundings = scale.context_for(sequences, minimum=minimum)
+    fitted = (*sequences, *surroundings.sequences)
+    limits = _limits(fitted, BODY, minimum=surroundings.minimum)
     def visible(bounds):
         return (bounds[0], bounds[0] + PANEL_X * (bounds[1] - bounds[0]), *bounds[2:])
     show = force_locator or context.is_zoomed(visible(limits))
     if show:
-        limits = _limits(sequences, LOCATOR_BODY, minimum=minimum)
+        limits = _limits(fitted, LOCATOR_BODY, minimum=surroundings.minimum)
     ax = _axes(fig, limits)
     context.draw_prefecture_boundaries(ax)
     viewport = visible(limits)
@@ -322,8 +326,19 @@ def map_axes(fig, sequences, *, full=(), minimum=4., force_locator=False):
         text(fig, LOCATOR_POSITION[0], .315, '表示位置', 12, MUTED, gid='wide-locator')
         text(fig, LOCATOR_POSITION[0] + LOCATOR_POSITION[2], .315,
              '枠は主図範囲', 10, MUTED, ha='right', gid='wide-locator')
-    return MapView(ax, inset, limits, viewport,
-                   OBSTACLES + ((LOCATOR_OBSTACLE,) if show else ()))
+    view = MapView(ax, inset, limits, viewport,
+                   OBSTACLES + ((LOCATOR_OBSTACLE,) if show else ()), surroundings.places)
+    ax._wide_map_view = view
+    return view
+
+
+def context_names(fig):
+    """Place quiet geographic names only after every forecast artist exists."""
+    from image_service.preview_place_labels import draw_place_labels
+    for ax in fig.axes:
+        view = getattr(ax, '_wide_map_view', None)
+        if view is not None:
+            draw_place_labels(fig, view, view.places)
 
 
 def summary(fig, reports):

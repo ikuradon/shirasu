@@ -85,6 +85,28 @@ class WideRegionalTests(unittest.TestCase):
         self.assertGreater(main.get_ylim()[0], base._my(30),
                            'Tokyo island subdivisions must not shrink the Kanto close-up')
 
+    def test_recorded_weather_group_keeps_all_adjacent_mainland_subdivisions_visible(self):
+        figure, plan = self.draw('weather', maps.draw_weather)
+        _, leaves, _, _, _ = maps.geometry._regions(plan)
+        primary = maps._primary_polygons(leaves)
+        # This actual received group covers all three mainland subdivisions,
+        # not just Sorachi, which happens to be its largest single polygon.
+        codes = (16010, 16020, 16030)  # Ishikari, Sorachi, Shiribeshi.
+        self.assertTrue(set(codes).issubset(primary))
+        main = figure.axes[0]
+        self.assertTrue({f'region-area-{code}' for code in codes}.issubset(
+            {artist.get_gid() for artist in main.patches}))
+        left, bottom, right, top = wide.LOCATOR_OBSTACLE
+        for code in codes:
+            with self.subTest(subdivision=code):
+                points = np.concatenate(primary[code])
+                displayed = figure.transFigure.inverted().transform(main.transData.transform(points))
+                self.assertTrue(np.all((.015 <= displayed[:, 0]) & (displayed[:, 0] < wide.PANEL_X)))
+                self.assertTrue(np.all((.055 <= displayed[:, 1]) & (displayed[:, 1] <= .78)))
+                obscured = ((left <= displayed[:, 0]) & (displayed[:, 0] <= right)
+                            & (bottom <= displayed[:, 1]) & (displayed[:, 1] <= top))
+                self.assertFalse(np.any(obscured), 'A received subdivision cannot hide under the locator')
+
     def test_eew_compaction_preserves_all_16_areas_and_global_prediction(self):
         figure, plan = self.draw('eew', maps.draw_eew)
         self.assertEqual([notice.title for notice in plan.notices],
@@ -94,6 +116,14 @@ class WideRegionalTests(unittest.TestCase):
                                 maps.geometry.geography._expand('eew', notice.code)}
         self.assertEqual(scope(source.notices), scope(plan.notices))
         self.assertEqual(len(scope(plan.notices)), 16)
+        areas = [artist for artist in figure.axes[0].patches
+                 if (artist.get_gid() or '').startswith('region-area-')]
+        self.assertEqual({int(area.get_gid().removeprefix('region-area-')) for area in areas},
+                         scope(source.notices))
+        self.assertEqual({area.get_facecolor() for area in areas}, {to_rgba(maps.EEW_FILL, .72)})
+        self.assertTrue(all(area.get_linewidth() < 1 for area in areas))
+        self.assertFalse(any((artist.get_gid() or '').startswith(('seismic-badge-', 'region-reference-'))
+                             for artist in figure.findobj()))
         text = self.all_text(figure)
         self.assertIn('通報全体の予測震度', text)
         self.assertIn('6弱程度以上', text)
@@ -166,7 +196,7 @@ class WideRegionalTests(unittest.TestCase):
                             self.assertIn(line.replace(' ', ''), text)
                 references = [item for item in figure.axes[0].texts
                               if (item.get_gid() or '').startswith('region-reference-')]
-                self.assertEqual(len(references), 0 if slug == 'seismic-intensity' else len(plan.notices))
+                self.assertEqual(len(references), len(plan.notices) if slug == 'marine' else 0)
                 self.assertTrue(all(item.get_text().isalpha() for item in references))
                 for locator in (ax for ax in figure.axes if ax.get_gid() == 'preview-locator'):
                     self.assert_plain_locator(locator)

@@ -54,6 +54,7 @@ def render(records):
                     layout.summary(fig, reports)
                 else:
                     drawer(fig, reports)
+                    layout.context_names(fig)
                 layout.validate(fig)
             except ValueError:
                 # Never create a plausible partial map by dropping values.

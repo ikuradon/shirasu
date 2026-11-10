@@ -22,11 +22,13 @@ from image_service import render as base
 from image_service import preview_wide_layout as wide
 from image_service.eew_map import eew_plan
 from image_service.marine_regions import marine_map
-from image_service.regional_reports import seismic_intensity_map, tsunami_map
+from image_service.regional_reports import seismic_intensity_map
 from image_service.weather_map_v4 import weather_plan
 
 
 EEW_NAMES = {66: '中国地方', 67: '四国地方', 68: '九州地方'}
+EEW_FILL = '#647a84'
+EEW_EDGE = '#94a3ad'
 SEISMIC_LABELS = {1: '4未満', 2: '4', 3: '5−', 4: '5＋', 5: '6−', 6: '6＋', 7: '7'}
 # Preview-only palette: the published semantic adapter's colours stay frozen.
 SEISMIC_COLORS = {1: '#b8cad7', 2: '#e58b3a', 3: '#d84b45', 4: '#d84b45',
@@ -83,6 +85,32 @@ def _principal_point(polygon):
     return tuple(map(float, min(candidates, key=lambda point: np.linalg.norm(point - centre))))
 
 
+def _weather_mainland_cluster(primary, codes):
+    """Fit neighbouring subdivisions of a received group without remote islands.
+
+    Ishikari/Sorachi/Shiribeshi are three adjacent mainland subdivisions; the
+    largest alone does not represent their group's full map extent. Tokyo's
+    mainland/Izu/Ogasawara subdivisions, by contrast, are separated by sea.
+    Expand a component from the largest subdivision through touching or very
+    nearby outer bounds, allowing small source-boundary simplification gaps.
+    All excluded remote geometry remains available to the plain locator.
+    """
+    codes = tuple(codes)
+    bounds = {code: (primary[code][0].min(axis=0), primary[code][0].max(axis=0))
+              for code in codes}
+    seed = max(codes, key=lambda code: abs(regions._signed_area(primary[code][0])))
+    selected = {seed}
+    while True:
+        added = {code for code in codes if code not in selected
+                 and any(np.linalg.norm(np.maximum(np.maximum(bounds[code][0] - bounds[other][1],
+                                                                bounds[other][0] - bounds[code][1]), 0)) <= .1
+                         for other in selected)}
+        if not added:
+            break
+        selected.update(added)
+    return tuple(primary[code] for code in codes if code in selected)
+
+
 def _prepare(fig, plan):
     if plan.layer not in geometry.LAYERS or not plan.notices:
         raise ValueError('Unsupported wide regional map')
@@ -90,15 +118,13 @@ def _prepare(fig, plan):
     if painted == 'prefectures':
         primary = _primary_polygons(leaves)
         source = geometry.geography if plan.layer in ('weather', 'eew') else regions
-        # A received Tokyo weather code expands into mainland/Izu/Ogasawara
-        # forecast subdivisions. Fit the largest land component per received
-        # weather code, not the largest island in every expanded subdivision.
-        # The locator extent still includes the complete expanded scope.
+        # Fit adjacent mainland subdivisions of each received weather group,
+        # while keeping remote Izu/Ogasawara units in the locator extent.
         main_polygons = primary.values()
         if plan.layer == 'weather':
-            main_polygons = [max((primary[code] for code in source._expand(plan.layer, notice.code)),
-                                 key=lambda value: abs(regions._signed_area(value[0])))
-                             for notice in plan.notices]
+            main_polygons = [polygon for notice in plan.notices
+                             for polygon in _weather_mainland_cluster(
+                                 primary, source._expand(plan.layer, notice.code))]
         sequences = [ring for polygon in main_polygons for ring in polygon]
         values = np.concatenate(sequences)
         low, high = values.min(axis=0), values.max(axis=0)
@@ -178,6 +204,17 @@ def _neutral_areas(ax, leaves):
             artist.set_linewidth(1.8)
 
 
+def _eew_areas(ax, leaves):
+    """Show the received warning scope with one fill, never an intensity map."""
+    regions._paint_regions(ax, leaves, 'prefectures')
+    for artist in ax.patches:
+        if (artist.get_gid() or '').startswith('region-area-'):
+            artist.set_alpha(None)
+            artist.set_facecolor(to_rgba(EEW_FILL, .72))
+            artist.set_edgecolor(to_rgba(EEW_EDGE, .75))
+            artist.set_linewidth(.45)
+
+
 def _references(fig, view, anchors, notices):
     if len(notices) > len(string.ascii_uppercase):
         raise ValueError('Too many regional references')
@@ -222,7 +259,7 @@ def draw_eew(fig, reports):
     reports = tuple(reports)
     plan = compact_eew(eew_plan(reports))
     view, _, leaves, _ = _prepare(fig, plan)
-    _neutral_areas(view.ax, leaves)
+    _eew_areas(view.ax, leaves)
     wide.header(fig, reports[0], plan.title, '警報対象区域（震度分布ではありません）')
     rows = []
     for line in plan.notice_lines:
@@ -392,4 +429,5 @@ def draw_seismic(fig, reports):
 
 
 def draw_tsunami(fig, reports):
-    return _draw_values(fig, reports, tsunami_map, '津波予報区・浸水範囲ではありません')
+    from image_service.preview_wide_tsunami import draw_tsunami as draw_values
+    return draw_values(fig, reports)

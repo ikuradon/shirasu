@@ -10,8 +10,11 @@ from test_image_renderer_v3 import changed, sample
 HAS_RENDERER = all(importlib.util.find_spec(name) for name in ('azarashi', 'matplotlib', 'numpy'))
 if HAS_RENDERER:
     from matplotlib.text import Text
+    from matplotlib.colors import to_rgba
+    import numpy as np
     from image_service import preview_wide_layout as wide
     from image_service import preview_wide_special as special
+    from image_service import nwp_map
     from image_service import render as base
     from image_service.ash_reports import ash_plan
     from scripts.gallery_catalog import load_cases
@@ -30,13 +33,23 @@ class WideSpecialTests(unittest.TestCase):
         reports = base._decode(ash_forecast((4620100, 1, 3), (4620100, 3, 3),
                                            (4620100, 6, 3), (4620100, 3, 4)))
         notice, = ash_plan(reports).notices
-        lines, styles = special._ash_sidebar_lines(notice)
-        self.assertEqual(lines, ('基点＋1・3・6時間：多量の降灰', '基点＋3時間：小さな噴石の落下'))
-        self.assertEqual(len(styles), 2)
-        self.assertNotEqual(styles[0], styles[1])
-        self.assertNotIn('2', ''.join(lines))
+        hours = special._ash_hours(notice)
+        self.assertEqual(hours, {1: {'ash': 3}, 2: {}, 3: {'ash': 3, 'cinders': 4},
+                                 4: {}, 5: {}, 6: {'ash': 3}})
         with self.assertRaises(ValueError):
-            special._ash_sidebar_lines(SimpleNamespace(lines=('not a forecast',), styles=(styles[0],)))
+            special._ash_hours(SimpleNamespace(lines=('not a forecast',), styles=(notice.styles[0],)))
+        fig = self.figure()
+        special.draw_ash(fig, reports)
+        wide.validate(fig)
+        cells = {artist.get_gid(): artist for artist in fig.artists
+                 if (artist.get_gid() or '').startswith('ash-cell-')}
+        self.assertEqual(len(cells), 12, 'Cinders must use a lane independent of ash')
+        self.assertEqual(cells['ash-cell-4620100-3-ash'].get_facecolor(), to_rgba('#ff0000'))
+        self.assertEqual(cells['ash-cell-4620100-3-cinders'].get_edgecolor(), to_rgba('#ff0000'))
+        text = {label.get_gid(): label.get_text() for label in fig.texts}
+        for hour in (2, 4, 5):
+            self.assertEqual(text[f'ash-cell-4620100-{hour}-ash-missing'], '—')
+        self.assertIn('—：この時間の記載なし', ''.join(text.values()))
 
     def test_received_eighteen_item_ash_bundle_keeps_all_hours_and_municipalities(self):
         case = next(case for case in load_cases() if case.slug == 'ash-detail')
@@ -48,12 +61,48 @@ class WideSpecialTests(unittest.TestCase):
         text = ''.join(label.get_text() for label in fig.findobj(Text))
         for notice in plan.notices:
             self.assertIn(notice.title, text)
-        self.assertEqual(text.count('基点＋1時間：やや多量の降灰'), 2)
-        self.assertEqual(text.count('基点＋2・3・4・5・6時間：少量の降灰'), 2)
-        self.assertEqual(text.count('基点＋1・2・3・4・5・6時間：少量の降灰'), 1)
+        cells = {artist.get_gid(): artist for artist in fig.artists
+                 if (artist.get_gid() or '').startswith('ash-cell-')}
+        self.assertEqual(len(cells), 18)
+        for notice in plan.notices:
+            for line, style in zip(notice.lines, notice.styles, strict=True):
+                hour = int(line.removeprefix('基点＋').split('時間')[0])
+                self.assertEqual(cells[f'ash-cell-{notice.code}-{hour}-ash'].get_facecolor(),
+                                 to_rgba(style.background))
+        self.assertNotIn('基点＋2・3・4', text)
         wide.validate(fig)
         locator, = [ax for ax in fig.axes if ax.get_gid() == 'preview-locator']
         self.assertLess(locator.get_position().x1, wide.PANEL_X)
+
+    def test_inland_aso_map_retains_coastal_context_and_correct_land_sea_colours(self):
+        case = next(case for case in load_cases() if case.slug == 'ash-detail')
+        fig = self.figure()
+        special.draw_ash(fig, base._decode(case.records))
+        wide.validate(fig)
+        main = fig.axes[0]
+        pixels = np.asarray(fig.canvas.buffer_rgba())
+        # Kumamoto's adjacent open water must be visible in the primary map,
+        # not only behind the header, information panel, or locator.
+        for lon, lat in ((130.45, 32.7),):
+            pixel = main.transData.transform((lon, base._my(lat)))
+            x, y = fig.transFigure.inverted().transform(pixel)
+            self.assertTrue(.015 < x < wide.PANEL_X and .055 < y < .78)
+            self.assertFalse(wide.LOCATOR_OBSTACLE[0] <= x <= wide.LOCATOR_OBSTACLE[2]
+                             and wide.LOCATOR_OBSTACLE[1] <= y <= wide.LOCATOR_OBSTACLE[3])
+            actual = pixels[wide.HEIGHT - 1 - round(pixel[1]), round(pixel[0]), :3]
+            expected = np.rint(np.asarray(to_rgba(wide.SEA)[:3]) * 255).astype(int)
+            np.testing.assert_array_equal(actual, expected)
+        # Adaptive county framing need not include another prefecture's bay.
+        # Require a recognisable sea area in the unobstructed map body itself.
+        body = pixels[round(.24 * wide.HEIGHT):round(.89 * wide.HEIGHT),
+                      round(.04 * wide.WIDTH):round(.55 * wide.WIDTH), :3]
+        self.assertGreater(np.all(body == expected, axis=2).mean(), .02)
+        volcano, = [artist for artist in main.collections
+                    if (artist.get_gid() or '').startswith('volcano-point-')]
+        x, y = volcano.get_offsets()[0]
+        land, = [artist for artist in main.patches if artist.get_gid() == 'v3-land']
+        self.assertTrue(land.get_path().contains_point((x, y)))
+        self.assertEqual(land.get_facecolor(), to_rgba(wide.LAND))
 
     def test_shared_flood_segments_reject_conflicts_before_adding_artists(self):
         fig = self.figure()
@@ -65,9 +114,9 @@ class WideSpecialTests(unittest.TestCase):
 
     def test_missing_nwp_point_is_rejected_before_any_partial_presentation(self):
         fig = self.figure()
-        positions = dict(special.nwp_map._positions())
+        positions = dict(nwp_map._positions())
         del positions[29]
-        with patch.object(special.nwp_map, '_positions', return_value=positions):
+        with patch.object(nwp_map, '_positions', return_value=positions):
             with self.assertRaises(ValueError):
                 special.draw_nwp(fig, base._decode(sample('northwest_pacific_tsunami')))
         self.assertEqual(fig.axes, [])

@@ -19,7 +19,7 @@ if HAS_RENDERER:
     from image_service import render_preview as preview
     from image_service import nwp_map
     from image_service import preview_wide_layout as wide
-    from image_service import preview_wide_special as special
+    from image_service import preview_wide_tsunami as tsunami
 
 
 @unittest.skipUnless(HAS_RENDERER, 'Install image_service/requirements.txt for preview PNG tests')
@@ -81,7 +81,7 @@ class NorthwestPacificRendererTests(unittest.TestCase):
             self.assertIn(expected, text)
         self.assertNotIn('JST', text, 'The international bulletin must not mix time zones')
         self.assertEqual(len([label for label in figure.texts
-                              if (label.get_gid() or '').startswith('wide-number-nwp-point-')]), 5)
+                              if (label.get_gid() or '').startswith('wide-tsunami-value-nwp-point-')]), 5)
         self.assertFalse(any(ax.get_gid() == 'preview-locator' for ax in figure.axes),
                          'The broad Pacific overview does not need a second miniature overview')
 
@@ -111,10 +111,10 @@ class NorthwestPacificRendererTests(unittest.TestCase):
             if hasattr(artist, 'offsetbox'):
                 self.assertFalse(artist.offsetbox.get_window_extent(figure.canvas.get_renderer()).overlaps(obstacle))
         for line in main.lines:
-            if (line.get_gid() or '').startswith('wide-number-leader-'):
+            if (line.get_gid() or '').startswith('wide-tsunami-leader-'):
                 self.assertFalse(line.get_transform().transform_path(line.get_path()).intersects_bbox(obstacle, filled=False))
         self.assertEqual(len([label for label in figure.texts
-                              if (label.get_gid() or '').startswith('wide-number-nwp-point-')]), 1)
+                              if (label.get_gid() or '').startswith('wide-tsunami-value-nwp-point-')]), 1)
 
     def test_markers_use_official_positions_across_the_equator_without_a_warning_footprint(self):
         _, figure = self.capture(sample(NAME))
@@ -172,7 +172,7 @@ class NorthwestPacificRendererTests(unittest.TestCase):
         del incomplete[29]
         for target, name, kwargs in (
                 (nwp_map, '_positions', {'return_value': incomplete}),
-                (special, '_numbered_markers', {'side_effect': ValueError('No readable layout')})):
+                (tsunami, '_value_markers', {'side_effect': ValueError('No readable layout')})):
             with self.subTest(missing=name), patch.object(target, name, **kwargs):
                 image, figure = self.capture(records)
             self.assertEqual(figure.axes, [])
