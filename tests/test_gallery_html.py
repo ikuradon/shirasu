@@ -72,7 +72,7 @@ class GalleryHtmlTests(unittest.TestCase):
         content = render_html(sample())
         document = Document(content)
         self.assertEqual({select['id'] for select in document.attrs('select')},
-                         {'category', 'source-kind', 'classification', 'state', 'reason'})
+                         {'category', 'source-kind', 'classification', 'state', 'reason', 'image-width'})
         self.assertEqual(document.attrs('script'), [{}])
         self.assertEqual(document.attrs('link'), [])
         self.assertNotIn('fetch(', content)
