@@ -59,7 +59,7 @@ class InspectionCliTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
         for name in ('main.py', 'outbox.py', 'receiver.py', 'inspection.py', 'message_format.py',
-                     'image_publication.py', 'image_protocol.py', 'typhoon.py'):
+                     'image_publication.py', 'image_protocol.py', 'typhoon.py', 'nankai.py'):
             shutil.copyfile(ROOT / name, self.root / name)
         (self.root / 'config.py').write_text(
             "raise RuntimeError('INSPECTION_SIDE_EFFECT: config was imported')\n",

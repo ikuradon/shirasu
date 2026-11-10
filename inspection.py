@@ -102,6 +102,8 @@ def format_status(snapshot, now):
             ('台風の集約待ち', f"{state.get('typhoon_buffered_reports', 0)}通"),
             ('画像URL生成エラー', state.get('last_image_error') or 'なし'),
         ])
+    if 'nankai_buffered_reports' in state:
+        rows.append(('南海トラフの集約待ち', f"{state['nankai_buffered_reports']}通"))
     width = max(_width(label) for label, _ in rows)
     lines = [label + ' ' * (width - _width(label) + 2) + _clip(value, 100)
              for label, value in rows]

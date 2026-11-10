@@ -72,6 +72,11 @@ class InspectionTests(unittest.TestCase):
         snapshot['status']['last_received'] = now + 60
         self.assertIn('1分後（時計を確認）', format_status(snapshot, now))
 
+    def test_nankai_collection_status_is_visible_without_images(self):
+        snapshot = self.snapshot(1000)
+        snapshot['status']['nankai_buffered_reports'] = 2
+        self.assertRegex(format_status(snapshot, 1000), r'南海トラフの集約待ち\s+2通')
+
     def test_preparation_decodes_real_signed_event_without_mutating_input(self):
         history = self.history()
         before = copy.deepcopy(history)

@@ -20,6 +20,7 @@ services:
       SHIRASU_IMAGE_VERSION: "${SHIRASU_IMAGE_VERSION:-v1}"
       SHIRASU_IMAGE_SIGNING_KEY: "${SHIRASU_IMAGE_SIGNING_KEY:-}"
       SHIRASU_TYPHOON_WAIT_SECONDS: "${SHIRASU_TYPHOON_WAIT_SECONDS:-180}"
+      SHIRASU_NANKAI_WAIT_SECONDS: "${SHIRASU_NANKAI_WAIT_SECONDS:-180}"
     stop_grace_period: 20s
     healthcheck:
       test: ["CMD", "python", "main.py", "--health"]

@@ -8,19 +8,19 @@ from azarashi.reports import dcr
 JST = timezone(timedelta(hours=9), 'JST')
 
 
-def _marine_header(report):
+def _header(report, title):
     training = report.report_classification_no == 7
     cancelled = report.information_type_no == 2
     markers = ('【訓練・試験】' if training else '') + ('【取消】' if cancelled else '')
     if not markers:
-        return f'【海上警報】{report.information_type}（{report.report_classification}）'
+        return f'【{title}】{report.information_type}（{report.report_classification}）'
     details = []
     if not cancelled:
         details.append(report.information_type)
     if not training:
         details.append(report.report_classification)
     suffix = f'（{"・".join(details)}）' if details else ''
-    return f'{markers}海上警報{suffix}'
+    return f'{markers}{title}{suffix}'
 
 
 def _marine_text(report):
@@ -34,7 +34,7 @@ def _marine_text(report):
     if report.report_time is None or report.report_time.utcoffset() is None:
         raise ValueError('Marine report time must be timezone-aware')
     at = report.report_time.astimezone(JST)
-    lines = [_marine_header(report), f'発表時刻：{at.month}月{at.day}日 {at:%H:%M} JST']
+    lines = [_header(report, '海上警報'), f'発表時刻：{at.month}月{at.day}日 {at:%H:%M} JST']
     groups = {}
     for code, label, region in zip(report.marine_warning_codes_raw,
                                    report.marine_warning_codes,
@@ -48,6 +48,26 @@ def _marine_text(report):
     return '\n'.join(lines)
 
 
+def _nankai_text(report):
+    if report.report_time is None or report.report_time.utcoffset() is None:
+        raise ValueError('Nankai report time must be timezone-aware')
+    at = report.report_time.astimezone(JST)
+    # Read the decoder's assembled text once, while handling this page. It also
+    # supplies the received-page count when the announcement is incomplete.
+    body = report.extract_text_information()
+    return '\n'.join((
+        _header(report, '南海トラフ地震関連情報'),
+        f'情報種別：{report.information_serial_code}',
+        f'発表時刻：{at.month}月{at.day}日 {at:%H:%M} JST',
+        '', body,
+    ))
+
+
 def report_message(report):
-    text = _marine_text(report) if isinstance(report, dcr.Marine) else str(report)
+    if isinstance(report, dcr.Marine):
+        text = _marine_text(report)
+    elif isinstance(report, dcr.NankaiTroughEarthquake):
+        text = _nankai_text(report)
+    else:
+        text = str(report)
     return f'{text}\n---\nNMEA: {report.nmea}'

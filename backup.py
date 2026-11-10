@@ -89,6 +89,8 @@ def verify_backup(path):
         # Collections share this database and must survive a restore too.
         from typhoon import validate_storage
         validate_storage(connection)
+        from nankai import validate_storage as validate_nankai_storage
+        validate_nankai_storage(connection)
         result = connection.execute('PRAGMA integrity_check').fetchall()
         if [row[0] for row in result] != ['ok']:
             raise ValueError('バックアップのSQLite整合性検査に失敗しました')

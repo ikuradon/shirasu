@@ -136,6 +136,40 @@ class BackupTests(unittest.TestCase):
             restored.mark_sent('pending', 1003)
             self.assertEqual(restored.snapshot(1003)['counts'], {'pending': 0, 'sent': 2, 'expired': 0})
 
+    def test_nankai_pages_survive_verified_backup_and_finish_after_restore(self):
+        from azarashi.reports import dcr
+        from nankai import NankaiCollector, nankai_summary
+        from test_nankai_publication import nankai_page
+        for name, value in (('completed', False), ('reports', {}), ('announcement', None)):
+            self.enterContext(patch.object(dcr.NankaiTroughEarthquake, name, value))
+        body = 'A訓練用の架空の情報です。'
+        data = body.encode()
+        chunks = [data[start:start + 18] for start in range(0, len(data), 18)]
+        collector = NankaiCollector(self.box)
+        collector.accept(nankai_page(chunks[0], number=1, total=len(chunks)), 1000)
+        before = list(self.box.connection.iterdump())
+        result = backup.create_backup(self.source, self.destination)
+        self.assertEqual(list(self.box.connection.iterdump()), before)
+        self.assertEqual(backup.verify_backup(self.destination), result)
+        restored_path = self.root / 'restored.sqlite3'
+        shutil.copyfile(self.destination, restored_path)
+        with Outbox(restored_path, self.identity) as restored:
+            resumed = NankaiCollector(restored)
+            for number, chunk in enumerate(chunks[1:], 2):
+                resumed.accept(nankai_page(chunk, number=number, total=len(chunks)), 1001)
+            batch = resumed.due(1001)
+            self.assertIsNotNone(batch)
+            text = nankai_summary(batch)
+            self.assertIn(body, text)
+            self.assertNotIn('受信中', text)
+            self.assertEqual(text.count('\nNMEA: '), len(chunks))
+            event = EventBuilder(Kind(1), text).finalize(self.keys)
+            self.assertEqual(resumed.complete(batch, event.as_json(), event.id().to_hex(), 1001), 'queued')
+            self.assertEqual(restored.next_due(1001)['event_json'], event.as_json())
+        self.mutate_archive("UPDATE nankai_reports SET nmea = 'invalid'")
+        with self.assertRaises(ValueError):
+            backup.verify_backup(self.destination)
+
     def test_empty_initialized_database_is_a_valid_backup(self):
         result = backup.create_backup(self.source, self.destination)
         self.assertEqual(result['counts'], {'pending': 0, 'sent': 0, 'expired': 0})

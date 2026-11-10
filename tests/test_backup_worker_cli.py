@@ -42,7 +42,8 @@ class BackupWorkerCliTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory(prefix='shirasu-backup-worker-cli-')
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
-        for name in ('backup_worker.py', 'backup.py', 'outbox.py', 'typhoon.py'):
+        for name in ('backup_worker.py', 'backup.py', 'outbox.py', 'typhoon.py',
+                     'nankai.py', 'message_format.py', 'image_protocol.py'):
             shutil.copyfile(ROOT / name, self.root / name)
         (self.root / 'config.py').write_text(
             "raise AssertionError('AUTO_BACKUP_SIDE_EFFECT: config was imported')\n", encoding='utf-8',

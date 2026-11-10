@@ -244,10 +244,7 @@ class Outbox:
             ''', (now, self.identity, key)).rowcount
             if existing:
                 return 'duplicate'
-            pending = self.connection.execute('''
-                SELECT COUNT(*) FROM events WHERE identity = ? AND state = 'pending'
-            ''', (self.identity,)).fetchone()[0]
-            if pending >= self.max_pending:
+            if self.pending_count() >= self.max_pending:
                 return 'full'
             self.connection.execute('''
                 INSERT INTO events
@@ -256,6 +253,20 @@ class Outbox:
                 VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
             ''', (self.identity, key, event_json, event_id, now, now, now))
             return 'queued'
+
+    def pending_count(self):
+        """Capacity used by signed deliveries and unfinished page/point batches."""
+        pending = self.connection.execute('''
+            SELECT COUNT(*) FROM events WHERE identity = ? AND state = 'pending'
+        ''', (self.identity,)).fetchone()[0]
+        for table in ('typhoon_reports', 'nankai_reports'):
+            if self.connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+            ).fetchone():
+                pending += self.connection.execute(f'''
+                    SELECT COUNT(*) FROM {table} WHERE identity = ? AND state = 'pending'
+                ''', (self.identity,)).fetchone()[0]
+        return pending
 
     def seed_sent(self, key, event_json, event_id, created_at, now):
         """Import a published event without replacing locally queued delivery state."""

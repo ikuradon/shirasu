@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "repository": "https://github.com/nbtk/azarashi",
+    "commit": "fe5d632f56c1f600718a3727c2e19fa21aeffee2",
+    "license": "MIT",
+    "license_file": "LICENSE.azarashi",
+    "license_source_url": "https://raw.githubusercontent.com/nbtk/azarashi/fe5d632f56c1f600718a3727c2e19fa21aeffee2/LICENSE",
+    "license_sha256": "b90d103db73eb1dd2379af068714415f0d7c757d3d23b0be49e315d6ec04a1e6"
+  },
+  "recordings": {
+    "dcr_receiver_20260924": {
+      "file": "qzqsm_260924.log",
+      "sha256": "adeff1377f96c5f7a61977a1dbd6f9126139779845325ffa4a564ffee1e7e5e8",
+      "source_url": "https://raw.githubusercontent.com/nbtk/azarashi/fe5d632f56c1f600718a3727c2e19fa21aeffee2/tests/qzqsm_260924.log",
+      "source_date": "2026-09-24",
+      "reference_time": "2026-09-24T00:57:00+00:00",
+      "reference_time_role": "Fixed date anchor for fields without a year; not a per-frame reception timestamp.",
+      "provenance": {
+        "kind": "receiver",
+        "description": "u-blox ZED-F9P; 2026-09-24 09:57–13:22 JST; includes ordinary reports and the 10:00–12:00 JST training broadcast.",
+        "deduplication": "Upstream retains the first occurrence of each identical message in reception/broadcast order."
+      },
+      "frame_count": 72,
+      "expected_types": {
+        "AshFall": 6,
+        "EarthquakeEarlyWarning": 1,
+        "Flood": 2,
+        "Hypocenter": 1,
+        "LAlert": 1,
+        "Marine": 5,
+        "NankaiTroughEarthquake": 27,
+        "NullMsg": 1,
+        "OutsideJapan": 2,
+        "SeismicIntensity": 1,
+        "Tsunami": 3,
+        "Typhoon": 14,
+        "Volcano": 1,
+        "Weather": 7
+      },
+      "nankai": {
+        "report_time": "2026-09-24T01:35:00+00:00",
+        "page_count": 27,
+        "page_order": [
+          1,
+          26,
+          25,
+          24,
+          23,
+          22,
+          21,
+          20,
+          19,
+          18,
+          17,
+          16,
+          15,
+          14,
+          13,
+          12,
+          11,
+          10,
+          9,
+          8,
+          7,
+          6,
+          5,
+          4,
+          3,
+          2,
+          27
+        ],
+        "expected_text_file": "nankai_expected.txt",
+        "official_scenario": "nankai"
+      }
+    },
+    "dcr_archive_20260821": {
+      "file": "qzqsm_260821.log",
+      "sha256": "ccefd08ce7af187cf44df821ebe3033d879ccf6925a808442523afbdebbeac31",
+      "source_url": "https://raw.githubusercontent.com/nbtk/azarashi/fe5d632f56c1f600718a3727c2e19fa21aeffee2/tests/qzqsm_260821.log",
+      "source_date": "2026-08-21",
+      "reference_time": "2026-08-21T00:00:00+00:00",
+      "reference_time_role": "Fixed date anchor for fields without a year; not a per-frame reception timestamp.",
+      "provenance": {
+        "kind": "official_l1s_archive_extract",
+        "description": "Extracted upstream from Q002–Q005_20260821.l1s; training reports plus real L-Alert and hypocenter reports.",
+        "deduplication": "Upstream retains the first occurrence of each identical message in reception/broadcast order."
+      },
+      "frame_count": 50,
+      "expected_types": {
+        "AshFall": 6,
+        "EarthquakeEarlyWarning": 1,
+        "Flood": 2,
+        "Hypocenter": 3,
+        "LAlert": 3,
+        "NankaiTroughEarthquake": 27,
+        "SeismicIntensity": 1,
+        "Tsunami": 3,
+        "Volcano": 1,
+        "Weather": 3
+      },
+      "nankai": {
+        "report_time": "2026-08-21T01:35:00+00:00",
+        "page_count": 27,
+        "page_order": [
+          1,
+          26,
+          25,
+          24,
+          23,
+          22,
+          21,
+          20,
+          19,
+          18,
+          17,
+          16,
+          15,
+          14,
+          13,
+          12,
+          11,
+          10,
+          9,
+          8,
+          7,
+          6,
+          5,
+          4,
+          3,
+          2,
+          27
+        ],
+        "expected_text_file": "nankai_expected.txt",
+        "official_scenario": "nankai"
+      }
+    },
+    "dcx_archive_20260917": {
+      "file": "qzqsm_dcx_260917.log",
+      "sha256": "ff8887da0c458d72749b5d3e2526e695fcfa1e665c7a812cd67f00c0dc9e7726",
+      "source_url": "https://raw.githubusercontent.com/nbtk/azarashi/fe5d632f56c1f600718a3727c2e19fa21aeffee2/tests/qzqsm_dcx_260917.log",
+      "source_date": "2026-09-17",
+      "reference_time": "2026-09-17T01:00:00+00:00",
+      "reference_time_role": "Fixed date anchor for fields without a year; not a per-frame reception timestamp.",
+      "provenance": {
+        "kind": "official_l1s_archive_extract",
+        "description": "Extracted upstream from Q003–Q005_20260917.l1s; DCX test broadcast 2026-09-17 10:00–12:00 JST; null messages excluded.",
+        "deduplication": "Upstream retains the first occurrence of each identical message in reception/broadcast order."
+      },
+      "frame_count": 211,
+      "expected_types": {
+        "JAlert": 48,
+        "LAlert": 115,
+        "MTInfo": 48
+      }
+    }
+  },
+  "expected_types_basis": "Reviewed inventory decoded with azarashi 0.17.1, frozen as a regression baseline; not an independent decoding oracle.",
+  "official_scenarios_file": "official_scenarios.json"
+}

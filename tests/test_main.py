@@ -309,11 +309,12 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
                               for nmea, ms in zip(TYPHOON_NMEA, (1794228531340, 1794228535353)))
         self.enterContext(patch.object(main, 'logger'))
 
-    def reopen(self, *, images=True, **outbox_options):
+    def reopen(self, *, images=True, nankai_wait_seconds=180, **outbox_options):
         self.outbox.close()
         self.outbox = Outbox(self.path, self.nostr.identity, **outbox_options)
         self.service = main.Service(self.nostr, self.outbox, self.stop, clock=self.clock,
-                                    images=self.images if images else None)
+                                    images=self.images if images else None,
+                                    nankai_wait_seconds=nankai_wait_seconds)
 
     def image_url(self, event):
         tags = [tag.to_vec() for tag in event.tags() if tag.to_vec()[0] == 'imeta']
@@ -397,7 +398,7 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_disabling_images_can_reopen_with_a_shorter_delivery_lifetime(self):
         await self.service.accept(self.typhoons[0])
-        self.reopen(images=False, max_age_seconds=120)
+        self.reopen(images=False, max_age_seconds=120, nankai_wait_seconds=60)
         self.assertEqual(self.service.typhoons.pending_count(), 1)
         self.assertEqual(await self.service.accept(self.report), 'queued')
 
@@ -559,7 +560,7 @@ class OperationalTests(unittest.TestCase):
         self.assertNotIn(config.SECRET_KEY, repr(settings))
         self.assertNotIn(IMAGE_KEY.hex(), repr(settings))
         self.assertNotIn(repr(IMAGE_KEY), repr(settings))
-        with patch.dict(main.os.environ, {}, clear=True):
+        with patch.dict(main.os.environ, {'SHIRASU_NANKAI_WAIT_SECONDS': '60'}, clear=True):
             config.RETRY_MAX_AGE_SECONDS = 120
             settings = main.Settings.load(config)
             self.assertIsNone(settings.images)
@@ -572,6 +573,19 @@ class OperationalTests(unittest.TestCase):
                                  GPSD_HOST='gpsd.example.test', GPSD_PORT=2947)
         for value in ('0', '-1', '301', 'nan', 'inf', 'invalid'):
             with self.subTest(value=value), patch.dict(main.os.environ, {'SHIRASU_TYPHOON_WAIT_SECONDS': value}, clear=True):
+                with self.assertRaises(ValueError):
+                    main.Settings.load(config)
+
+    def test_nankai_wait_applies_without_images_and_precedes_collection_expiry(self):
+        config = SimpleNamespace(SECRET_KEY='unused-test-key', RELAY_URLS='wss://relay.example.test',
+                                 GPSD_HOST='gpsd.example.test', GPSD_PORT=2947,
+                                 RETRY_MAX_AGE_SECONDS=120)
+        with patch.dict(main.os.environ, {'SHIRASU_NANKAI_WAIT_SECONDS': '60'}, clear=True):
+            settings = main.Settings.load(config)
+            self.assertEqual(settings.nankai_wait_seconds, 60)
+            self.assertIsNone(settings.images)
+        for value in ('0', '-1', '120', '301', 'nan', 'inf', 'invalid'):
+            with self.subTest(value=value), patch.dict(main.os.environ, {'SHIRASU_NANKAI_WAIT_SECONDS': value}, clear=True):
                 with self.assertRaises(ValueError):
                     main.Settings.load(config)
 

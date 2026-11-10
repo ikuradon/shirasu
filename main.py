@@ -18,7 +18,7 @@ import sys
 import threading
 import time
 
-from azarashi.reports import dcx
+from azarashi.reports import dcr, dcx
 from nostr_sdk import (
     ClientBuilder, Event, EventBuilder, Keys, Kind, NostrSdkError,
     RelayStatus, RelayUrl, SignerAuthenticator, Tag,
@@ -46,6 +46,7 @@ class Settings:
     read_timeout: float = 30
     images: ImagePublisher | None = None
     typhoon_wait_seconds: float = 180
+    nankai_wait_seconds: float = 180
 
     @classmethod
     def load(cls, config):
@@ -58,6 +59,7 @@ class Settings:
             read_timeout=float(getattr(config, 'GPSD_READ_TIMEOUT', 30)),
             images=ImagePublisher.from_environment(os.environ),
             typhoon_wait_seconds=float(os.environ.get('SHIRASU_TYPHOON_WAIT_SECONDS', '180')),
+            nankai_wait_seconds=float(os.environ.get('SHIRASU_NANKAI_WAIT_SECONDS', '180')),
         )
         if (not all(math.isfinite(v) for v in (settings.retry_max_age, settings.dedup_seconds, settings.read_timeout))
                 or settings.retry_max_age < 0 or settings.dedup_seconds <= 0
@@ -70,6 +72,11 @@ class Settings:
                 or (settings.images and settings.retry_max_age
                     and settings.typhoon_wait_seconds >= settings.retry_max_age)):
             raise ValueError('Typhoon wait must be 1..300 seconds and shorter than the retry lifetime')
+        if (not math.isfinite(settings.nankai_wait_seconds)
+                or not 1 <= settings.nankai_wait_seconds <= 300
+                or (settings.retry_max_age
+                    and settings.nankai_wait_seconds >= settings.retry_max_age)):
+            raise ValueError('Nankai wait must be 1..300 seconds and shorter than the retry lifetime')
         return settings
 
 
@@ -148,12 +155,14 @@ def is_publishable(report):
 
 class Service:
     def __init__(self, nostr, outbox, stop, clock=time.time, *, images=None,
-                 typhoon_wait_seconds=180):
+                 typhoon_wait_seconds=180, nankai_wait_seconds=180):
         self.nostr = nostr
         self.outbox = outbox
         self.stop = stop
         self.clock = clock
         self.images = images
+        from nankai import NankaiCollector
+        self.nankai = NankaiCollector(outbox, wait_seconds=nankai_wait_seconds)
         self.typhoons = None
         saved_collection = outbox.connection.execute('''
             SELECT 1 FROM metadata WHERE name = 'typhoon_schema_version'
@@ -169,8 +178,8 @@ class Service:
         self.state.update(running=True, gpsd_connected=False, relay_connected=False)
         self.state['images_enabled'] = images is not None
 
-    def _build_event(self, message, entries):
-        if self.images is not None:
+    def _build_event(self, message, entries, *, include_image=True):
+        if self.images is not None and include_image:
             try:
                 image_url = self.images.url(entries)
             except (ValueError, TypeError, OverflowError) as error:
@@ -188,21 +197,9 @@ class Service:
         logger.error('Outbox full; received report could not be saved')
 
     def _enqueue(self, key, event, now):
+        self.nankai.maintain(now)
         if self.typhoons is not None:
-            self.outbox.maintain(now)
             self.typhoons.maintain(now)
-            existing = self.outbox.connection.execute(
-                'SELECT 1 FROM events WHERE identity = ? AND key = ?',
-                (self.outbox.identity, key),
-            ).fetchone()
-            pending = self.outbox.connection.execute(
-                "SELECT COUNT(*) FROM events WHERE identity = ? AND state = 'pending'",
-                (self.outbox.identity,),
-            ).fetchone()[0]
-            # This synchronous section shares the collector's single writer.
-            # Let enqueue refresh a duplicate even when all slots are occupied.
-            if existing is None and pending + self.typhoons.pending_count() >= self.outbox.max_pending:
-                return 'full'
         return self.outbox.enqueue(key, event.as_json(), event.id().to_hex(), now)
 
     async def accept(self, report):
@@ -210,6 +207,17 @@ class Service:
         self.state['last_received'] = now
         if not is_publishable(report):
             return 'ignored'
+        # Capacity is shared by signed events and both durable collectors.
+        self.nankai.maintain(now)
+        if self.typhoons is not None:
+            self.typhoons.maintain(now)
+        result = self.nankai.accept(report, now)
+        if result != 'immediate':
+            if result == 'full':
+                self._full()
+            elif result == 'buffered':
+                self.wake.set()
+            return result
         if self.typhoons is not None:
             result = self.typhoons.accept(report, now)
             if result != 'immediate':
@@ -218,13 +226,16 @@ class Service:
                 elif result == 'buffered':
                     self.wake.set()
                 return result
+        # Nankai announcements carry prose assembled across received pages;
+        # a single-page summary image does not add useful information.
+        include_image = not isinstance(report, dcr.NankaiTroughEarthquake)
         entries = ()
-        if self.images is not None:
+        if self.images is not None and include_image:
             try:
                 entries = (image_entry(report),)
             except (ValueError, TypeError, OverflowError, AttributeError):
                 pass  # _build_event records the error and preserves the text.
-        event = self._build_event(report_message(report), entries)
+        event = self._build_event(report_message(report), entries, include_image=include_image)
         result = self._enqueue(report_key(report), event, now)
         if result == 'queued':
             self.state['last_queued'] = now
@@ -235,6 +246,18 @@ class Service:
         return result
 
     async def publish_one(self):
+        from nankai import nankai_summary
+        now = self.clock()
+        self.nankai.maintain(now)
+        if self.typhoons is not None:
+            self.typhoons.maintain(now)
+        batch = self.nankai.due(now)
+        if batch is not None:
+            event = self.nostr.build_event(nankai_summary(batch))
+            result = self.nankai.complete(batch, event.as_json(), event.id().to_hex(), now)
+            if result == 'queued':
+                self.state['last_queued'] = now
+                logger.info('Queued Nankai summary event=%s', event.id().to_hex())
         if self.typhoons is not None:
             from typhoon import typhoon_summary
             batch = self.typhoons.due(self.clock())
@@ -285,6 +308,7 @@ class Service:
 
     def save_status(self):
         now = self.clock()
+        self.state['nankai_buffered_reports'] = self.nankai.waiting_count()
         if self.typhoons is not None:
             self.state['typhoon_buffered_reports'] = self.typhoons.pending_count()
         else:
@@ -322,7 +346,8 @@ async def run(settings, stop=None):
         with Outbox(settings.state_path, nostr.identity, settings.dedup_seconds,
                     settings.retry_max_age, settings.max_pending) as outbox:
             service = Service(nostr, outbox, stop, images=settings.images,
-                              typhoon_wait_seconds=settings.typhoon_wait_seconds)
+                              typhoon_wait_seconds=settings.typhoon_wait_seconds,
+                              nankai_wait_seconds=settings.nankai_wait_seconds)
             thread_stop = threading.Event()
 
             def receive(report):

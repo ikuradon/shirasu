@@ -310,11 +310,14 @@ class TyphoonCollectorTests(unittest.TestCase):
         self.complete(collector, 3)
         self.assertEqual(box.snapshot(3)['counts']['pending'], 1)
 
-    def test_complete_retries_if_an_external_enqueue_fills_capacity(self):
+    def test_enqueue_counts_raw_points_and_complete_rechecks_a_lowered_limit(self):
         box, collector = self.open(max_pending=1)
         collector.accept(report(), 0)
         batch = collector.due(3)
-        box.enqueue('other', signed_note('other'), 'other', 3)
+        self.assertEqual(box.enqueue('other', signed_note('other'), 'other', 3), 'full')
+        box.max_pending = 2
+        self.assertEqual(box.enqueue('other', signed_note('other'), 'other', 3), 'queued')
+        box.max_pending = 1
         self.assertEqual(collector.complete(batch, signed_note(), 'summary', 3), 'full')
         self.assertEqual(collector.pending_count(), 1)
         box.mark_sent('other', 4)

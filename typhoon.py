@@ -272,9 +272,6 @@ class TyphoonCollector:
                 SELECT COUNT(*) FROM typhoon_reports
                 WHERE identity = ? AND group_key = ? AND slot_key = ? AND state IN ('pending','done')
             ''', (self.identity, group, slot)).fetchone()[0]
-            queued = self.connection.execute('''
-                SELECT COUNT(*) FROM events WHERE identity = ? AND state = 'pending'
-            ''', (self.identity,)).fetchone()[0]
             superseded = self.connection.execute('''
                 SELECT COUNT(*) FROM typhoon_reports r JOIN typhoon_groups g
                 ON r.identity = g.identity AND r.group_key = g.group_key
@@ -282,7 +279,7 @@ class TyphoonCollector:
                 AND (g.issued_at < ? OR (g.issued_at = ? AND g.information_type < ?))
             ''', (self.identity, storm, issued, issued, information)).fetchone()[0]
             if (group_count - slot_count >= MAX_BATCH_REPORTS
-                    or queued + self.pending_count() - replacements - superseded >= self.outbox.max_pending):
+                    or self.outbox.pending_count() - replacements - superseded >= self.outbox.max_pending):
                 return 'full'
 
             self._supersede(storm, issued, information)
@@ -348,10 +345,7 @@ class TyphoonCollector:
             existing = self.connection.execute('''
                 SELECT 1 FROM events WHERE identity = ? AND key = ?
             ''', (self.identity, batch.key)).fetchone()
-            queued = self.connection.execute('''
-                SELECT COUNT(*) FROM events WHERE identity = ? AND state = 'pending'
-            ''', (self.identity,)).fetchone()[0]
-            if not existing and queued + self.pending_count() - len(members) >= self.outbox.max_pending:
+            if not existing and self.outbox.pending_count() - len(members) >= self.outbox.max_pending:
                 return 'full'
             if not existing:
                 self.connection.execute('''
