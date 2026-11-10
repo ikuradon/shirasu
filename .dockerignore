@@ -39,5 +39,11 @@ tests/test_preview_regions.py
 tests/test_preview_points.py
 tests/test_preview_dispatch.py
 tests/test_public_qzqsm_images.py
+tests/test_gallery_catalog.py
+tests/test_gallery_cli.py
+tests/test_gallery_html.py
+scripts/gallery_catalog.py
+scripts/gallery_html.py
+scripts/render_gallery.py
 dist
 .vercel

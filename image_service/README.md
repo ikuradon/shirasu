@@ -39,6 +39,59 @@ python3.12 -m venv /tmp/shirasu-images-venv
 オフラインプレビューだけは指定した新規 PNG ファイルへ書き込みます。既存ファイルは上書きしません。
 同梱サンプルは 2026-11-09 に受信した公開台風通報で、最新情報ではありません。
 
+## オフライン画像ギャラリー
+
+15種類・20ケースについて、公開済み版と作業版を横に並べるHTMLとPNGを一括生成します。
+画像サービス用の依存関係と、[洪水の流路データ](#指定河川洪水予報のプレビュー)を準備した後、
+リポジトリルートで次の1コマンドを実行します。
+
+```sh
+/tmp/shirasu-images-venv/bin/python -B scripts/render_gallery.py --output dist/gallery
+```
+
+`dist/gallery/index.html` をブラウザで開くと、種類・実受信／アーカイブ／合成・訓練区分・
+発表／解除／取消で絞り込めます。検索では地名や「離島」「多数区域」も指定できます。
+PNGを選ぶと原寸で表示し、出典・復号テキスト・入力JSONを各ケースから確認できます。
+HTML・PNG・JSONはすべて同じ出力フォルダに収まり、サーバーやネット接続は必要ありません。
+
+比較する公開済み版は既定でv4です。稼働中のサービス設定とは独立しており、
+`--published-version v1` などで変更できます。作業版のラベルを新しい公開バージョンとして
+扱うことはありません。画像の「地図／要旨」は実際に保存された図から判定します。
+
+```sh
+python -B scripts/render_gallery.py --list
+python -B scripts/render_gallery.py --output dist/gallery-ash --case ash-detail
+python -B scripts/render_gallery.py --output dist/gallery-v1 --published-version v1 \
+  --case typhoon-track --case marine
+```
+
+`--list` は描画依存や地図アセットなしでも、受信側の依存関係だけで動作します。
+描画コマンドには上記の画像サービス用Pythonを使用してください。
+既存の出力先は上書きしません。比較を残す場合は新しい出力先を指定します。
+各セルの描画失敗は一覧に明示し、他の画像は生成を続け、終了コード1を返します。
+必要なアセットがない場合は、出力フォルダを作る前に停止します。
+
+Dockerでは、プレビュー用イメージを用意した後に次のコマンドで生成できます。
+
+```sh
+mkdir -p dist
+docker run --rm --network none --volume "$PWD:/source:ro" --volume "$PWD/dist:/output" \
+  --workdir /source shirasu-images:preview \
+  python -B scripts/render_gallery.py --output /output/gallery
+```
+
+台風7時点、降灰5電文・18項目、複数区域の気象、解除・取消・離島、DCXを収録しています。
+ケース定義は `scripts/gallery_catalog.py`、公開ログの出典は
+[共通fixture](../tests/fixtures/qzqsm/README.md)にあります。
+公開ログの日付基準は個別の受信時刻ではなく、年を持たない電文の復号用です。
+元の公開ログと合成した訓練例を区別し、派生例の変更内容も一覧に記録します。
+南海トラフはテキストのみの運用方針に合わせ、この画像一覧から除外しています。
+
+このツールはリポジトリから実行する確認用です。受信サービスやVercel配布パッケージには
+含めず、秘密鍵・設定・配送DB・外部通信・投稿処理を使用しません。
+`manifest.json` に各入力の由来・出力PNGのハッシュ・描画結果を保存し、
+公開ログのMITライセンスも出力フォルダへ同梱します。
+
 ## 未公開画像のプレビュー
 
 `--preview` で未公開の作業版を描画します。`--records` 専用で、`--version`・`--serve`
