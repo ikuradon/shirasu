@@ -18,7 +18,7 @@ CATEGORIES = {
 SOURCES = {'receiver': '実受信', 'archive': 'アーカイブ由来', 'synthetic': '合成'}
 CLASSIFICATIONS = {'training': '訓練・試験', 'ordinary': '通常配信'}
 STATES = {'issue': '発表', 'release': '解除', 'cancel': '取消'}
-KINDS = {'map': '地図', 'summary': '要旨', 'text': 'テキスト'}
+KINDS = {'map': '地図', 'summary': '要旨', 'topic': 'トピック', 'text': 'テキスト'}
 
 
 def _escape(value):

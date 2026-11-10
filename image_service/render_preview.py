@@ -2,7 +2,7 @@
 
 import io
 
-from azarashi.reports import dcr
+from azarashi.reports import dcr, dcx
 from matplotlib import patheffects
 from matplotlib.text import Text
 
@@ -13,6 +13,7 @@ from image_service import preview_wide_layout as layout
 from image_service import preview_wide_regions as regions
 from image_service import preview_wide_points as points
 from image_service import preview_wide_special as special
+from image_service import preview_wide_dcx as dcx_images
 
 DRAWERS = {
     dcr.Weather: regions.draw_weather,
@@ -26,6 +27,10 @@ DRAWERS = {
     dcr.Flood: special.draw_flood,
     dcr.AshFall: special.draw_ash,
     dcr.NorthwestPacificTsunami: special.draw_nwp,
+    dcx.LAlert: dcx_images.draw_dcx,
+    dcx.JAlert: dcx_images.draw_dcx,
+    dcx.MTInfo: dcx_images.draw_dcx,
+    dcx.OutsideJapan: dcx_images.draw_dcx,
 }
 
 
@@ -59,7 +64,10 @@ def render(records):
             except ValueError:
                 # Never create a plausible partial map by dropping values.
                 fig.clear()
-                layout.summary(fig, reports)
+                if isinstance(first, dcx.AlertBase):
+                    dcx_images.draw_topic(fig, reports)
+                else:
+                    layout.summary(fig, reports)
                 layout.validate(fig)
             for label in fig.findobj(Text):
                 if label.get_bbox_patch() is None:

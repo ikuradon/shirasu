@@ -73,11 +73,11 @@ def _validated(case):
     return case
 
 
-def _training_variant(nmea, fields):
-    """Change explicit DCR fields and rebuild CRC-24Q and the NMEA checksum."""
+def _field_variant(nmea, fields):
+    """Change explicit message fields and rebuild CRC-24Q and the NMEA checksum."""
     _, satellite, encoded = nmea.split('*')[0].split(',')
     value = int(encoded + '0', 16)
-    for offset, width, replacement in (*fields, (14, 3, 7)):
+    for offset, width, replacement in fields:
         if not 0 <= replacement < 1 << width or offset < 0 or offset + width > 226:
             raise ValueError('Invalid gallery fixture field')
         shift = 256 - offset - width
@@ -94,6 +94,16 @@ def _training_variant(nmea, fields):
     for character in body:
         checksum ^= ord(character)
     return f'${body}*{checksum:02X}'
+
+
+def _training_variant(nmea, fields):
+    """Keep derived DCR messages explicitly marked as training."""
+    return _field_variant(nmea, (*fields, (14, 3, 7)))
+
+
+def _dcx_training_variant(nmea, fields):
+    """DCX uses A1 for training; its bits 14–16 belong to satellite designation."""
+    return _field_variant(nmea, (*fields, (24, 2, 0)))
 
 
 def load_cases(root=ROOT):
@@ -144,6 +154,15 @@ def load_cases(root=ROOT):
             '同梱の合成訓練例' + ('から派生' if fields else ''), None, file.as_posix(),
             records, tuple(tags), hashlib.sha256(raw).hexdigest())))
 
+    def synthetic_dcx(slug, title, category, index, description, *, fields, tags=()):
+        metadata, file, records = sources[DCX]
+        sentence, ms = records[index]
+        derived = ((_dcx_training_variant(sentence, fields), ms),)
+        cases.append(_validated(GalleryCase(
+            slug, title, category, 'synthetic', 'training', 'issue', description,
+            '公式アーカイブから派生した合成訓練例', None, file.as_posix(),
+            derived, tuple(tags), metadata['sha256'])))
+
     recorded('typhoon-track', '台風26号 / 実況と予報', 'Typhoon', range(2, 9),
              '同じ発表の実況・予報7時点をまとめた記録です。',
              classification='ordinary', tags=('複数電文',))
@@ -177,14 +196,31 @@ def load_cases(root=ROOT):
     recorded('marine', '海上警報 / 北海道・東北沖', 'Marine', (9,),
              '過去に受信した海上の予報区域と風警報を含む通常配信です。',
              classification='ordinary', tags=('多数区域',))
+    dcx_display = '受信内容に応じて地点・範囲、対象区域、トピック画像の順に表示を自動選択します。'
     recorded('dcx-lalert', 'DCX / Lアラート', 'LAlert', (0,),
-             '公式アーカイブ由来の試験電文です。現在は要旨表示で確認します。', source=DCX)
+             '公式アーカイブ由来の試験電文です。' + dcx_display, source=DCX)
     recorded('dcx-jalert', 'DCX / Jアラート', 'JAlert', (115,),
-             '公式アーカイブ由来の試験電文です。現在は要旨表示で確認します。', source=DCX)
+             '公式アーカイブ由来の試験電文です。' + dcx_display, source=DCX)
     recorded('dcx-mtinfo', 'DCX / 自治体情報', 'MTInfo', (163,),
-             '公式アーカイブ由来の試験電文です。現在は要旨表示で確認します。', source=DCX)
+             '公式アーカイブ由来の試験電文です。' + dcx_display, source=DCX)
     recorded('dcx-outside-japan', 'DCX / 海外通報', 'OutsideJapan', (70,),
-             '受信ログに含まれる海外向けの試験電文です。現在は要旨表示で確認します。')
+             '受信ログに含まれる海外向けの試験電文です。' + dcx_display)
+    synthetic_dcx('dcx-municipality', 'DCX / 市町村の対象区域', 'LAlert', 0,
+                  '公式アーカイブのフレーム0から派生した合成訓練例です。'
+                  'Vn=1、A1=0（試験）、EX1=1202（函館市）に設定し、'
+                  'CRCとNMEAチェックサムを再計算しています。',
+                  fields=((214, 6, 1), (146, 16, 1202)))
+    synthetic_dcx('dcx-prefectures', 'DCX / 都道府県の対象区域', 'JAlert', 115,
+                  '公式アーカイブのフレーム115から派生した合成訓練例です。'
+                  'Vn=1、A1=0（試験）、EX9を北海道・青森県・岩手県のみの指定に設定し、'
+                  'CRCとNMEAチェックサムを再計算しています。',
+                  # EX9 has 47 prefecture bits followed by 17 reserved bits.
+                  fields=((214, 6, 1), (147, 64, 7 << 17)), tags=('複数区域',))
+    synthetic_dcx('dcx-ellipse', 'DCX / 受信した楕円範囲', 'MTInfo', 163,
+                  '公式アーカイブのフレーム163から派生した合成訓練例です。'
+                  'Vn=1、A1=0（試験）、EX2〜EX7を0（追加の避難方向・楕円なし）に設定し、'
+                  'CRCとNMEAチェックサムを再計算しています。基本楕円の値は保持しています。',
+                  fields=((214, 6, 1), (162, 52, 0)))
     synthetic('weather-cancel', '気象 / 取消の表示', 'Weather', 'weather',
               '合成訓練例の情報形態を取消へ変更し、CRCとNMEAチェックサムを再計算しています。',
               fields=((41, 2, 2),), state='cancel')

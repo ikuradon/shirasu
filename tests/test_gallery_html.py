@@ -81,6 +81,19 @@ class GalleryHtmlTests(unittest.TestCase):
         self.assertTrue(any(item.get('id') == 'empty' for item in document.attrs('section')))
         self.assertIn('@media(max-width:680px)', content)
 
+    def test_topic_card_is_distinct_from_published_summary_and_retains_original_text(self):
+        manifest = sample()
+        case = manifest['cases'][0]
+        case['images']['preview']['kind'] = 'topic'
+        content = render_html(manifest)
+        images = Document(content).attrs('img')
+        self.assertTrue(images[0]['alt'].endswith('公開版 / 要旨'))
+        self.assertTrue(images[1]['alt'].endswith('作業版 / トピック'))
+        self.assertIn('<span class="kind">トピック</span>', content)
+        self.assertIn('<span class="kind">要旨</span>', content)
+        self.assertIn(case['report_text'], content)
+        self.assertIn(case['records_path'], content)
+
     def test_source_text_and_error_messages_cannot_inject_markup_or_javascript(self):
         manifest = sample()
         case = manifest['cases'][0]

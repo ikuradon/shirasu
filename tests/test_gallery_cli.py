@@ -10,6 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -165,9 +166,68 @@ runpy.run_path(sys.argv[0], run_name='__main__')
                 self.assertIn('fixture cannot be rendered', html)
                 self.assertTrue((output / row['records_path']).is_file())
 
+    def test_topic_png_is_recorded_separately_without_changing_published_comparison_or_text(self):
+        case = next(case for case in load_cases() if case.slug == 'dcx-jalert')
+        with patch.object(render_gallery, '_preflight'), \
+                patch.object(render_gallery, '_render_image',
+                             side_effect=lambda records, version: (PNG, 'topic' if version == 'preview' else 'summary')), \
+                redirect_stdout(io.StringIO()):
+            result = render_gallery.generate(self.output, selected_cases=(case.slug,))
+        self.assertEqual(result['error_count'], 0)
+        row, = result['cases']
+        self.assertEqual(row['images']['preview']['kind'], 'topic')
+        self.assertEqual(row['images']['published']['kind'], 'summary')
+        self.assertEqual(row['images']['published']['version'], 'v4')
+        self.assertEqual(row['report_text'], render_gallery._decoded_text(case.records))
+        self.assertEqual(row['source_sha256'], case.source_sha256)
+        for image in row['images'].values():
+            self.assertEqual((self.output / image['path']).read_bytes(), PNG)
+            self.assertEqual(image['sha256'], hashlib.sha256(PNG).hexdigest())
+        self.assertIn('トピック', (self.output / 'index.html').read_text())
+
+    def test_unknown_png_kind_remains_a_visible_failure(self):
+        with patch.object(render_gallery, '_preflight'), \
+                patch.object(render_gallery, '_render_image',
+                             side_effect=lambda records, version: (PNG, 'unknown' if version == 'preview' else 'summary')), \
+                redirect_stdout(io.StringIO()):
+            result = render_gallery.generate(self.output, selected_cases=('dcx-jalert',))
+        self.assertEqual(result['error_count'], 1)
+        row, = result['cases']
+        self.assertIn('不正な描画結果', row['images']['preview']['error'])
+        self.assertNotIn('path', row['images']['preview'])
+        self.assertEqual(row['images']['published']['kind'], 'summary')
+
 
 @unittest.skipUnless(HAS_RENDERER, 'Install image_service/requirements.txt for actual gallery rendering')
 class GalleryRenderingTests(unittest.TestCase):
+    def test_observation_identifies_explicit_topic_before_axes_and_restores_savefig(self):
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from image_service import render as base
+
+        original_savefig = base.Figure.savefig
+        for marker, axes, expected in ((None, False, 'summary'), (None, True, 'map'),
+                                       ('dcx-topic', False, 'topic'), ('dcx-topic', True, 'topic'),
+                                       ('other-topic', False, 'summary')):
+            with self.subTest(marker=marker, axes=axes):
+                def render(records):
+                    figure = base.Figure(figsize=(.5, .5), dpi=96)
+                    FigureCanvasAgg(figure)
+                    if axes:
+                        figure.add_axes((0, 0, 1, 1)).set_axis_off()
+                    if marker:
+                        figure.text(.5, .5, 'topic', gid=marker)
+                    output = io.BytesIO()
+                    figure.savefig(output, format='png')
+                    figure.clear()
+                    return SimpleNamespace(png=output.getvalue())
+
+                with patch.dict(render_gallery.MODULES, {'preview': 'gallery_test_renderer'}), \
+                        patch.dict(sys.modules, {'gallery_test_renderer': SimpleNamespace(render=render)}):
+                    png, kind = render_gallery._render_image((), 'preview')
+                self.assertEqual(kind, expected)
+                self.assertEqual(png[:8], b'\x89PNG\r\n\x1a\n')
+                self.assertIs(base.Figure.savefig, original_savefig)
+
     def test_actual_pngs_preserve_the_published_renderer_and_restore_observation(self):
         from image_service import render as base
         from image_service import render_v4

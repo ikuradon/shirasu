@@ -12,7 +12,7 @@ from unittest.mock import patch
 import azarashi
 from azarashi.reports import dcr
 
-from scripts.gallery_catalog import load_cases
+from scripts.gallery_catalog import _dcx_training_variant, load_cases
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,7 +28,7 @@ class GalleryCatalogTests(unittest.TestCase):
         self.cases = {case.slug: case for case in load_cases()}
 
     def test_catalog_covers_image_categories_with_stable_unique_output_names(self):
-        self.assertEqual(len(self.cases), 20)
+        self.assertEqual(len(self.cases), 23)
         self.assertEqual({case.category for case in self.cases.values()}, {
             'Typhoon', 'Hypocenter', 'Weather', 'EarthquakeEarlyWarning', 'SeismicIntensity',
             'Tsunami', 'Volcano', 'AshFall', 'Flood', 'NorthwestPacificTsunami', 'Marine',
@@ -99,6 +99,67 @@ class GalleryCatalogTests(unittest.TestCase):
                          ('receiver', 'ordinary'))
         self.assertEqual((self.cases['eew'].source_kind, self.cases['eew'].classification),
                          ('receiver', 'training'))
+
+    def test_synthetic_dcx_preserves_source_provenance_and_only_changes_declared_fields(self):
+        variants = (
+            ('dcx-municipality', 'dcx-lalert', ((146, 16),)),
+            ('dcx-prefectures', 'dcx-jalert', ((147, 64),)),
+            ('dcx-ellipse', 'dcx-mtinfo', ((162, 52),)),
+        )
+        for slug, original_slug, changed_fields in variants:
+            with self.subTest(case=slug):
+                case, original = self.cases[slug], self.cases[original_slug]
+                self.assertEqual((case.source_kind, case.classification, case.state),
+                                 ('synthetic', 'training', 'issue'))
+                self.assertIsNone(case.source_url)
+                self.assertEqual(case.source_file, original.source_file)
+                self.assertEqual(case.source_sha256, original.source_sha256)
+                self.assertIn('合成訓練例', case.source_label)
+                self.assertIn('合成訓練例', case.description)
+                self.assertIn('Vn=1', case.description)
+                self.assertIn('A1=0', case.description)
+                self.assertNotEqual(case.records[0][0], original.records[0][0])
+                self.assertEqual(case.records[0][1], original.records[0][1])
+                self.assertEqual(decoded(original)[0].camf.vn, 0)
+                report = decoded(case)[0]
+                self.assertEqual((report.camf.vn, report.camf.a1), (1, 0))
+                self.assertEqual((report.camf.sdmt, report.camf.sdm),
+                                 (decoded(original)[0].camf.sdmt, decoded(original)[0].camf.sdm))
+                # The satellite mask, original hazard and all unlisted fields stay intact.
+                payloads = [int(item.records[0][0].split('*')[0].split(',')[2] + '0', 16)
+                            for item in (case, original)]
+                allowed = 0
+                for offset, width in (*changed_fields, (24, 2), (214, 6), (226, 24)):
+                    allowed |= ((1 << width) - 1) << (256 - offset - width)
+                self.assertEqual((payloads[0] ^ payloads[1]) & ~allowed, 0)
+
+    def test_synthetic_dcx_selects_exact_areas_and_preserves_the_basic_ellipse(self):
+        municipality = decoded(self.cases['dcx-municipality'])[0]
+        self.assertEqual(municipality.camf.ex1, 1202)
+        self.assertEqual(municipality.ex1_target_area_ja, '北海道函館市')
+        self.assertFalse(municipality.ignore_ex1)
+        self.assertTrue(municipality.ignore_a12_to_a16)
+        prefectures = decoded(self.cases['dcx-prefectures'])[0]
+        self.assertEqual(prefectures.camf.ex8, 0)
+        self.assertEqual(prefectures.camf.ex9, 7 << 17)
+        self.assertEqual(prefectures.ex9_target_area_list_ja, ['北海道', '青森県', '岩手県'])
+        ellipse = decoded(self.cases['dcx-ellipse'])[0]
+        original = decoded(self.cases['dcx-mtinfo'])[0]
+        self.assertTrue(ellipse.ignore_ex2_to_ex7)
+        self.assertFalse(ellipse.ignore_a12_to_a16)
+        self.assertEqual([getattr(ellipse.camf, f'ex{index}') for index in range(2, 8)], [0] * 6)
+        for field in ('a12', 'a13', 'a14', 'a15', 'a16', 'a17', 'a18'):
+            self.assertEqual(getattr(ellipse.camf, field), getattr(original.camf, field))
+
+    def test_dcx_derivation_always_forces_the_test_flag_without_altering_satellite_designation(self):
+        original = self.cases['dcx-lalert']
+        sentence, ms = original.records[0]
+        # Even an explicit attempt to select an ordinary message cannot make a synthetic alert.
+        changed = _dcx_training_variant(sentence, ((24, 2, 1), (214, 6, 1)))
+        report = azarashi.decode(changed, timestamp=datetime.fromtimestamp(ms / 1000, timezone.utc))
+        self.assertEqual(report.camf.a1, 0)
+        self.assertEqual((report.camf.sdmt, report.camf.sdm),
+                         (decoded(original)[0].camf.sdmt, decoded(original)[0].camf.sdm))
 
     def test_modified_public_source_is_rejected_before_selecting_frames(self):
         with tempfile.TemporaryDirectory() as directory:

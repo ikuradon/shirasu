@@ -48,7 +48,10 @@ def _render_image(records, version):
 
     def observe(figure, *args, **kwargs):
         result = original(figure, *args, **kwargs)
-        kinds.append('map' if figure.axes else 'summary')
+        if any(text.get_gid() == 'dcx-topic' for text in figure.texts):
+            kinds.append('topic')
+        else:
+            kinds.append('map' if figure.axes else 'summary')
         return result
 
     # The observer is process-local, restored on failure, and shares the renderer
@@ -126,7 +129,7 @@ def generate(output, *, published_version='v4', selected_cases=None):
             print(f'[{index}/{len(cases)}] {case.slug} / {version}', flush=True)
             try:
                 png, kind = _render_image(case.records, version)
-                if len(png) < 24 or png[:8] != b'\x89PNG\r\n\x1a\n' or kind not in ('map', 'summary'):
+                if len(png) < 24 or png[:8] != b'\x89PNG\r\n\x1a\n' or kind not in ('map', 'summary', 'topic'):
                     raise ValueError('不正な描画結果です')
                 width, height = struct.unpack('>II', png[16:24])
                 if not width or not height:

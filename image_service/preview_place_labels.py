@@ -36,7 +36,7 @@ def _obstacles(fig, view, renderer):
         identity = patch.get_gid() or ''
         if identity.startswith('seismic-badge-'):
             boxes.append(patch.get_window_extent(renderer).padded(5))
-        elif ((identity.startswith('weather-outline-')
+        elif ((identity.startswith(('weather-outline-', 'dcx-target-ellipse-'))
                or (identity.startswith('region-area-') and patch.get_linewidth() >= 1))
               and patch.get_linewidth() > 0 and patch.get_edgecolor()[3] > 0):
             # Neutral municipality/prefecture outlines still identify a

@@ -293,7 +293,7 @@ def _axes(fig, limits, *, position=(0, 0, 1, 1), graticule=True):
     return ax
 
 
-def map_axes(fig, sequences, *, full=(), minimum=4., force_locator=False):
+def map_axes(fig, sequences, *, full=(), minimum=4., force_locator=False, locator_context=()):
     sequences, full = tuple(sequences), tuple(full)
     surroundings = scale.context_for(sequences, minimum=minimum)
     fitted = (*sequences, *surroundings.sequences)
@@ -309,9 +309,10 @@ def map_axes(fig, sequences, *, full=(), minimum=4., force_locator=False):
     inset = None
     if show:
         shift = round(((viewport[0] + viewport[1]) / 2 - 135) / 360) * 360
-        japan = np.array(((122 + shift, float(base._my(23))), (148 + shift, float(base._my(47)))))
+        locator_land = tuple(locator_context) or (
+            np.array(((122 + shift, float(base._my(23))), (148 + shift, float(base._my(47))))),)
         extent = np.array(((viewport[0], viewport[2]), (viewport[1], viewport[3])))
-        inset_limits = _limits((japan, extent, *full), (.05, .05, .95, .95),
+        inset_limits = _limits((*locator_land, extent, *full), (.05, .05, .95, .95),
                                minimum=.1, position=LOCATOR_POSITION)
         # The locator is a plain base map. Forecast geometry, administrative
         # borders, tracks and reference markers belong only on the main map.
