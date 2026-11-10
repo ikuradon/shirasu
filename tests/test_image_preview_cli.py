@@ -24,6 +24,17 @@ HAS_RENDERER = all(importlib.util.find_spec(name) for name in ('azarashi', 'matp
 
 
 class PreviewBoundaryTests(unittest.TestCase):
+    def test_missing_private_flood_asset_explains_preparation_without_partial_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / 'preview'
+            with patch('scripts.prepare_image_service.ROOT', Path(directory) / 'checkout'), \
+                    patch('scripts.prepare_image_service.FILES', ()), \
+                    patch('scripts.prepare_image_service.PREVIEW_FILES',
+                          ('image_service/assets/preview/flood.geojson.zlib',)):
+                with self.assertRaisesRegex(ValueError, 'prepare_flood_assets.py'):
+                    prepare(destination, include_preview=True)
+            self.assertFalse(destination.exists())
+
     def test_unpublished_renderer_cannot_be_signed_or_reached_over_http(self):
         self.assertEqual(SUPPORTED_VERSIONS, ('v1', 'v2', 'v3', 'v4'))
         self.assertEqual(set(RENDERERS), set(SUPPORTED_VERSIONS))

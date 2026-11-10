@@ -1,0 +1,7 @@
+[
+  {
+    "description": "Synthetic training example, not an actual designated-river flood forecast.",
+    "nmea": "$QZQSM,55,C6AFDDA805000160A8FCCC321E0A8FCD9DE260A9046D520000000012CA4A788*0A",
+    "received_ms": 1794269460000
+  }
+]

@@ -1,0 +1,2111 @@
+{
+  "FLOOD_NOTICE.txt": {
+    "bytes": 2592,
+    "sha256": "ac87c213d667053ec719cd2fd363b5c36d2235f49c8e2eb68bedc086f1cbae8a"
+  },
+  "flood.geojson.zlib": {
+    "bytes": 285685,
+    "compression": "zlib; level=9",
+    "excluded_non_specific_codes": [
+      "019999999999",
+      "029999999999",
+      "039999999999",
+      "049999999999",
+      "059999999999",
+      "069999999999",
+      "079999999999",
+      "089999999999",
+      "099999999999",
+      "109999999999",
+      "119999999999",
+      "129999999999",
+      "139999999999",
+      "149999999999",
+      "159999999999",
+      "169999999999",
+      "179999999999",
+      "189999999999",
+      "199999999999",
+      "209999999999",
+      "219999999999",
+      "229999999999",
+      "239999999999",
+      "249999999999",
+      "259999999999",
+      "269999999999",
+      "279999999999",
+      "289999999999",
+      "299999999999",
+      "309999999999",
+      "319999999999",
+      "329999999999",
+      "339999999999",
+      "349999999999",
+      "359999999999",
+      "369999999999",
+      "379999999999",
+      "389999999999",
+      "399999999999",
+      "409999999999",
+      "419999999999",
+      "429999999999",
+      "439999999999",
+      "449999999999",
+      "459999999999",
+      "469999999999",
+      "479999999999",
+      "809999999999",
+      "819999999999",
+      "829999999999",
+      "839999999999",
+      "849999999999",
+      "859999999999",
+      "869999999999",
+      "879999999999",
+      "889999999999",
+      "899999999999"
+    ],
+    "excluded_type_1_features": 23820,
+    "feature_count": 338,
+    "general_data_policy": "https://www.jma.go.jp/jma/kishou/books/hakusho/2019/index3.html#toc-173",
+    "geometry": {
+      "010175000100": {
+        "components": 1,
+        "points": 19,
+        "source_components": 1,
+        "source_points": 19
+      },
+      "020036000100": {
+        "components": 2,
+        "points": 84,
+        "source_components": 2,
+        "source_points": 84
+      },
+      "040028000100": {
+        "components": 1,
+        "points": 96,
+        "source_components": 1,
+        "source_points": 96
+      },
+      "060016000100": {
+        "components": 1,
+        "points": 111,
+        "source_components": 1,
+        "source_points": 111
+      },
+      "070006000100": {
+        "components": 1,
+        "points": 77,
+        "source_components": 1,
+        "source_points": 77
+      },
+      "070010000100": {
+        "components": 1,
+        "points": 86,
+        "source_components": 1,
+        "source_points": 86
+      },
+      "070028000100": {
+        "components": 1,
+        "points": 144,
+        "source_components": 1,
+        "source_points": 144
+      },
+      "130005000100": {
+        "components": 1,
+        "points": 28,
+        "source_components": 1,
+        "source_points": 28
+      },
+      "130006000100": {
+        "components": 2,
+        "points": 32,
+        "source_components": 2,
+        "source_points": 32
+      },
+      "140019000100": {
+        "components": 1,
+        "points": 111,
+        "source_components": 1,
+        "source_points": 111
+      },
+      "180006000100": {
+        "components": 1,
+        "points": 26,
+        "source_components": 1,
+        "source_points": 26
+      },
+      "180014000100": {
+        "components": 1,
+        "points": 19,
+        "source_components": 1,
+        "source_points": 19
+      },
+      "220062000100": {
+        "components": 2,
+        "points": 59,
+        "source_components": 2,
+        "source_points": 59
+      },
+      "220079000100": {
+        "components": 2,
+        "points": 135,
+        "source_components": 2,
+        "source_points": 135
+      },
+      "220081000100": {
+        "components": 1,
+        "points": 43,
+        "source_components": 1,
+        "source_points": 43
+      },
+      "230029000100": {
+        "components": 2,
+        "points": 82,
+        "source_components": 2,
+        "source_points": 82
+      },
+      "230052000100": {
+        "components": 1,
+        "points": 27,
+        "source_components": 1,
+        "source_points": 27
+      },
+      "230054000100": {
+        "components": 1,
+        "points": 88,
+        "source_components": 1,
+        "source_points": 88
+      },
+      "270013000100": {
+        "components": 3,
+        "points": 137,
+        "source_components": 3,
+        "source_points": 137
+      },
+      "270013000200": {
+        "components": 1,
+        "points": 47,
+        "source_components": 1,
+        "source_points": 47
+      },
+      "280014000100": {
+        "components": 1,
+        "points": 48,
+        "source_components": 1,
+        "source_points": 48
+      },
+      "280053000100": {
+        "components": 1,
+        "points": 57,
+        "source_components": 1,
+        "source_points": 57
+      },
+      "280064000100": {
+        "components": 1,
+        "points": 74,
+        "source_components": 1,
+        "source_points": 74
+      },
+      "300013000100": {
+        "components": 1,
+        "points": 57,
+        "source_components": 1,
+        "source_points": 57
+      },
+      "300066000100": {
+        "components": 1,
+        "points": 300,
+        "source_components": 1,
+        "source_points": 300
+      },
+      "300077000100": {
+        "components": 1,
+        "points": 244,
+        "source_components": 1,
+        "source_points": 244
+      },
+      "310027000100": {
+        "components": 1,
+        "points": 15,
+        "source_components": 1,
+        "source_points": 15
+      },
+      "320004000100": {
+        "components": 1,
+        "points": 20,
+        "source_components": 1,
+        "source_points": 20
+      },
+      "320011000100": {
+        "components": 1,
+        "points": 21,
+        "source_components": 1,
+        "source_points": 21
+      },
+      "330009000100": {
+        "components": 2,
+        "points": 72,
+        "source_components": 2,
+        "source_points": 72
+      },
+      "340013000100": {
+        "components": 1,
+        "points": 46,
+        "source_components": 1,
+        "source_points": 46
+      },
+      "340021000100": {
+        "components": 1,
+        "points": 30,
+        "source_components": 1,
+        "source_points": 30
+      },
+      "350002000102": {
+        "components": 2,
+        "points": 91,
+        "source_components": 2,
+        "source_points": 91
+      },
+      "350002000103": {
+        "components": 1,
+        "points": 30,
+        "source_components": 1,
+        "source_points": 30
+      },
+      "350019000100": {
+        "components": 1,
+        "points": 68,
+        "source_components": 1,
+        "source_points": 68
+      },
+      "350036000100": {
+        "components": 1,
+        "points": 95,
+        "source_components": 1,
+        "source_points": 95
+      },
+      "350036001900": {
+        "components": 1,
+        "points": 19,
+        "source_components": 1,
+        "source_points": 19
+      },
+      "350046000100": {
+        "components": 1,
+        "points": 66,
+        "source_components": 1,
+        "source_points": 66
+      },
+      "360007000100": {
+        "components": 1,
+        "points": 63,
+        "source_components": 1,
+        "source_points": 63
+      },
+      "370026000100": {
+        "components": 1,
+        "points": 54,
+        "source_components": 1,
+        "source_points": 54
+      },
+      "400018000100": {
+        "components": 1,
+        "points": 16,
+        "source_components": 1,
+        "source_points": 16
+      },
+      "440008000100": {
+        "components": 1,
+        "points": 32,
+        "source_components": 1,
+        "source_points": 32
+      },
+      "450026000100": {
+        "components": 1,
+        "points": 87,
+        "source_components": 1,
+        "source_points": 87
+      },
+      "450040000100": {
+        "components": 1,
+        "points": 98,
+        "source_components": 1,
+        "source_points": 98
+      },
+      "450040000700": {
+        "components": 1,
+        "points": 45,
+        "source_components": 1,
+        "source_points": 45
+      },
+      "460060000100": {
+        "components": 2,
+        "points": 181,
+        "source_components": 2,
+        "source_points": 181
+      },
+      "810101000100": {
+        "components": 4,
+        "points": 857,
+        "source_components": 4,
+        "source_points": 857
+      },
+      "810101008500": {
+        "components": 1,
+        "points": 193,
+        "source_components": 1,
+        "source_points": 193
+      },
+      "810102000100": {
+        "components": 1,
+        "points": 232,
+        "source_components": 1,
+        "source_points": 232
+      },
+      "810103000101": {
+        "components": 1,
+        "points": 280,
+        "source_components": 1,
+        "source_points": 280
+      },
+      "810103000102": {
+        "components": 8,
+        "points": 622,
+        "source_components": 8,
+        "source_points": 622
+      },
+      "810103003100": {
+        "components": 3,
+        "points": 61,
+        "source_components": 3,
+        "source_points": 61
+      },
+      "810103003101": {
+        "components": 1,
+        "points": 42,
+        "source_components": 1,
+        "source_points": 42
+      },
+      "810103008100": {
+        "components": 2,
+        "points": 251,
+        "source_components": 2,
+        "source_points": 251
+      },
+      "810103011900": {
+        "components": 1,
+        "points": 162,
+        "source_components": 1,
+        "source_points": 162
+      },
+      "810103018200": {
+        "components": 1,
+        "points": 364,
+        "source_components": 1,
+        "source_points": 364
+      },
+      "810103025001": {
+        "components": 1,
+        "points": 158,
+        "source_components": 1,
+        "source_points": 158
+      },
+      "810103025002": {
+        "components": 1,
+        "points": 210,
+        "source_components": 1,
+        "source_points": 210
+      },
+      "810103033400": {
+        "components": 2,
+        "points": 346,
+        "source_components": 2,
+        "source_points": 346
+      },
+      "810103040900": {
+        "components": 1,
+        "points": 173,
+        "source_components": 1,
+        "source_points": 173
+      },
+      "810103041000": {
+        "components": 1,
+        "points": 249,
+        "source_components": 1,
+        "source_points": 249
+      },
+      "810103044200": {
+        "components": 1,
+        "points": 41,
+        "source_components": 1,
+        "source_points": 41
+      },
+      "810104000100": {
+        "components": 1,
+        "points": 160,
+        "source_components": 1,
+        "source_points": 160
+      },
+      "810105000100": {
+        "components": 1,
+        "points": 299,
+        "source_components": 1,
+        "source_points": 299
+      },
+      "810106000100": {
+        "components": 1,
+        "points": 185,
+        "source_components": 1,
+        "source_points": 185
+      },
+      "810107000100": {
+        "components": 1,
+        "points": 83,
+        "source_components": 1,
+        "source_points": 83
+      },
+      "810108000100": {
+        "components": 2,
+        "points": 343,
+        "source_components": 2,
+        "source_points": 343
+      },
+      "810108003400": {
+        "components": 1,
+        "points": 180,
+        "source_components": 1,
+        "source_points": 180
+      },
+      "810108010400": {
+        "components": 1,
+        "points": 9,
+        "source_components": 1,
+        "source_points": 9
+      },
+      "810108010401": {
+        "components": 1,
+        "points": 44,
+        "source_components": 1,
+        "source_points": 44
+      },
+      "810108011400": {
+        "components": 1,
+        "points": 248,
+        "source_components": 1,
+        "source_points": 248
+      },
+      "810108013900": {
+        "components": 1,
+        "points": 163,
+        "source_components": 1,
+        "source_points": 163
+      },
+      "810108016600": {
+        "components": 1,
+        "points": 23,
+        "source_components": 1,
+        "source_points": 23
+      },
+      "810108017400": {
+        "components": 1,
+        "points": 35,
+        "source_components": 1,
+        "source_points": 35
+      },
+      "810109000100": {
+        "components": 2,
+        "points": 432,
+        "source_components": 2,
+        "source_points": 432
+      },
+      "810110000100": {
+        "components": 3,
+        "points": 476,
+        "source_components": 3,
+        "source_points": 476
+      },
+      "810110001000": {
+        "components": 1,
+        "points": 42,
+        "source_components": 1,
+        "source_points": 42
+      },
+      "810111000100": {
+        "components": 1,
+        "points": 1142,
+        "source_components": 1,
+        "source_points": 1142
+      },
+      "810111002400": {
+        "components": 1,
+        "points": 75,
+        "source_components": 1,
+        "source_points": 75
+      },
+      "810112000100": {
+        "components": 1,
+        "points": 263,
+        "source_components": 1,
+        "source_points": 263
+      },
+      "810113000100": {
+        "components": 1,
+        "points": 115,
+        "source_components": 1,
+        "source_points": 115
+      },
+      "820201000101": {
+        "components": 6,
+        "points": 682,
+        "source_components": 6,
+        "source_points": 682
+      },
+      "820201000102": {
+        "components": 2,
+        "points": 246,
+        "source_components": 2,
+        "source_points": 246
+      },
+      "820201000400": {
+        "components": 1,
+        "points": 131,
+        "source_components": 1,
+        "source_points": 131
+      },
+      "820201009900": {
+        "components": 1,
+        "points": 111,
+        "source_components": 1,
+        "source_points": 111
+      },
+      "820202000100": {
+        "components": 1,
+        "points": 101,
+        "source_components": 1,
+        "source_points": 101
+      },
+      "820202001100": {
+        "components": 1,
+        "points": 32,
+        "source_components": 1,
+        "source_points": 32
+      },
+      "820203000100": {
+        "components": 3,
+        "points": 231,
+        "source_components": 3,
+        "source_points": 231
+      },
+      "820203000400": {
+        "components": 2,
+        "points": 214,
+        "source_components": 2,
+        "source_points": 214
+      },
+      "820204000101": {
+        "components": 9,
+        "points": 716,
+        "source_components": 9,
+        "source_points": 716
+      },
+      "820204000102": {
+        "components": 1,
+        "points": 145,
+        "source_components": 1,
+        "source_points": 145
+      },
+      "820204001800": {
+        "components": 1,
+        "points": 136,
+        "source_components": 1,
+        "source_points": 136
+      },
+      "820204001900": {
+        "components": 2,
+        "points": 151,
+        "source_components": 2,
+        "source_points": 151
+      },
+      "820204007100": {
+        "components": 1,
+        "points": 120,
+        "source_components": 1,
+        "source_points": 120
+      },
+      "820204035600": {
+        "components": 1,
+        "points": 155,
+        "source_components": 1,
+        "source_points": 155
+      },
+      "820204048200": {
+        "components": 1,
+        "points": 58,
+        "source_components": 1,
+        "source_points": 58
+      },
+      "820205000102": {
+        "components": 1,
+        "points": 42,
+        "source_components": 1,
+        "source_points": 42
+      },
+      "820205000103": {
+        "components": 1,
+        "points": 128,
+        "source_components": 1,
+        "source_points": 128
+      },
+      "820206000100": {
+        "components": 3,
+        "points": 86,
+        "source_components": 3,
+        "source_points": 86
+      },
+      "820207000100": {
+        "components": 4,
+        "points": 353,
+        "source_components": 4,
+        "source_points": 353
+      },
+      "820207003500": {
+        "components": 1,
+        "points": 94,
+        "source_components": 1,
+        "source_points": 94
+      },
+      "820207006101": {
+        "components": 1,
+        "points": 118,
+        "source_components": 1,
+        "source_points": 118
+      },
+      "820207006102": {
+        "components": 2,
+        "points": 34,
+        "source_components": 2,
+        "source_points": 34
+      },
+      "820208000100": {
+        "components": 2,
+        "points": 330,
+        "source_components": 2,
+        "source_points": 330
+      },
+      "820209000101": {
+        "components": 3,
+        "points": 398,
+        "source_components": 3,
+        "source_points": 398
+      },
+      "820209000102": {
+        "components": 1,
+        "points": 146,
+        "source_components": 1,
+        "source_points": 146
+      },
+      "820209000400": {
+        "components": 1,
+        "points": 200,
+        "source_components": 1,
+        "source_points": 200
+      },
+      "820209005500": {
+        "components": 1,
+        "points": 63,
+        "source_components": 1,
+        "source_points": 63
+      },
+      "820209018700": {
+        "components": 1,
+        "points": 54,
+        "source_components": 1,
+        "source_points": 54
+      },
+      "820210000100": {
+        "components": 1,
+        "points": 134,
+        "source_components": 1,
+        "source_points": 134
+      },
+      "820211000101": {
+        "components": 8,
+        "points": 804,
+        "source_components": 8,
+        "source_points": 804
+      },
+      "820211000102": {
+        "components": 2,
+        "points": 109,
+        "source_components": 2,
+        "source_points": 109
+      },
+      "820211000103": {
+        "components": 3,
+        "points": 318,
+        "source_components": 3,
+        "source_points": 318
+      },
+      "820211007300": {
+        "components": 3,
+        "points": 192,
+        "source_components": 3,
+        "source_points": 192
+      },
+      "820211017000": {
+        "components": 1,
+        "points": 264,
+        "source_components": 1,
+        "source_points": 264
+      },
+      "820211022100": {
+        "components": 1,
+        "points": 81,
+        "source_components": 1,
+        "source_points": 81
+      },
+      "820211030701": {
+        "components": 1,
+        "points": 103,
+        "source_components": 1,
+        "source_points": 103
+      },
+      "820211030702": {
+        "components": 2,
+        "points": 101,
+        "source_components": 2,
+        "source_points": 101
+      },
+      "820211048700": {
+        "components": 1,
+        "points": 85,
+        "source_components": 1,
+        "source_points": 85
+      },
+      "820212000100": {
+        "components": 3,
+        "points": 161,
+        "source_components": 3,
+        "source_points": 161
+      },
+      "820212000200": {
+        "components": 1,
+        "points": 145,
+        "source_components": 1,
+        "source_points": 145
+      },
+      "830301000100": {
+        "components": 1,
+        "points": 123,
+        "source_components": 1,
+        "source_points": 123
+      },
+      "830302000100": {
+        "components": 1,
+        "points": 375,
+        "source_components": 1,
+        "source_points": 375
+      },
+      "830302000101": {
+        "components": 1,
+        "points": 194,
+        "source_components": 1,
+        "source_points": 194
+      },
+      "830302008300": {
+        "components": 1,
+        "points": 111,
+        "source_components": 1,
+        "source_points": 111
+      },
+      "830302009400": {
+        "components": 1,
+        "points": 142,
+        "source_components": 1,
+        "source_points": 142
+      },
+      "830302014300": {
+        "components": 1,
+        "points": 88,
+        "source_components": 1,
+        "source_points": 88
+      },
+      "830302014700": {
+        "components": 1,
+        "points": 113,
+        "source_components": 1,
+        "source_points": 113
+      },
+      "830302018300": {
+        "components": 1,
+        "points": 101,
+        "source_components": 1,
+        "source_points": 101
+      },
+      "830303000101": {
+        "components": 4,
+        "points": 309,
+        "source_components": 4,
+        "source_points": 309
+      },
+      "830303000102": {
+        "components": 1,
+        "points": 171,
+        "source_components": 1,
+        "source_points": 171
+      },
+      "830303000103": {
+        "components": 2,
+        "points": 203,
+        "source_components": 2,
+        "source_points": 203
+      },
+      "830303002800": {
+        "components": 6,
+        "points": 220,
+        "source_components": 6,
+        "source_points": 220
+      },
+      "830303004600": {
+        "components": 1,
+        "points": 50,
+        "source_components": 1,
+        "source_points": 50
+      },
+      "830303015200": {
+        "components": 2,
+        "points": 433,
+        "source_components": 2,
+        "source_points": 433
+      },
+      "830303015201": {
+        "components": 1,
+        "points": 48,
+        "source_components": 1,
+        "source_points": 48
+      },
+      "830303017900": {
+        "components": 1,
+        "points": 179,
+        "source_components": 1,
+        "source_points": 179
+      },
+      "830303020300": {
+        "components": 2,
+        "points": 524,
+        "source_components": 2,
+        "source_points": 524
+      },
+      "830303021100": {
+        "components": 1,
+        "points": 146,
+        "source_components": 1,
+        "source_points": 146
+      },
+      "830303030400": {
+        "components": 1,
+        "points": 205,
+        "source_components": 1,
+        "source_points": 205
+      },
+      "830303033900": {
+        "components": 2,
+        "points": 67,
+        "source_components": 2,
+        "source_points": 67
+      },
+      "830303033903": {
+        "components": 1,
+        "points": 23,
+        "source_components": 1,
+        "source_points": 23
+      },
+      "830303036900": {
+        "components": 1,
+        "points": 51,
+        "source_components": 1,
+        "source_points": 51
+      },
+      "830303039200": {
+        "components": 1,
+        "points": 20,
+        "source_components": 1,
+        "source_points": 20
+      },
+      "830303039800": {
+        "components": 1,
+        "points": 108,
+        "source_components": 1,
+        "source_points": 108
+      },
+      "830303043600": {
+        "components": 1,
+        "points": 36,
+        "source_components": 1,
+        "source_points": 36
+      },
+      "830303043603": {
+        "components": 1,
+        "points": 27,
+        "source_components": 1,
+        "source_points": 27
+      },
+      "830303046101": {
+        "components": 2,
+        "points": 220,
+        "source_components": 2,
+        "source_points": 220
+      },
+      "830303046102": {
+        "components": 3,
+        "points": 237,
+        "source_components": 3,
+        "source_points": 237
+      },
+      "830303048000": {
+        "components": 1,
+        "points": 208,
+        "source_components": 1,
+        "source_points": 208
+      },
+      "830303048100": {
+        "components": 1,
+        "points": 132,
+        "source_components": 1,
+        "source_points": 132
+      },
+      "830303049400": {
+        "components": 1,
+        "points": 172,
+        "source_components": 1,
+        "source_points": 172
+      },
+      "830303051700": {
+        "components": 1,
+        "points": 184,
+        "source_components": 1,
+        "source_points": 184
+      },
+      "830303053000": {
+        "components": 1,
+        "points": 118,
+        "source_components": 1,
+        "source_points": 118
+      },
+      "830303054800": {
+        "components": 1,
+        "points": 57,
+        "source_components": 1,
+        "source_points": 57
+      },
+      "830303060000": {
+        "components": 1,
+        "points": 57,
+        "source_components": 1,
+        "source_points": 57
+      },
+      "830303068900": {
+        "components": 3,
+        "points": 183,
+        "source_components": 3,
+        "source_points": 183
+      },
+      "830303069600": {
+        "components": 1,
+        "points": 82,
+        "source_components": 1,
+        "source_points": 82
+      },
+      "830304000100": {
+        "components": 1,
+        "points": 396,
+        "source_components": 1,
+        "source_points": 396
+      },
+      "830304000300": {
+        "components": 3,
+        "points": 57,
+        "source_components": 3,
+        "source_points": 57
+      },
+      "830304001200": {
+        "components": 1,
+        "points": 93,
+        "source_components": 1,
+        "source_points": 93
+      },
+      "830304003200": {
+        "components": 1,
+        "points": 142,
+        "source_components": 1,
+        "source_points": 142
+      },
+      "830304004400": {
+        "components": 1,
+        "points": 134,
+        "source_components": 1,
+        "source_points": 134
+      },
+      "830304004700": {
+        "components": 1,
+        "points": 62,
+        "source_components": 1,
+        "source_points": 62
+      },
+      "830304004900": {
+        "components": 1,
+        "points": 63,
+        "source_components": 1,
+        "source_points": 63
+      },
+      "830304006403": {
+        "components": 1,
+        "points": 33,
+        "source_components": 1,
+        "source_points": 33
+      },
+      "830304007000": {
+        "components": 3,
+        "points": 209,
+        "source_components": 3,
+        "source_points": 209
+      },
+      "830304007100": {
+        "components": 2,
+        "points": 95,
+        "source_components": 2,
+        "source_points": 95
+      },
+      "830305000100": {
+        "components": 1,
+        "points": 274,
+        "source_components": 1,
+        "source_points": 274
+      },
+      "830305000500": {
+        "components": 2,
+        "points": 171,
+        "source_components": 2,
+        "source_points": 171
+      },
+      "830305002000": {
+        "components": 1,
+        "points": 74,
+        "source_components": 1,
+        "source_points": 74
+      },
+      "830306000100": {
+        "components": 1,
+        "points": 95,
+        "source_components": 1,
+        "source_points": 95
+      },
+      "830307000102": {
+        "components": 1,
+        "points": 20,
+        "source_components": 1,
+        "source_points": 20
+      },
+      "830307000103": {
+        "components": 1,
+        "points": 103,
+        "source_components": 1,
+        "source_points": 103
+      },
+      "830308000100": {
+        "components": 2,
+        "points": 410,
+        "source_components": 2,
+        "source_points": 410
+      },
+      "830308039500": {
+        "components": 1,
+        "points": 114,
+        "source_components": 1,
+        "source_points": 114
+      },
+      "830308045500": {
+        "components": 1,
+        "points": 51,
+        "source_components": 1,
+        "source_points": 51
+      },
+      "830308065700": {
+        "components": 1,
+        "points": 48,
+        "source_components": 1,
+        "source_points": 48
+      },
+      "840401000100": {
+        "components": 1,
+        "points": 85,
+        "source_components": 1,
+        "source_points": 85
+      },
+      "840402000100": {
+        "components": 1,
+        "points": 104,
+        "source_components": 1,
+        "source_points": 104
+      },
+      "840402000101": {
+        "components": 1,
+        "points": 183,
+        "source_components": 1,
+        "source_points": 183
+      },
+      "840403000100": {
+        "components": 1,
+        "points": 408,
+        "source_components": 1,
+        "source_points": 408
+      },
+      "840403000101": {
+        "components": 1,
+        "points": 214,
+        "source_components": 1,
+        "source_points": 214
+      },
+      "840403000102": {
+        "components": 3,
+        "points": 371,
+        "source_components": 3,
+        "source_points": 371
+      },
+      "840403000103": {
+        "components": 2,
+        "points": 364,
+        "source_components": 2,
+        "source_points": 364
+      },
+      "840403000104": {
+        "components": 1,
+        "points": 114,
+        "source_components": 1,
+        "source_points": 114
+      },
+      "840403000105": {
+        "components": 1,
+        "points": 88,
+        "source_components": 1,
+        "source_points": 88
+      },
+      "840403023700": {
+        "components": 1,
+        "points": 158,
+        "source_components": 1,
+        "source_points": 158
+      },
+      "840403070500": {
+        "components": 1,
+        "points": 49,
+        "source_components": 1,
+        "source_points": 49
+      },
+      "840403070600": {
+        "components": 1,
+        "points": 23,
+        "source_components": 1,
+        "source_points": 23
+      },
+      "840403089800": {
+        "components": 1,
+        "points": 127,
+        "source_components": 1,
+        "source_points": 127
+      },
+      "840404000100": {
+        "components": 1,
+        "points": 73,
+        "source_components": 1,
+        "source_points": 73
+      },
+      "840405000100": {
+        "components": 1,
+        "points": 84,
+        "source_components": 1,
+        "source_points": 84
+      },
+      "840406000100": {
+        "components": 1,
+        "points": 95,
+        "source_components": 1,
+        "source_points": 95
+      },
+      "840407000100": {
+        "components": 1,
+        "points": 62,
+        "source_components": 1,
+        "source_points": 62
+      },
+      "840408000101": {
+        "components": 1,
+        "points": 104,
+        "source_components": 1,
+        "source_points": 104
+      },
+      "840408000102": {
+        "components": 2,
+        "points": 98,
+        "source_components": 2,
+        "source_points": 98
+      },
+      "840409000100": {
+        "components": 1,
+        "points": 80,
+        "source_components": 1,
+        "source_points": 80
+      },
+      "840410000100": {
+        "components": 1,
+        "points": 163,
+        "source_components": 1,
+        "source_points": 163
+      },
+      "840411000100": {
+        "components": 1,
+        "points": 83,
+        "source_components": 1,
+        "source_points": 83
+      },
+      "840412000100": {
+        "components": 1,
+        "points": 68,
+        "source_components": 1,
+        "source_points": 68
+      },
+      "850501000100": {
+        "components": 1,
+        "points": 111,
+        "source_components": 1,
+        "source_points": 111
+      },
+      "850502000100": {
+        "components": 1,
+        "points": 127,
+        "source_components": 1,
+        "source_points": 127
+      },
+      "850503000100": {
+        "components": 1,
+        "points": 114,
+        "source_components": 1,
+        "source_points": 114
+      },
+      "850504000100": {
+        "components": 1,
+        "points": 93,
+        "source_components": 1,
+        "source_points": 93
+      },
+      "850505000101": {
+        "components": 1,
+        "points": 366,
+        "source_components": 1,
+        "source_points": 366
+      },
+      "850505000102": {
+        "components": 1,
+        "points": 81,
+        "source_components": 1,
+        "source_points": 81
+      },
+      "850505071753": {
+        "components": 1,
+        "points": 45,
+        "source_components": 1,
+        "source_points": 45
+      },
+      "850506000100": {
+        "components": 2,
+        "points": 118,
+        "source_components": 2,
+        "source_points": 118
+      },
+      "850507000100": {
+        "components": 1,
+        "points": 155,
+        "source_components": 1,
+        "source_points": 155
+      },
+      "850508000100": {
+        "components": 3,
+        "points": 248,
+        "source_components": 3,
+        "source_points": 248
+      },
+      "850508000200": {
+        "components": 1,
+        "points": 49,
+        "source_components": 1,
+        "source_points": 49
+      },
+      "850509000102": {
+        "components": 1,
+        "points": 38,
+        "source_components": 1,
+        "source_points": 38
+      },
+      "850509000103": {
+        "components": 1,
+        "points": 119,
+        "source_components": 1,
+        "source_points": 119
+      },
+      "850509000202": {
+        "components": 1,
+        "points": 63,
+        "source_components": 1,
+        "source_points": 63
+      },
+      "850509000203": {
+        "components": 2,
+        "points": 167,
+        "source_components": 2,
+        "source_points": 167
+      },
+      "850509000401": {
+        "components": 1,
+        "points": 71,
+        "source_components": 1,
+        "source_points": 71
+      },
+      "850509000402": {
+        "components": 1,
+        "points": 53,
+        "source_components": 1,
+        "source_points": 53
+      },
+      "850509000403": {
+        "components": 1,
+        "points": 93,
+        "source_components": 1,
+        "source_points": 93
+      },
+      "850509025500": {
+        "components": 1,
+        "points": 107,
+        "source_components": 1,
+        "source_points": 107
+      },
+      "850510000100": {
+        "components": 2,
+        "points": 133,
+        "source_components": 2,
+        "source_points": 133
+      },
+      "850511000100": {
+        "components": 2,
+        "points": 60,
+        "source_components": 2,
+        "source_points": 60
+      },
+      "850512000100": {
+        "components": 1,
+        "points": 178,
+        "source_components": 1,
+        "source_points": 178
+      },
+      "850513000100": {
+        "components": 1,
+        "points": 29,
+        "source_components": 1,
+        "source_points": 29
+      },
+      "860601000102": {
+        "components": 1,
+        "points": 15,
+        "source_components": 1,
+        "source_points": 15
+      },
+      "860601000103": {
+        "components": 1,
+        "points": 71,
+        "source_components": 1,
+        "source_points": 71
+      },
+      "860601000105": {
+        "components": 2,
+        "points": 66,
+        "source_components": 2,
+        "source_points": 66
+      },
+      "860602000100": {
+        "components": 2,
+        "points": 323,
+        "source_components": 2,
+        "source_points": 323
+      },
+      "860603000101": {
+        "components": 1,
+        "points": 75,
+        "source_components": 1,
+        "source_points": 75
+      },
+      "860603000102": {
+        "components": 1,
+        "points": 95,
+        "source_components": 1,
+        "source_points": 95
+      },
+      "860603001300": {
+        "components": 1,
+        "points": 148,
+        "source_components": 1,
+        "source_points": 148
+      },
+      "860604000101": {
+        "components": 1,
+        "points": 29,
+        "source_components": 1,
+        "source_points": 29
+      },
+      "860604000102": {
+        "components": 2,
+        "points": 72,
+        "source_components": 2,
+        "source_points": 72
+      },
+      "860604000103": {
+        "components": 1,
+        "points": 45,
+        "source_components": 1,
+        "source_points": 45
+      },
+      "860604000600": {
+        "components": 13,
+        "points": 332,
+        "source_components": 13,
+        "source_points": 332
+      },
+      "860604004700": {
+        "components": 2,
+        "points": 70,
+        "source_components": 2,
+        "source_points": 70
+      },
+      "860604007300": {
+        "components": 2,
+        "points": 97,
+        "source_components": 2,
+        "source_points": 97
+      },
+      "860604016702": {
+        "components": 1,
+        "points": 77,
+        "source_components": 1,
+        "source_points": 77
+      },
+      "860604016703": {
+        "components": 2,
+        "points": 251,
+        "source_components": 2,
+        "source_points": 251
+      },
+      "860604018200": {
+        "components": 2,
+        "points": 88,
+        "source_components": 2,
+        "source_points": 88
+      },
+      "860604037101": {
+        "components": 3,
+        "points": 152,
+        "source_components": 3,
+        "source_points": 152
+      },
+      "860604037102": {
+        "components": 1,
+        "points": 123,
+        "source_components": 1,
+        "source_points": 123
+      },
+      "860604051600": {
+        "components": 2,
+        "points": 296,
+        "source_components": 2,
+        "source_points": 296
+      },
+      "860604086300": {
+        "components": 1,
+        "points": 184,
+        "source_components": 1,
+        "source_points": 184
+      },
+      "860604101200": {
+        "components": 1,
+        "points": 51,
+        "source_components": 1,
+        "source_points": 51
+      },
+      "860604101300": {
+        "components": 1,
+        "points": 52,
+        "source_components": 1,
+        "source_points": 52
+      },
+      "860604120300": {
+        "components": 1,
+        "points": 106,
+        "source_components": 1,
+        "source_points": 106
+      },
+      "860604127501": {
+        "components": 1,
+        "points": 70,
+        "source_components": 1,
+        "source_points": 70
+      },
+      "860604127502": {
+        "components": 1,
+        "points": 48,
+        "source_components": 1,
+        "source_points": 48
+      },
+      "860604131100": {
+        "components": 1,
+        "points": 22,
+        "source_components": 1,
+        "source_points": 22
+      },
+      "860605000101": {
+        "components": 1,
+        "points": 93,
+        "source_components": 1,
+        "source_points": 93
+      },
+      "860605000102": {
+        "components": 1,
+        "points": 58,
+        "source_components": 1,
+        "source_points": 58
+      },
+      "860606000101": {
+        "components": 1,
+        "points": 104,
+        "source_components": 1,
+        "source_points": 104
+      },
+      "860606000102": {
+        "components": 3,
+        "points": 140,
+        "source_components": 3,
+        "source_points": 140
+      },
+      "860607000100": {
+        "components": 1,
+        "points": 138,
+        "source_components": 1,
+        "source_points": 138
+      },
+      "860607000200": {
+        "components": 1,
+        "points": 95,
+        "source_components": 1,
+        "source_points": 95
+      },
+      "860607001902": {
+        "components": 1,
+        "points": 55,
+        "source_components": 1,
+        "source_points": 55
+      },
+      "860607001903": {
+        "components": 1,
+        "points": 90,
+        "source_components": 1,
+        "source_points": 90
+      },
+      "860607002200": {
+        "components": 1,
+        "points": 43,
+        "source_components": 1,
+        "source_points": 43
+      },
+      "860608000100": {
+        "components": 2,
+        "points": 75,
+        "source_components": 2,
+        "source_points": 75
+      },
+      "860609000102": {
+        "components": 2,
+        "points": 130,
+        "source_components": 2,
+        "source_points": 130
+      },
+      "860609000103": {
+        "components": 1,
+        "points": 53,
+        "source_components": 1,
+        "source_points": 53
+      },
+      "860610000100": {
+        "components": 1,
+        "points": 100,
+        "source_components": 1,
+        "source_points": 100
+      },
+      "860610002600": {
+        "components": 1,
+        "points": 35,
+        "source_components": 1,
+        "source_points": 35
+      },
+      "870701000100": {
+        "components": 1,
+        "points": 98,
+        "source_components": 1,
+        "source_points": 98
+      },
+      "870701000900": {
+        "components": 2,
+        "points": 37,
+        "source_components": 2,
+        "source_points": 37
+      },
+      "870702000100": {
+        "components": 1,
+        "points": 60,
+        "source_components": 1,
+        "source_points": 60
+      },
+      "870702000300": {
+        "components": 1,
+        "points": 75,
+        "source_components": 1,
+        "source_points": 75
+      },
+      "870702000400": {
+        "components": 1,
+        "points": 35,
+        "source_components": 1,
+        "source_points": 35
+      },
+      "870703000100": {
+        "components": 1,
+        "points": 71,
+        "source_components": 1,
+        "source_points": 71
+      },
+      "870703000300": {
+        "components": 1,
+        "points": 48,
+        "source_components": 1,
+        "source_points": 48
+      },
+      "870704000100": {
+        "components": 1,
+        "points": 83,
+        "source_components": 1,
+        "source_points": 83
+      },
+      "870704002800": {
+        "components": 1,
+        "points": 38,
+        "source_components": 1,
+        "source_points": 38
+      },
+      "870704024400": {
+        "components": 1,
+        "points": 36,
+        "source_components": 1,
+        "source_points": 36
+      },
+      "870705000101": {
+        "components": 1,
+        "points": 266,
+        "source_components": 1,
+        "source_points": 266
+      },
+      "870705000102": {
+        "components": 1,
+        "points": 341,
+        "source_components": 1,
+        "source_points": 341
+      },
+      "870705015700": {
+        "components": 1,
+        "points": 31,
+        "source_components": 1,
+        "source_points": 31
+      },
+      "870705016300": {
+        "components": 1,
+        "points": 25,
+        "source_components": 1,
+        "source_points": 25
+      },
+      "870705016400": {
+        "components": 1,
+        "points": 5,
+        "source_components": 1,
+        "source_points": 5
+      },
+      "870706000100": {
+        "components": 1,
+        "points": 58,
+        "source_components": 1,
+        "source_points": 58
+      },
+      "870706001700": {
+        "components": 1,
+        "points": 5,
+        "source_components": 1,
+        "source_points": 5
+      },
+      "870707000100": {
+        "components": 1,
+        "points": 79,
+        "source_components": 1,
+        "source_points": 79
+      },
+      "870708000100": {
+        "components": 1,
+        "points": 58,
+        "source_components": 1,
+        "source_points": 58
+      },
+      "870709000101": {
+        "components": 1,
+        "points": 234,
+        "source_components": 1,
+        "source_points": 234
+      },
+      "870709000102": {
+        "components": 1,
+        "points": 67,
+        "source_components": 1,
+        "source_points": 67
+      },
+      "870709002900": {
+        "components": 1,
+        "points": 43,
+        "source_components": 1,
+        "source_points": 43
+      },
+      "870709004700": {
+        "components": 1,
+        "points": 19,
+        "source_components": 1,
+        "source_points": 19
+      },
+      "870710000100": {
+        "components": 1,
+        "points": 162,
+        "source_components": 1,
+        "source_points": 162
+      },
+      "870710001100": {
+        "components": 1,
+        "points": 28,
+        "source_components": 1,
+        "source_points": 28
+      },
+      "870711000100": {
+        "components": 1,
+        "points": 262,
+        "source_components": 1,
+        "source_points": 262
+      },
+      "870711000500": {
+        "components": 1,
+        "points": 38,
+        "source_components": 1,
+        "source_points": 38
+      },
+      "870712000100": {
+        "components": 1,
+        "points": 51,
+        "source_components": 1,
+        "source_points": 51
+      },
+      "870712000103": {
+        "components": 1,
+        "points": 119,
+        "source_components": 1,
+        "source_points": 119
+      },
+      "870712000400": {
+        "components": 1,
+        "points": 42,
+        "source_components": 1,
+        "source_points": 42
+      },
+      "870713000100": {
+        "components": 1,
+        "points": 158,
+        "source_components": 1,
+        "source_points": 158
+      },
+      "870713002800": {
+        "components": 1,
+        "points": 28,
+        "source_components": 1,
+        "source_points": 28
+      },
+      "880801000100": {
+        "components": 1,
+        "points": 92,
+        "source_components": 1,
+        "source_points": 92
+      },
+      "880801000200": {
+        "components": 1,
+        "points": 36,
+        "source_components": 1,
+        "source_points": 36
+      },
+      "880802000100": {
+        "components": 2,
+        "points": 86,
+        "source_components": 2,
+        "source_points": 86
+      },
+      "880802000103": {
+        "components": 1,
+        "points": 136,
+        "source_components": 1,
+        "source_points": 136
+      },
+      "880803000100": {
+        "components": 1,
+        "points": 41,
+        "source_components": 1,
+        "source_points": 41
+      },
+      "880804000100": {
+        "components": 1,
+        "points": 52,
+        "source_components": 1,
+        "source_points": 52
+      },
+      "880805000100": {
+        "components": 1,
+        "points": 42,
+        "source_components": 1,
+        "source_points": 42
+      },
+      "880806000100": {
+        "components": 1,
+        "points": 52,
+        "source_components": 1,
+        "source_points": 52
+      },
+      "880807000100": {
+        "components": 2,
+        "points": 249,
+        "source_components": 2,
+        "source_points": 249
+      },
+      "880808000100": {
+        "components": 1,
+        "points": 81,
+        "source_components": 1,
+        "source_points": 81
+      },
+      "890901000101": {
+        "components": 2,
+        "points": 120,
+        "source_components": 2,
+        "source_points": 120
+      },
+      "890901000102": {
+        "components": 2,
+        "points": 161,
+        "source_components": 2,
+        "source_points": 161
+      },
+      "890901010300": {
+        "components": 1,
+        "points": 168,
+        "source_components": 1,
+        "source_points": 168
+      },
+      "890902000100": {
+        "components": 1,
+        "points": 205,
+        "source_components": 1,
+        "source_points": 205
+      },
+      "890902001300": {
+        "components": 1,
+        "points": 306,
+        "source_components": 1,
+        "source_points": 306
+      },
+      "890902004900": {
+        "components": 1,
+        "points": 77,
+        "source_components": 1,
+        "source_points": 77
+      },
+      "890903000100": {
+        "components": 1,
+        "points": 39,
+        "source_components": 1,
+        "source_points": 39
+      },
+      "890904000100": {
+        "components": 2,
+        "points": 166,
+        "source_components": 2,
+        "source_points": 166
+      },
+      "890904000300": {
+        "components": 1,
+        "points": 139,
+        "source_components": 1,
+        "source_points": 139
+      },
+      "890905000100": {
+        "components": 1,
+        "points": 76,
+        "source_components": 1,
+        "source_points": 76
+      },
+      "890906000102": {
+        "components": 3,
+        "points": 137,
+        "source_components": 3,
+        "source_points": 137
+      },
+      "890906000104": {
+        "components": 3,
+        "points": 189,
+        "source_components": 3,
+        "source_points": 189
+      },
+      "890907000100": {
+        "components": 2,
+        "points": 71,
+        "source_components": 2,
+        "source_points": 71
+      },
+      "890907000103": {
+        "components": 1,
+        "points": 19,
+        "source_components": 1,
+        "source_points": 19
+      },
+      "890908000100": {
+        "components": 2,
+        "points": 266,
+        "source_components": 2,
+        "source_points": 266
+      },
+      "890909000100": {
+        "components": 1,
+        "points": 47,
+        "source_components": 1,
+        "source_points": 47
+      },
+      "890910000100": {
+        "components": 5,
+        "points": 215,
+        "source_components": 5,
+        "source_points": 215
+      },
+      "890911000100": {
+        "components": 3,
+        "points": 624,
+        "source_components": 3,
+        "source_points": 624
+      },
+      "890912000101": {
+        "components": 3,
+        "points": 378,
+        "source_components": 3,
+        "source_points": 378
+      },
+      "890912000102": {
+        "components": 3,
+        "points": 298,
+        "source_components": 3,
+        "source_points": 298
+      },
+      "890913000100": {
+        "components": 4,
+        "points": 232,
+        "source_components": 4,
+        "source_points": 232
+      },
+      "890914000101": {
+        "components": 3,
+        "points": 169,
+        "source_components": 3,
+        "source_points": 169
+      },
+      "890914000102": {
+        "components": 1,
+        "points": 131,
+        "source_components": 1,
+        "source_points": 131
+      },
+      "890914003300": {
+        "components": 1,
+        "points": 101,
+        "source_components": 1,
+        "source_points": 101
+      },
+      "890915000100": {
+        "components": 1,
+        "points": 50,
+        "source_components": 1,
+        "source_points": 50
+      },
+      "890916000100": {
+        "components": 2,
+        "points": 141,
+        "source_components": 2,
+        "source_points": 141
+      },
+      "890917000100": {
+        "components": 2,
+        "points": 99,
+        "source_components": 2,
+        "source_points": 99
+      },
+      "890918000100": {
+        "components": 4,
+        "points": 144,
+        "source_components": 4,
+        "source_points": 144
+      },
+      "890919000100": {
+        "components": 1,
+        "points": 69,
+        "source_components": 1,
+        "source_points": 69
+      },
+      "890919001100": {
+        "components": 1,
+        "points": 40,
+        "source_components": 1,
+        "source_points": 40
+      },
+      "890920000101": {
+        "components": 1,
+        "points": 86,
+        "source_components": 1,
+        "source_points": 86
+      },
+      "890920000102": {
+        "components": 2,
+        "points": 44,
+        "source_components": 2,
+        "source_points": 44
+      }
+    },
+    "individual_redistribution_license": "Not established; geometry is private renderer input, not a public data download.",
+    "processing": "TYPE=2 only; exact 12-digit FAREACODE/DCR-017 match; preserve leading zeros and all PolyLine parts and coordinates; no simplification, joining or inferred regions.",
+    "retrieved": "2026-11-10",
+    "sha256": "f7035fe8489e5d0b68baeb2ba3add5562d351413af8c5fdf436ef45c8fb55718",
+    "source": "https://www.jmbsc.or.jp/jp/online/joho-sample/tech-sira_20260520/tech-sira_20260520_flood_risk_map_all.zip",
+    "source_coordinate_system": "JGD2000",
+    "source_sha256": "bad789ae3413787d709b74896ed74da88f2416f3f352ca9a37877e8c9130e220",
+    "specification": "https://www.data.jma.go.jp/suishin/oshirase/pdf/20260807k.pdf",
+    "uncompressed_bytes": 1017166
+  }
+}

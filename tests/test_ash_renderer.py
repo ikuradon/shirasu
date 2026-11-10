@@ -1,5 +1,6 @@
 """Real ash-forecast images retain received municipalities, times and phenomena."""
 
+import copy
 import importlib.util
 import struct
 import unittest
@@ -15,10 +16,12 @@ if HAS_RENDERER:
     from matplotlib.colors import to_rgba
     from matplotlib.offsetbox import PaddedBox
     from matplotlib.text import Text
+    from matplotlib.transforms import Bbox
     from image_service import render as base
     from image_service import render_v4 as published
     from image_service import render_preview as preview
     from image_service import ash_map, volcano_map
+    from image_service import preview_context as context
 
 
 def forecast(*entries):
@@ -119,6 +122,48 @@ class AshForecastRendererTests(unittest.TestCase):
                 self.assertLessEqual(inner.x1, outer.x1 + 1)
                 self.assertLessEqual(inner.y1, outer.y1 + 1)
 
+    def test_zoomed_ash_map_has_a_lower_right_locator_and_unobscured_forecast_labels(self):
+        _, figure = self.capture(sample(NAME))
+        self.assert_complete_map(figure, {4620100, 4621400, 4621800})
+        main = figure.axes[0]
+        locator, = [ax for ax in figure.axes if ax.get_gid() == 'preview-locator']
+        self.assertLess(locator.get_position().y1, .5)
+        self.assertGreater(locator.get_position().x0, .7)
+        self.assertTrue(any(artist.get_gid() == 'preview-prefecture-boundaries'
+                            for artist in main.collections))
+        obstacle = Bbox.from_extents(*context.LOCATOR_OBSTACLE).transformed(figure.transFigure)
+        for prefix in ('municipality-anchor-', 'volcano-point-'):
+            for point in self.points(figure, prefix).values():
+                self.assertFalse(obstacle.contains(*main.transData.transform(point.get_offsets()[0])))
+        for artist in main.artists:
+            if hasattr(artist, 'offsetbox'):
+                self.assertFalse(artist.offsetbox.get_window_extent(figure.canvas.get_renderer()).overlaps(obstacle))
+        for line in main.lines:
+            if line.get_gid() == 'label-leader':
+                self.assertFalse(line.get_transform().transform_path(line.get_path()).intersects_bbox(obstacle, filled=False))
+
+    def test_locator_retains_remote_municipal_parts_outside_the_enlarged_mainland(self):
+        records = forecast((4620100, 1, 2))
+        catalogue = dict(ash_map._municipalities())
+        feature = copy.deepcopy(catalogue[4620100])
+        geometry = feature['geometry']
+        if geometry['type'] == 'Polygon':
+            geometry = {'type': 'MultiPolygon', 'coordinates': [geometry['coordinates']]}
+            feature['geometry'] = geometry
+        remote = [[145., 29.], [145.02, 29.], [145.02, 29.02], [145., 29.]]
+        geometry['coordinates'].append([remote])
+        catalogue[4620100] = feature
+        with patch.object(ash_map, '_municipalities', return_value=catalogue):
+            _, figure = self.capture(records)
+        self.assert_complete_map(figure, {4620100})
+        main = figure.axes[0]
+        self.assertLess(main.get_xlim()[1], 145.)
+        locator, = [ax for ax in figure.axes if ax.get_gid() == 'preview-locator']
+        area, = [patch for patch in locator.patches if patch.get_gid() == 'region-area-4620100']
+        self.assertGreaterEqual(area.get_path().vertices[:, 0].max(), 145.02)
+        for lon, lat in remote:
+            self.assertTrue(locator.bbox.contains(*locator.transData.transform((lon, float(base._my(lat))))))
+
     def test_official_volcano_point_and_neutral_municipalities_do_not_invent_a_plume(self):
         _, figure = self.capture(sample(NAME))
         volcano = self.points(figure, 'volcano-point-')[506]
@@ -194,10 +239,12 @@ class AshForecastRendererTests(unittest.TestCase):
     def test_ash_rendering_does_not_change_nwp_preview_or_published_weather(self):
         nwp = sample('northwest_pacific_tsunami')
         before = preview.render(nwp)
+        weather = sample('weather')
+        old_weather = published.render(weather)
         preview.render(sample(NAME))
         self.assertEqual(preview.render(nwp), before)
-        weather = sample('weather')
-        self.assertEqual(preview.render(weather), published.render(weather))
+        preview.render(weather)
+        self.assertEqual(published.render(weather), old_weather)
 
 
 if __name__ == '__main__':

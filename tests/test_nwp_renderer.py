@@ -13,10 +13,12 @@ HAS_RENDERER = all(importlib.util.find_spec(name) for name in ('azarashi', 'matp
 NAME = 'northwest_pacific_tsunami'
 if HAS_RENDERER:
     from matplotlib.text import Text
+    from matplotlib.transforms import Bbox
     from image_service import render as base
     from image_service import render_v4 as published
     from image_service import render_preview as preview
     from image_service import nwp_map
+    from image_service import preview_context as context
 
 
 @unittest.skipUnless(HAS_RENDERER, 'Install image_service/requirements.txt for preview PNG tests')
@@ -64,6 +66,35 @@ class NorthwestPacificRendererTests(unittest.TestCase):
             self.assertIn(expected, text)
         self.assertNotIn('JST', text, 'The international bulletin must not mix time zones')
         helpers.RendererTests.assert_clear_leaders(self, figure, figure.axes[0], 5)
+        self.assertFalse(any(ax.get_gid() == 'preview-locator' for ax in figure.axes),
+                         'The broad Pacific overview does not need a second miniature overview')
+
+    def test_focused_forecast_has_a_lower_right_locator_without_hiding_its_point(self):
+        # One Shanghai forecast retains its transmitted height and time. Clear
+        # only the four unused forecast slots, rather than supplying fake points.
+        records = changed(NAME, (77, 7, 84), (84, 112, 0))
+        _, figure = self.capture(records)
+        points = self.points(figure)
+        self.assertEqual(set(points), {84})
+        main = figure.axes[0]
+        locator, = [ax for ax in figure.axes if ax.get_gid() == 'preview-locator']
+        self.assertLess(locator.get_position().y1, .5)
+        self.assertGreater(locator.get_position().x0, .7)
+        self.assertTrue(any(artist.get_gid() == 'preview-prefecture-boundaries'
+                            for artist in main.collections))
+        frame, = [patch for patch in locator.patches if patch.get_gid() == 'preview-main-extent']
+        for actual, expected in zip(frame.get_bbox().extents,
+                (main.get_xlim()[0], main.get_ylim()[0], main.get_xlim()[1], main.get_ylim()[1]), strict=True):
+            self.assertAlmostEqual(actual, expected)
+        obstacle = Bbox.from_extents(*context.LOCATOR_OBSTACLE).transformed(figure.transFigure)
+        self.assertFalse(obstacle.contains(*main.transData.transform(points[84].get_offsets()[0])))
+        for artist in main.artists:
+            if hasattr(artist, 'offsetbox'):
+                self.assertFalse(artist.offsetbox.get_window_extent(figure.canvas.get_renderer()).overlaps(obstacle))
+        for line in main.lines:
+            if line.get_gid() == 'label-leader':
+                self.assertFalse(line.get_transform().transform_path(line.get_path()).intersects_bbox(obstacle, filled=False))
+        helpers.RendererTests.assert_clear_leaders(self, figure, main, 1)
 
     def test_markers_use_official_positions_across_the_equator_without_a_warning_footprint(self):
         _, figure = self.capture(sample(NAME))
@@ -142,10 +173,12 @@ class NorthwestPacificRendererTests(unittest.TestCase):
                     self.assertEqual(response['status'], '200 OK')
                     self.assertEqual(response['body'], original.png)
 
-    def test_other_images_still_use_the_published_renderer(self):
+    def test_other_previews_do_not_change_their_published_images(self):
         for records in (sample('weather'), sample('eew'), helpers.TYPHOON):
             with self.subTest(category=type(base._decode(records)[0]).__name__):
-                self.assertEqual(preview.render(records), published.render(records))
+                original = published.render(records)
+                preview.render(records)
+                self.assertEqual(published.render(records), original)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,34 @@
+JMA flood forecast reaches / 指定河川洪水予報の予報区間
+
+気象庁提供の流路データ（国土数値情報を基に気象庁加工）を加工して作成。
+画像の加工・作成者: Shirasu。気象庁が作成した画像ではない。
+
+出典: 気象庁「流域雨量指数計算河川及び洪水予報河川の予報区間の流路データ」
+配布元: 気象業務支援センター（資料は気象庁より提供）
+https://www.jmbsc.or.jp/jp/online/c-onlineGsd-oshirase.html
+https://www.jmbsc.or.jp/jp/online/joho-sample/tech-sira_20260520/tech-sira_20260520_flood_risk_map_all.zip
+2026年11月10日取得。固定した入力のSHA-256は flood_manifest.json に記録。
+仕様 No.10704（2026年8月7日改訂）:
+https://www.data.jma.go.jp/suishin/oshirase/pdf/20260807k.pdf
+原典: 国土交通省 国土数値情報（河川台帳）（単位流域台帳）（流路）S52。
+
+仕様書は流路データの地図表示への使用を想定している。気象庁の気象データ利用の
+一般方針は次を参照:
+https://www.jma.go.jp/jma/kishou/books/hakusho/2019/index3.html#toc-173
+当該ZIP固有の利用許諾文書は確認できておらず、一般方針だけを根拠に、原典由来の
+GISデータ自体の無条件な公開再配布を許諾されたものとは扱わない。
+生成した flood.geojson.zlib はサーバー内部の描画用。公開リポジトリには含めず、
+公開HTTP経路も設けない。公開する画像に上記の出典と加工者を表示する。
+
+TYPE=2 の338予報区間のみを選択。FAREACODEをDCR-017の12桁予報区域コードと
+完全照合し、先頭ゼロを保持する。名称は azarashi 0.17.1 のDCR表から取得する。
+57の「その他の河川」に地理形状を割り当てず、TYPE=1の中小河川流路も採用しない。
+全てのPolyLineパート・座標を保持してMultiLineStringへ変換する。簡略化、丸め、
+区間の追加・結合・削除は行わない。元の経緯度（JGD2000）を保持する。
+流路は予報対象区間の概略表示であり、河岸、浸水範囲、氾濫の発生位置ではない。
+未掲載の河川・地域の安全を表さない。
+
+再生成（azarashi 0.17.1 に加え scripts/requirements-flood-assets.txt を導入）:
+  python scripts/prepare_flood_assets.py --source /path/to/flow-20260520.zip
+--sourceを省略すると固定URLを取得。--outputで出力先を指定できる。
+データは未公開プレビュー用。描画時には外部データを取得しない。

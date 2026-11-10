@@ -41,6 +41,11 @@ jobs:
           python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
       - name: Build unpublished offline preview
         run: |
+          docker run --rm --volume "$PWD:/source" --workdir /source shirasu-images:test sh -c \
+            'python -m pip install --require-hashes -r scripts/requirements-flood-assets.txt && \
+             python scripts/prepare_flood_assets.py && \
+             python -B -m unittest discover -s tests -p "test_flood_assets.py" -v'
+          git diff --exit-code -- image_service/assets/preview/flood_manifest.json image_service/assets/preview/FLOOD_NOTICE.txt
           python3 scripts/prepare_image_service.py --include-preview dist/image-preview
           docker build -f image_service/Dockerfile -t shirasu-images:preview dist/image-preview
           docker run --rm --network none shirasu-images:preview python -B -c \
@@ -49,7 +54,8 @@ jobs:
         run: >-
           docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
           shirasu-images:preview sh -c 'for suite in nwp_assets nwp_reports nwp_renderer image_preview_cli
-          ash_reports ash_renderer municipality_assets; do
+          ash_reports ash_renderer municipality_assets flood_reports flood_renderer flood_context
+          preview_regions preview_points preview_dispatch; do
           python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
   test:
     runs-on: ubuntu-24.04

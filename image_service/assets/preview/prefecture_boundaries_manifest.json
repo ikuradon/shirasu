@@ -1,0 +1,991 @@
+{
+  "PREFECTURE_BOUNDARIES_NOTICE.txt": {
+    "bytes": 1506,
+    "sha256": "00d83f6c11fdb5d22fb08736c2fe0ba0951aca5a51fe2e2091af0daf7bd1fc55"
+  },
+  "prefecture_boundaries.geojson.zlib": {
+    "borders": [
+      {
+        "codes": [
+          2,
+          3
+        ],
+        "components": 1,
+        "length_degrees": 0.976338633104822,
+        "points": 79,
+        "source_length_degrees": 1.0564111656300628,
+        "source_points": 3269
+      },
+      {
+        "codes": [
+          2,
+          5
+        ],
+        "components": 200,
+        "length_degrees": 1.3679811227383532,
+        "points": 498,
+        "source_length_degrees": 1.4792864715105225,
+        "source_points": 4214
+      },
+      {
+        "codes": [
+          3,
+          4
+        ],
+        "components": 3,
+        "length_degrees": 1.5308848238393036,
+        "points": 139,
+        "source_length_degrees": 1.6860870704824025,
+        "source_points": 4676
+      },
+      {
+        "codes": [
+          3,
+          5
+        ],
+        "components": 1,
+        "length_degrees": 2.1839446267321914,
+        "points": 194,
+        "source_length_degrees": 2.363932233995379,
+        "source_points": 5888
+      },
+      {
+        "codes": [
+          4,
+          5
+        ],
+        "components": 2,
+        "length_degrees": 0.287607080117198,
+        "points": 30,
+        "source_length_degrees": 0.3057067224057439,
+        "source_points": 584
+      },
+      {
+        "codes": [
+          4,
+          6
+        ],
+        "components": 50,
+        "length_degrees": 1.414013185947419,
+        "points": 218,
+        "source_length_degrees": 1.5354453050645556,
+        "source_points": 3931
+      },
+      {
+        "codes": [
+          4,
+          7
+        ],
+        "components": 1,
+        "length_degrees": 1.1286037127385173,
+        "points": 99,
+        "source_length_degrees": 1.221918922551799,
+        "source_points": 4533
+      },
+      {
+        "codes": [
+          5,
+          6
+        ],
+        "components": 36,
+        "length_degrees": 0.8852846135704917,
+        "points": 124,
+        "source_length_degrees": 0.9272090939194639,
+        "source_points": 1688
+      },
+      {
+        "codes": [
+          6,
+          7
+        ],
+        "components": 1,
+        "length_degrees": 1.0266793818708282,
+        "points": 86,
+        "source_length_degrees": 1.1174239668664092,
+        "source_points": 4035
+      },
+      {
+        "codes": [
+          6,
+          15
+        ],
+        "components": 1,
+        "length_degrees": 1.3299527747218685,
+        "points": 108,
+        "source_length_degrees": 1.443643535126427,
+        "source_points": 5271
+      },
+      {
+        "codes": [
+          7,
+          8
+        ],
+        "components": 1,
+        "length_degrees": 0.8749203983706665,
+        "points": 80,
+        "source_length_degrees": 0.9999286580702719,
+        "source_points": 4557
+      },
+      {
+        "codes": [
+          7,
+          9
+        ],
+        "components": 1,
+        "length_degrees": 1.2520134229840585,
+        "points": 106,
+        "source_length_degrees": 1.354885975623571,
+        "source_points": 7061
+      },
+      {
+        "codes": [
+          7,
+          10
+        ],
+        "components": 1,
+        "length_degrees": 0.1967789586533123,
+        "points": 18,
+        "source_length_degrees": 0.21809086747224124,
+        "source_points": 1187
+      },
+      {
+        "codes": [
+          7,
+          15
+        ],
+        "components": 1,
+        "length_degrees": 1.7152209791792332,
+        "points": 151,
+        "source_length_degrees": 1.853228192444826,
+        "source_points": 9152
+      },
+      {
+        "codes": [
+          8,
+          9
+        ],
+        "components": 1,
+        "length_degrees": 1.5031174824099582,
+        "points": 139,
+        "source_length_degrees": 1.6549099635543953,
+        "source_points": 5380
+      },
+      {
+        "codes": [
+          8,
+          11
+        ],
+        "components": 1,
+        "length_degrees": 0.17966271841210038,
+        "points": 13,
+        "source_length_degrees": 0.18256234365379442,
+        "source_points": 362
+      },
+      {
+        "codes": [
+          8,
+          12
+        ],
+        "components": 1,
+        "length_degrees": 1.4015754794347524,
+        "points": 63,
+        "source_length_degrees": 1.421023003046595,
+        "source_points": 1655
+      },
+      {
+        "codes": [
+          9,
+          10
+        ],
+        "components": 1,
+        "length_degrees": 1.5068788688836845,
+        "points": 164,
+        "source_length_degrees": 1.6544979953161922,
+        "source_points": 6515
+      },
+      {
+        "codes": [
+          9,
+          11
+        ],
+        "components": 1,
+        "length_degrees": 0.03149824766389573,
+        "points": 5,
+        "source_length_degrees": 0.034025618607206015,
+        "source_points": 107
+      },
+      {
+        "codes": [
+          10,
+          11
+        ],
+        "components": 2,
+        "length_degrees": 1.273876675281154,
+        "points": 91,
+        "source_length_degrees": 1.3362670393741785,
+        "source_points": 3896
+      },
+      {
+        "codes": [
+          10,
+          15
+        ],
+        "components": 1,
+        "length_degrees": 0.9577189118370182,
+        "points": 68,
+        "source_length_degrees": 1.0117218510215635,
+        "source_points": 4010
+      },
+      {
+        "codes": [
+          10,
+          20
+        ],
+        "components": 1,
+        "length_degrees": 1.5973186361291065,
+        "points": 130,
+        "source_length_degrees": 1.7305788317309454,
+        "source_points": 6127
+      },
+      {
+        "codes": [
+          11,
+          12
+        ],
+        "components": 1,
+        "length_degrees": 0.3617810987510133,
+        "points": 20,
+        "source_length_degrees": 0.3689089375089051,
+        "source_points": 666
+      },
+      {
+        "codes": [
+          11,
+          13
+        ],
+        "components": 1,
+        "length_degrees": 1.3693878108372677,
+        "points": 116,
+        "source_length_degrees": 1.510993871974123,
+        "source_points": 5274
+      },
+      {
+        "codes": [
+          11,
+          19
+        ],
+        "components": 1,
+        "length_degrees": 0.261727616506355,
+        "points": 21,
+        "source_length_degrees": 0.2760006625914347,
+        "source_points": 1090
+      },
+      {
+        "codes": [
+          11,
+          20
+        ],
+        "components": 1,
+        "length_degrees": 0.09344470210264041,
+        "points": 10,
+        "source_length_degrees": 0.10094894218019125,
+        "source_points": 333
+      },
+      {
+        "codes": [
+          12,
+          13
+        ],
+        "components": 1,
+        "length_degrees": 0.1972815821860762,
+        "points": 15,
+        "source_length_degrees": 0.20079233457147938,
+        "source_points": 233
+      },
+      {
+        "codes": [
+          13,
+          14
+        ],
+        "components": 4,
+        "length_degrees": 1.1555365768244268,
+        "points": 111,
+        "source_length_degrees": 1.3009590723765379,
+        "source_points": 7642
+      },
+      {
+        "codes": [
+          13,
+          19
+        ],
+        "components": 1,
+        "length_degrees": 0.2970918977350031,
+        "points": 20,
+        "source_length_degrees": 0.3188658952811524,
+        "source_points": 1330
+      },
+      {
+        "codes": [
+          14,
+          19
+        ],
+        "components": 1,
+        "length_degrees": 0.44877364278211035,
+        "points": 39,
+        "source_length_degrees": 0.4966327283230614,
+        "source_points": 2397
+      },
+      {
+        "codes": [
+          14,
+          22
+        ],
+        "components": 1,
+        "length_degrees": 0.48471847635804977,
+        "points": 35,
+        "source_length_degrees": 0.5250304478388289,
+        "source_points": 2319
+      },
+      {
+        "codes": [
+          15,
+          16
+        ],
+        "components": 1,
+        "length_degrees": 0.3018229647491712,
+        "points": 20,
+        "source_length_degrees": 0.32489529499091757,
+        "source_points": 1135
+      },
+      {
+        "codes": [
+          15,
+          20
+        ],
+        "components": 1,
+        "length_degrees": 1.7021772727149191,
+        "points": 128,
+        "source_length_degrees": 1.8377431728206877,
+        "source_points": 7241
+      },
+      {
+        "codes": [
+          16,
+          17
+        ],
+        "components": 22,
+        "length_degrees": 1.0432617990344037,
+        "points": 130,
+        "source_length_degrees": 1.1384996292047127,
+        "source_points": 3481
+      },
+      {
+        "codes": [
+          16,
+          20
+        ],
+        "components": 1,
+        "length_degrees": 0.5675243413642529,
+        "points": 53,
+        "source_length_degrees": 0.6120038640613505,
+        "source_points": 2214
+      },
+      {
+        "codes": [
+          16,
+          21
+        ],
+        "components": 3,
+        "length_degrees": 1.2973261578274413,
+        "points": 123,
+        "source_length_degrees": 1.4199650037744247,
+        "source_points": 4409
+      },
+      {
+        "codes": [
+          17,
+          18
+        ],
+        "components": 150,
+        "length_degrees": 0.6148229048173257,
+        "points": 343,
+        "source_length_degrees": 0.6622755617588048,
+        "source_points": 2463
+      },
+      {
+        "codes": [
+          17,
+          21
+        ],
+        "components": 175,
+        "length_degrees": 0.19440760601178392,
+        "points": 350,
+        "source_length_degrees": 0.20226348132479066,
+        "source_points": 956
+      },
+      {
+        "codes": [
+          18,
+          21
+        ],
+        "components": 1,
+        "length_degrees": 1.1705978431582602,
+        "points": 91,
+        "source_length_degrees": 1.2687412919560421,
+        "source_points": 3377
+      },
+      {
+        "codes": [
+          18,
+          25
+        ],
+        "components": 1,
+        "length_degrees": 0.9962226527265932,
+        "points": 89,
+        "source_length_degrees": 1.0878204107368368,
+        "source_points": 3198
+      },
+      {
+        "codes": [
+          18,
+          26
+        ],
+        "components": 2,
+        "length_degrees": 0.557531264526236,
+        "points": 47,
+        "source_length_degrees": 0.6099103807073784,
+        "source_points": 1859
+      },
+      {
+        "codes": [
+          19,
+          20
+        ],
+        "components": 1,
+        "length_degrees": 1.0482462868352076,
+        "points": 71,
+        "source_length_degrees": 1.1243035730568398,
+        "source_points": 6697
+      },
+      {
+        "codes": [
+          19,
+          22
+        ],
+        "components": 1,
+        "length_degrees": 1.5541211926099852,
+        "points": 107,
+        "source_length_degrees": 1.6527167734469375,
+        "source_points": 7519
+      },
+      {
+        "codes": [
+          20,
+          21
+        ],
+        "components": 1,
+        "length_degrees": 1.9537321196091089,
+        "points": 166,
+        "source_length_degrees": 2.125669742372942,
+        "source_points": 5375
+      },
+      {
+        "codes": [
+          20,
+          22
+        ],
+        "components": 1,
+        "length_degrees": 0.8680834685705724,
+        "points": 72,
+        "source_length_degrees": 0.9320919036751826,
+        "source_points": 5401
+      },
+      {
+        "codes": [
+          20,
+          23
+        ],
+        "components": 1,
+        "length_degrees": 0.4382476133403436,
+        "points": 38,
+        "source_length_degrees": 0.4799126663612253,
+        "source_points": 2749
+      },
+      {
+        "codes": [
+          21,
+          23
+        ],
+        "components": 3,
+        "length_degrees": 1.4144998086968021,
+        "points": 113,
+        "source_length_degrees": 1.5256005729155582,
+        "source_points": 3567
+      },
+      {
+        "codes": [
+          21,
+          24
+        ],
+        "components": 1,
+        "length_degrees": 0.4266191327179385,
+        "points": 42,
+        "source_length_degrees": 0.4771158954158079,
+        "source_points": 1500
+      },
+      {
+        "codes": [
+          21,
+          25
+        ],
+        "components": 1,
+        "length_degrees": 0.7501457691644824,
+        "points": 72,
+        "source_length_degrees": 0.8203773374050193,
+        "source_points": 2108
+      },
+      {
+        "codes": [
+          22,
+          23
+        ],
+        "components": 1,
+        "length_degrees": 0.8866667724656483,
+        "points": 81,
+        "source_length_degrees": 0.9604080056941939,
+        "source_points": 6040
+      },
+      {
+        "codes": [
+          23,
+          24
+        ],
+        "components": 1,
+        "length_degrees": 0.16354869935917374,
+        "points": 10,
+        "source_length_degrees": 0.1668995892830467,
+        "source_points": 212
+      },
+      {
+        "codes": [
+          24,
+          25
+        ],
+        "components": 1,
+        "length_degrees": 1.006035571226348,
+        "points": 91,
+        "source_length_degrees": 1.1314160347329425,
+        "source_points": 4572
+      },
+      {
+        "codes": [
+          24,
+          26
+        ],
+        "components": 1,
+        "length_degrees": 0.0803590879250083,
+        "points": 8,
+        "source_length_degrees": 0.09093174609788177,
+        "source_points": 361
+      },
+      {
+        "codes": [
+          24,
+          29
+        ],
+        "components": 3,
+        "length_degrees": 1.5616511975145555,
+        "points": 141,
+        "source_length_degrees": 1.7207051974413445,
+        "source_points": 4592
+      },
+      {
+        "codes": [
+          24,
+          30
+        ],
+        "components": 3,
+        "length_degrees": 0.6707406995287206,
+        "points": 64,
+        "source_length_degrees": 0.7008654414637208,
+        "source_points": 1070
+      },
+      {
+        "codes": [
+          25,
+          26
+        ],
+        "components": 2,
+        "length_degrees": 1.0161597672296012,
+        "points": 102,
+        "source_length_degrees": 1.1326587485147077,
+        "source_points": 3195
+      },
+      {
+        "codes": [
+          26,
+          27
+        ],
+        "components": 1,
+        "length_degrees": 0.8605120006099187,
+        "points": 86,
+        "source_length_degrees": 0.9711943963819245,
+        "source_points": 3893
+      },
+      {
+        "codes": [
+          26,
+          28
+        ],
+        "components": 8,
+        "length_degrees": 1.57562731344998,
+        "points": 149,
+        "source_length_degrees": 1.732486694797551,
+        "source_points": 6490
+      },
+      {
+        "codes": [
+          26,
+          29
+        ],
+        "components": 2,
+        "length_degrees": 0.4995400781865579,
+        "points": 50,
+        "source_length_degrees": 0.5606190053713526,
+        "source_points": 2513
+      },
+      {
+        "codes": [
+          27,
+          28
+        ],
+        "components": 1,
+        "length_degrees": 0.6963680498717599,
+        "points": 62,
+        "source_length_degrees": 0.7709324239752328,
+        "source_points": 2723
+      },
+      {
+        "codes": [
+          27,
+          29
+        ],
+        "components": 1,
+        "length_degrees": 0.5784085181891999,
+        "points": 59,
+        "source_length_degrees": 0.6415352189653035,
+        "source_points": 2388
+      },
+      {
+        "codes": [
+          27,
+          30
+        ],
+        "components": 1,
+        "length_degrees": 0.7544316623116206,
+        "points": 70,
+        "source_length_degrees": 0.8292628695356806,
+        "source_points": 2309
+      },
+      {
+        "codes": [
+          28,
+          31
+        ],
+        "components": 1,
+        "length_degrees": 0.6147967868582107,
+        "points": 53,
+        "source_length_degrees": 0.6706244963994862,
+        "source_points": 2279
+      },
+      {
+        "codes": [
+          28,
+          33
+        ],
+        "components": 2,
+        "length_degrees": 0.8899229069621536,
+        "points": 97,
+        "source_length_degrees": 1.0109657061709891,
+        "source_points": 3181
+      },
+      {
+        "codes": [
+          29,
+          30
+        ],
+        "components": 7,
+        "length_degrees": 1.4684101353575691,
+        "points": 136,
+        "source_length_degrees": 1.6203234766159333,
+        "source_points": 4134
+      },
+      {
+        "codes": [
+          31,
+          32
+        ],
+        "components": 1,
+        "length_degrees": 0.8138727618248557,
+        "points": 58,
+        "source_length_degrees": 0.8866733569017471,
+        "source_points": 3288
+      },
+      {
+        "codes": [
+          31,
+          33
+        ],
+        "components": 1,
+        "length_degrees": 1.883348333889779,
+        "points": 171,
+        "source_length_degrees": 2.0760298405364197,
+        "source_points": 7521
+      },
+      {
+        "codes": [
+          31,
+          34
+        ],
+        "components": 1,
+        "length_degrees": 0.16470653631660892,
+        "points": 12,
+        "source_length_degrees": 0.18471391468957155,
+        "source_points": 753
+      },
+      {
+        "codes": [
+          32,
+          34
+        ],
+        "components": 1,
+        "length_degrees": 2.0330845598030307,
+        "points": 185,
+        "source_length_degrees": 2.257226395839529,
+        "source_points": 8728
+      },
+      {
+        "codes": [
+          32,
+          35
+        ],
+        "components": 1,
+        "length_degrees": 1.1213183813624394,
+        "points": 110,
+        "source_length_degrees": 1.245124909161775,
+        "source_points": 4303
+      },
+      {
+        "codes": [
+          33,
+          34
+        ],
+        "components": 1,
+        "length_degrees": 0.8086882480813804,
+        "points": 78,
+        "source_length_degrees": 0.9102991529834186,
+        "source_points": 2965
+      },
+      {
+        "codes": [
+          33,
+          37
+        ],
+        "components": 2,
+        "length_degrees": 0.027615768635948657,
+        "points": 5,
+        "source_length_degrees": 0.03142510775673637,
+        "source_points": 99
+      },
+      {
+        "codes": [
+          34,
+          35
+        ],
+        "components": 2,
+        "length_degrees": 0.5211053519849057,
+        "points": 54,
+        "source_length_degrees": 0.5733228485759065,
+        "source_points": 2070
+      },
+      {
+        "codes": [
+          34,
+          38
+        ],
+        "components": 1,
+        "length_degrees": 0.0008300815987586941,
+        "points": 2,
+        "source_length_degrees": 0.0008300815992174442,
+        "source_points": 3
+      },
+      {
+        "codes": [
+          36,
+          37
+        ],
+        "components": 2,
+        "length_degrees": 1.0244046392034276,
+        "points": 89,
+        "source_length_degrees": 1.110670040400639,
+        "source_points": 3983
+      },
+      {
+        "codes": [
+          36,
+          38
+        ],
+        "components": 2,
+        "length_degrees": 0.19468756912561294,
+        "points": 22,
+        "source_length_degrees": 0.21181679825194502,
+        "source_points": 552
+      },
+      {
+        "codes": [
+          36,
+          39
+        ],
+        "components": 5,
+        "length_degrees": 1.0896981604563112,
+        "points": 96,
+        "source_length_degrees": 1.1606457123315532,
+        "source_points": 2695
+      },
+      {
+        "codes": [
+          37,
+          38
+        ],
+        "components": 1,
+        "length_degrees": 0.10062799349655681,
+        "points": 10,
+        "source_length_degrees": 0.1098739630721332,
+        "source_points": 304
+      },
+      {
+        "codes": [
+          38,
+          39
+        ],
+        "components": 1,
+        "length_degrees": 2.232471651609778,
+        "points": 161,
+        "source_length_degrees": 2.388849933049689,
+        "source_points": 7912
+      },
+      {
+        "codes": [
+          40,
+          41
+        ],
+        "components": 1,
+        "length_degrees": 1.21643285658579,
+        "points": 101,
+        "source_length_degrees": 1.3108764417264702,
+        "source_points": 3458
+      },
+      {
+        "codes": [
+          40,
+          43
+        ],
+        "components": 1,
+        "length_degrees": 0.6458059026117339,
+        "points": 53,
+        "source_length_degrees": 0.7250541181909276,
+        "source_points": 2129
+      },
+      {
+        "codes": [
+          40,
+          44
+        ],
+        "components": 1,
+        "length_degrees": 1.0268464133825244,
+        "points": 83,
+        "source_length_degrees": 1.1143785515167226,
+        "source_points": 3336
+      },
+      {
+        "codes": [
+          41,
+          42
+        ],
+        "components": 1,
+        "length_degrees": 0.7998541130037801,
+        "points": 55,
+        "source_length_degrees": 0.8747999058567778,
+        "source_points": 2648
+      },
+      {
+        "codes": [
+          43,
+          44
+        ],
+        "components": 1,
+        "length_degrees": 1.0657566068158786,
+        "points": 94,
+        "source_length_degrees": 1.1699384402392832,
+        "source_points": 3147
+      },
+      {
+        "codes": [
+          43,
+          45
+        ],
+        "components": 3,
+        "length_degrees": 1.6275902854903823,
+        "points": 146,
+        "source_length_degrees": 1.7475583693812577,
+        "source_points": 5700
+      },
+      {
+        "codes": [
+          43,
+          46
+        ],
+        "components": 1,
+        "length_degrees": 0.5007360325753862,
+        "points": 34,
+        "source_length_degrees": 0.541367561093693,
+        "source_points": 2162
+      },
+      {
+        "codes": [
+          44,
+          45
+        ],
+        "components": 1,
+        "length_degrees": 0.8273753551114232,
+        "points": 54,
+        "source_length_degrees": 0.8812062256679192,
+        "source_points": 2305
+      },
+      {
+        "codes": [
+          45,
+          46
+        ],
+        "components": 1,
+        "length_degrees": 1.1954893398396778,
+        "points": 97,
+        "source_length_degrees": 1.305782078637027,
+        "source_points": 3749
+      }
+    ],
+    "bytes": 131105,
+    "feature_count": 88,
+    "processing": "Positive-length intersections of distinct original prefecture boundaries; merge contiguous lines, then simplify each shared border once; exclude point contacts and external coastline; canonicalize line direction and component order.",
+    "repaired_source_codes": [],
+    "retrieved": "2026-11-10",
+    "sha256": "d4fbca0bc2224923180de7dfc61c514a82b207105263fca77e48d5782f3dd232",
+    "source": "https://www.data.jma.go.jp/developer/gis/20190125_AreaInformationPrefectureEarthquake_GIS.zip",
+    "source_coordinate_system": "JGD2011",
+    "source_prefecture_count": 47,
+    "source_sha256": "5f36a66e2a2bbdc2eb04d4c7be0dc9d710903040d4b721716a0b1368d80da235",
+    "terms": "https://www.jma.go.jp/jma/kishou/info/coment.html",
+    "tolerance_degrees": 0.002,
+    "uncompressed_bytes": 327789
+  }
+}

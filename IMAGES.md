@@ -126,6 +126,8 @@ docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source \
 
 未公開の画像を確認する場合は、`--include-preview` を明示してローカル用のソースを作ります。
 通常の配布用ソースには未公開レンダラー・アセットが入りません。
+先に[洪水用の流路データ](image_service/README.md#指定河川洪水予報のプレビュー)を準備してください。
+このデータ本体は公開リポジトリに含まれず、準備時に取得・ハッシュ検証します。
 
 ```sh
 python3 scripts/prepare_image_service.py --include-preview dist/image-preview
@@ -139,3 +141,7 @@ docker run --rm --network none \
 これはオフラインの確認専用です。HTTP・署名URL・受信機の画像バージョンは変わりません。
 降灰予報の訓練例は、同じコマンドの入力を `--records /samples/ash_fall.json`、
 出力を `--output /output/ash-preview.png` にして確認できます。
+指定河川洪水予報は `--records /samples/flood.json`、`--output /output/flood-preview.png` です。
+いずれも未公開で、通常のデプロイパッケージには含めません。
+台風・震源・火山・気象・緊急地震速報・海上警報・震度・津波の拡大図も、
+プレビューでは県境と右下のミニマップを使います。公開済みの描画経路は維持します。

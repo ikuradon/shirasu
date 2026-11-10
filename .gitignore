@@ -176,3 +176,6 @@ cython_debug/
 config.py
 state/
 compose.override.yaml
+
+# JMA river geometry is prepared locally; publish generated PNGs, not the GIS.
+image_service/assets/preview/flood.geojson.zlib

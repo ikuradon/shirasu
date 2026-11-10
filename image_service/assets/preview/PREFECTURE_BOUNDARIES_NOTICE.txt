@@ -1,0 +1,20 @@
+Internal prefectural borders / 都道府県境の背景表示
+
+出典: 気象庁 GIS「地震情報／都道府県等」（2019年1月25日版）
+https://www.data.jma.go.jp/developer/gis/20190125_AreaInformationPrefectureEarthquake_GIS.zip
+2026年11月10日取得。入力・加工後のSHA-256は prefecture_boundaries_manifest.json に記録。
+気象庁ホームページの利用規約（公共データ利用規約 第1.0版）に基づき利用。
+https://www.jma.go.jp/jma/kishou/info/coment.html
+
+気象庁データを Shirasu が加工して作成。気象庁が作成した画像ではない。
+47都道府県の元の区域から、異なる県の境界が共有する長さのある線だけを抽出する。
+点で接する部分・海岸などの外周は含めない。抽出後に連続する線分を結合し、
+共有線を一度だけ0.002度の許容誤差で簡略化する。個別に簡略化した県の輪郭を
+重ねたり、そのずれから境界を補間したりしない。座標は原典のJGD2011経緯度を保持。
+
+県境は地図上の位置を把握するための背景であり、洪水予報区間、浸水域、
+行政上の境界確定や現在の精密な測量を示すものではない。
+
+再生成（pyshp 2.3.1、Shapely 2.1.2 の加工用環境）:
+  python scripts/prepare_prefecture_boundary_assets.py --source /path/to/prefectures-source.zip
+--source省略時は固定した公式URLを取得。描画時の外部通信やGIS用依存は不要。

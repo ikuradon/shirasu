@@ -31,5 +31,12 @@ tests/test_image_preview_cli.py
 tests/test_ash_reports.py
 tests/test_ash_renderer.py
 tests/test_municipality_assets.py
+tests/test_flood_assets.py
+tests/test_flood_reports.py
+tests/test_flood_renderer.py
+tests/test_flood_context.py
+tests/test_preview_regions.py
+tests/test_preview_points.py
+tests/test_preview_dispatch.py
 dist
 .vercel

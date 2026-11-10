@@ -11,6 +11,7 @@ import numpy as np
 from image_service import map_base_v3 as terrain
 from image_service import region_map as layout
 from image_service import render as base
+from image_service import preview_context as context
 
 ASSETS = Path(__file__).parent / 'assets' / 'preview'
 POINT_CODES = frozenset(range(1, 42)) | (frozenset(range(66, 87)) - {73})
@@ -19,6 +20,7 @@ POINT_CODES = frozenset(range(1, 42)) | (frozenset(range(66, 87)) - {73})
 @lru_cache(maxsize=1)
 def verify_assets():
     terrain.verify_assets()
+    context.verify_assets()
     manifest = json.loads((ASSETS / 'nwp_manifest.json').read_text())
     for name in ('nwp_points.json', 'NWP_NOTICE.txt'):
         if hashlib.sha256((ASSETS / name).read_bytes()).hexdigest() != manifest[name]['sha256']:
@@ -60,11 +62,16 @@ def draw_map(fig, plan):
         if reference is None:
             reference = lon
         positions.append((lon + round((reference - lon) / 360) * 360, float(base._my(lat))))
-    ax = terrain.axes(fig, layout._limits([np.asarray(positions)], minimum=14.))
+    limits, locator = context.limits([np.asarray(positions)], minimum=14.)
+    ax = terrain.axes(fig, limits)
+    context.draw_prefecture_boundaries(ax)
     for point, notice in zip(positions, plan.notices, strict=True):
         ax.scatter(*point, s=65, facecolor=notice.color, edgecolor=base.WHITE,
                    linewidth=1.1, zorder=8, gid=f'nwp-point-{notice.code}')
     # There is no earthquake location, propagation path, coastal extent or
     # domestic warning class in these received point forecasts.
-    layout._annotations(fig, ax, positions, plan.notices)
+    if locator:
+        context.draw_locator(fig, limits, extent_sequences=(np.asarray(positions),))
+    layout._annotations(fig, ax, positions, plan.notices,
+                        obstacles=(context.LOCATOR_OBSTACLE,) if locator else ())
     return ax

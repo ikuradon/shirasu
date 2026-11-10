@@ -43,6 +43,8 @@ python3.12 -m venv /tmp/shirasu-images-venv
 
 `--preview` で未公開の作業版を描画します。`--records` 専用で、`--version`・`--serve`
 とは併用できません。指定しなければ従来どおりv1です。HTTP経路や署名対象の版は追加しません。
+最初に、後述する[洪水の流路データの準備](#指定河川洪水予報のプレビュー)を行ってください。
+流路データ本体はリポジトリに含めず、プレビューの固定アセットとしてローカルに生成します。
 
 ```sh
 /tmp/shirasu-images-venv/bin/python -m image_service --preview \
@@ -67,6 +69,19 @@ python3.12 -m venv /tmp/shirasu-images-venv
 未公開コードとアセットは通常の配布パッケージから除外します。ローカルDockerで確認する場合は、
 新しい出力先に `scripts/prepare_image_service.py --include-preview dist/image-preview` を実行して
 ビルドします。プレビューのパッケージは本番デプロイには使用しません。専用プレビューのない画像はv4と同じPNGです。
+
+### 地図の県境と位置表示
+
+未公開プレビューでは洪水・降灰に加え、台風・震源・火山・気象・緊急地震速報・海上警報・震度・津波・
+北西太平洋津波の地図にも、薄い県境と必要に応じた右下のミニマップを使います。
+県境は日本の原典から抽出した背景の補助線で、危険度を示す線とは区別します。
+地域を拡大した図には主図の表示範囲を白枠で示し、全国・広域の図には小図を重複して加えません。
+海外の予測地点や日付変更線をまたぐ図でも、同じ経度の扱いで表示位置を示します。
+
+離島が主図の外にある場合は、その区域を位置表示のミニマップへ統合して保持します。
+河川・中心位置・対象区域・ラベル・引き出し線が小図で隠れない配置を使い、
+情報を保った読みやすい配置を作れない場合は受信束全体の要旨へ戻します。
+新しい描画は `--preview` のみで、公開済みv1〜v4のPNG・URL・固定アセットは維持します。
 
 ### 降灰予報のプレビュー
 
@@ -93,6 +108,43 @@ QZQSMの降灰予報（速報／詳細）に含まれる火山・基点時刻・
 
 取消、未知の値、基点や火山の不一致、同じ市町村・時間の矛盾する降灰量、地図や読みやすい配置が
 不足する場合は、受信束全体を従来の要旨画像へ渡します。サンプルは桜島の合成訓練通報です。
+
+### 指定河川洪水予報のプレビュー
+
+流路データの加工用依存は受信機や描画サービスへ追加せず、準備専用の環境で使います。
+既存の画像用依存に含まれる `azarashi==0.17.1` と、次のハッシュ固定した `pyshp` が必要です。
+
+```sh
+python3.12 -m venv /tmp/shirasu-flood-assets
+/tmp/shirasu-flood-assets/bin/pip install --require-hashes -r image_service/requirements.txt
+/tmp/shirasu-flood-assets/bin/pip install --require-hashes -r scripts/requirements-flood-assets.txt
+/tmp/shirasu-flood-assets/bin/python scripts/prepare_flood_assets.py
+/tmp/shirasu-images-venv/bin/python -m image_service --preview \
+  --records image_service/examples/flood.json --output /tmp/flood-preview.png
+```
+
+準備スクリプトは[気象庁提供の固定流路データ](https://www.jmbsc.or.jp/jp/online/c-onlineGsd-oshirase.html#date20260520)
+の2026年5月20日版を取得し、SHA-256とDCRのコード表を検証します。保存済みZIPを使う場合は
+`--source /path/to/flow.zip` を指定できます。ダウンロードやGIS処理は準備時だけに行い、描画時には外部通信しません。
+
+指定河川洪水予報用の338区間を12桁の予報区域コードで直接対応させ、先頭の0と全ての分岐・区間を保持します。
+関連市町村の面、川全体、浸水想定区域には置き換えません。「その他の河川」57コードには位置を割り当てません。
+原典は国土数値情報を気象庁が加工した表示用の流路で、現在の川岸や浸水範囲を精密に示すものではありません。
+背景には気象庁の都道府県データから抽出した県境を薄く重ね、右下の日本周辺図に主図の表示範囲を枠で示します。
+県境は位置を把握するための補助線です。ミニマップには河川・ラベル・引き出し線が重ならない余白を確保します。
+県境は原典の隣接県が共有する線を抽出してから一度だけ簡略化し、`assets/preview/prefecture_boundaries_manifest.json`
+に出典・ハッシュを記録します。再生成は `scripts/prepare_prefecture_boundary_assets.py`（加工専用のPyshp・Shapely環境）を使います。
+
+氾濫警戒情報は赤、氾濫危険情報は紫、氾濫発生情報は黒とし、黒い線には明るい縁取りを付けます。
+通報の名称を保持し、DCRの内部番号を避難の警戒レベルとして表示しません。
+警報解除は中立色の破線と明示的なラベルで示し、氾濫注意情報への切替を含むため安全宣言とは扱いません。
+訓練・試験・訂正を明記し、取消、未知の区間・値、同一区間で矛盾する値、流路を共有する区間で異なる情報、読める配置を作れない場合は
+受信束全体を既存の要旨表示へ戻します。サンプルは合成した訓練通報で、実際の災害情報ではありません。
+
+`assets/preview/flood_manifest.json` と `FLOOD_NOTICE.txt` に出典・入力と加工後のハッシュ・加工内容を記録します。
+ZIP固有の再配布条件は公開資料で確定できていないため、生成する `flood.geojson.zlib` はGit対象外です。
+ローカル／サービス内部の描画に使い、GIS自体を公開配布する機能は設けません。
+PNGには国土数値情報・気象庁の加工とShirasuによる画像作成を明記します。
 
 ## v2 の地域別表示
 

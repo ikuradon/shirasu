@@ -15,7 +15,7 @@ def draw_labels(fig, ax, anchors, notices, *, prefix, obstacles=()):
     points = [fig.transFigure.inverted().transform(ax.transData.transform(point)) for point in anchors]
     outlines = [(artist.get_transform().transform_path(artist.get_path()), artist.get_linewidth())
                 for artist in (*ax.patches, *ax.lines)
-                if (artist.get_gid() or '').startswith(('region-area-', 'region-coast-'))]
+                if (artist.get_gid() or '').startswith(('region-area-', 'region-coast-', 'flood-casing-'))]
     boundaries = layout._boundary_mask(outlines) if outlines else None
     for scale in (1, .85, .7):
         boxes, sizes = [], []

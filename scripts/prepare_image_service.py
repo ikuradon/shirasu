@@ -66,17 +66,34 @@ PREVIEW_FILES = (
     'image_service/assets/preview/municipalities.geojson.zlib',
     'image_service/assets/preview/municipalities_manifest.json',
     'image_service/assets/preview/MUNICIPALITIES_NOTICE.txt',
+    'image_service/flood_map.py',
+    'image_service/flood_reports.py',
+    'image_service/preview_context.py',
+    'image_service/preview_regions.py',
+    'image_service/preview_points.py',
+    'image_service/assets/preview/prefecture_boundaries.geojson.zlib',
+    'image_service/assets/preview/prefecture_boundaries_manifest.json',
+    'image_service/assets/preview/PREFECTURE_BOUNDARIES_NOTICE.txt',
+    'image_service/assets/preview/flood.geojson.zlib',
+    'image_service/assets/preview/flood_manifest.json',
+    'image_service/assets/preview/FLOOD_NOTICE.txt',
 )
 
 
 def prepare(destination, *, include_preview=False):
     destination = Path(destination).absolute()
-    # A fresh directory prevents accidental inclusion of old deployments or keys.
-    destination.mkdir(parents=True, exist_ok=False)
-    for name in FILES + (PREVIEW_FILES if include_preview else ()):
+    names = FILES + (PREVIEW_FILES if include_preview else ())
+    # Check local-only assets before creating a partial output directory.
+    for name in names:
         source = ROOT / name
         if source.is_symlink() or not source.is_file():
+            if name == 'image_service/assets/preview/flood.geojson.zlib':
+                raise ValueError('Prepare the private flood asset first: python scripts/prepare_flood_assets.py')
             raise ValueError(f'Missing or linked source: {name}')
+    # A fresh directory prevents accidental inclusion of old deployments or keys.
+    destination.mkdir(parents=True, exist_ok=False)
+    for name in names:
+        source = ROOT / name
         target = destination / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
