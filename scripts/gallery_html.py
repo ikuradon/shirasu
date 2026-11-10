@@ -1,6 +1,7 @@
 """Self-contained, file:// compatible HTML for the offline image review tool."""
 
 from html import escape
+import json
 from pathlib import PurePosixPath
 import re
 from urllib.parse import urlsplit
@@ -19,6 +20,10 @@ SOURCES = {'receiver': '実受信', 'archive': 'アーカイブ由来', 'synthet
 CLASSIFICATIONS = {'training': '訓練・試験', 'ordinary': '通常配信'}
 STATES = {'issue': '発表', 'release': '解除', 'cancel': '取消'}
 KINDS = {'map': '地図', 'summary': '要旨', 'topic': 'トピック', 'text': 'テキスト'}
+MODES = {'map': '地図', 'geometry': '地点・範囲', 'area': '対象区域',
+         'summary': '要旨', 'topic': 'トピック'}
+STAGES = {'selection': '表示の選択', 'geometry': '地点・範囲', 'area': '対象区域',
+          'layout': '配置', 'render': '描画'}
 
 
 def _escape(value):
@@ -52,6 +57,37 @@ def _options(values, labels):
                    for value in dict.fromkeys(values))
 
 
+def _reason_items(image):
+    """Count cases by recorded preview reasons, never infer from an image's kind."""
+    if image.get('error'):
+        return [('__error__', '描画エラー')]
+    decision = image.get('decision')
+    if not isinstance(decision, dict):
+        return [('__unrecorded__', '理由記録なし')]
+    reasons = decision.get('reasons', ())
+    if not reasons:
+        return [('__unchanged__', '切替なし（対応した表示）')]
+    return [(str(item['code']), str(item.get('message') or item['code'])) for item in reasons]
+
+
+def _decision(image):
+    value = image.get('decision')
+    if not isinstance(value, dict):
+        return '<div class="display-decision unrecorded"><p>表示理由：記録なし</p></div>'
+    mode = value.get('mode', '')
+    heading = f'<p class="decision-heading">表示方法：{_escape(MODES.get(mode, mode))}</p>'
+    reasons = []
+    for item in value.get('reasons', ()):
+        stage = item.get('stage', '')
+        detail = (f'<p class="reason-detail">{_escape(item["detail"])}</p>'
+                  if item.get('detail') else '')
+        reasons.append(f'<li><span class="reason-stage">{_escape(STAGES.get(stage, stage))}</span> '
+                       f'{_escape(item.get("message") or item["code"])}{detail}</li>')
+    content = ('<ul>' + ''.join(reasons) + '</ul>' if reasons
+               else '<p class="decision-unchanged">切替なし（対応した表示）</p>')
+    return f'<div class="display-decision">{heading}{content}</div>'
+
+
 def _image(case, side, published_version):
     value = case['images'][side]
     heading = '公開版' if side == 'published' else '作業版'
@@ -75,7 +111,7 @@ def _image(case, side, published_version):
                f'alt="{label}" loading="lazy" decoding="async"></a>'
                f'<div class="image-footer"><span>{width} × {height}</span>'
                f'<a href="{path}" target="_blank" rel="noopener">PNGを原寸で開く ↗</a></div>')
-    return f'<section class="comparison {side}">{top}{content}</section>'
+    return f'<section class="comparison {side}">{top}{content}{_decision(value)}</section>'
 
 
 def _case(case, index, published_version):
@@ -89,6 +125,8 @@ def _case(case, index, published_version):
     tags = ''.join(f'<span class="tag">{_escape(tag)}</span>' for tag in case.get('tags', ()))
     attributes = ' '.join(f'data-{key.replace("_", "-")}="{_escape(case[key])}"'
                           for key in ('category', 'source_kind', 'classification', 'state'))
+    reason_codes = list(dict.fromkeys(code for code, _ in _reason_items(case['images'].get('preview', {}))))
+    attributes += f' data-reason-codes="{_escape(json.dumps(reason_codes, ensure_ascii=False))}"'
     source_label = case.get('source_label', case.get('source_file', '出典情報なし'))
     source_url = _source_url(case.get('source_url'))
     source_link = (f'<a href="{_escape(source_url)}" target="_blank" rel="noopener noreferrer">'
@@ -101,6 +139,9 @@ def _case(case, index, published_version):
     text = case.get('report_text', '')
     body = f'<h4>電文のテキスト</h4><pre>{_escape(text)}</pre>' if text else ''
     paths = _local_path(case['records_path'])
+    sides = [side for side in ('published', 'preview') if side in case['images']]
+    images = ''.join(_image(case, side, published_version) for side in sides)
+    grid = 'comparison-grid single' if len(sides) == 1 else 'comparison-grid'
     return f'''<article class="case" id="{slug}" {attributes}>
   <header class="case-heading">
     <div><p class="category"><span class="case-number">{index:02d}</span> {_escape(category)}</p>
@@ -112,8 +153,7 @@ def _case(case, index, published_version):
     <span class="state {_escape(case['state'])}">{_escape(state)}</span>{tags}
     <span class="record-count">{_escape(case['record_count'])}電文</span></div>
   <p class="description">{_escape(case['description'])}</p>
-  <div class="comparison-grid">{_image(case, 'published', published_version)}
-    {_image(case, 'preview', published_version)}</div>
+  <div class="{grid}">{images}</div>
   <details class="source-details"><summary>出典・入力データを確認</summary>
     <div class="details-content"><dl>{metadata}</dl>
     <p class="date-note">基準時刻は電文の日付を復元するために使用します。このギャラリーの公開受信ログには、電文ごとの正確な受信時刻は記録されていません。</p>
@@ -130,6 +170,7 @@ a{color:var(--blue);text-underline-offset:3px}button,input,select{font:inherit}b
 main{padding-top:24px;padding-bottom:50px}.toolbar{padding:20px;background:var(--paper);border:1px solid var(--line);border-radius:10px;margin-bottom:24px}.toolbar-top{display:flex;align-items:center;gap:16px;justify-content:space-between;margin-bottom:13px}.toolbar-top p{margin:0;color:var(--muted);font-size:13px}.toolbar-top strong{font-size:18px;color:var(--ink);font-variant-numeric:tabular-nums}.reset{border:0;background:none;color:var(--blue);padding:3px 0;text-decoration:underline;text-underline-offset:3px;font-size:13px}.filters{display:grid;grid-template-columns:minmax(210px,1.5fr) repeat(4,minmax(125px,1fr));gap:12px}.filters label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:650;color:var(--muted)}.filters input,.filters select{min-width:0;width:100%;padding:9px 11px;background:#fff;border:1px solid #cbd4dc;color:var(--ink);border-radius:6px;font-size:14px;line-height:1.5}.filters input::placeholder{color:#7d8a96;font-weight:400}.no-script{margin:0 0 20px;color:var(--muted)}
 .case{background:var(--paper);border:1px solid var(--line);border-radius:12px;margin-bottom:26px;overflow:hidden;scroll-margin-top:20px}.case-heading{display:flex;justify-content:space-between;align-items:center;padding:24px 24px 0;gap:16px}.category{margin:0 0 3px;font-size:12px;color:var(--muted);font-weight:650;letter-spacing:.03em}.case-number{color:#8392a1;font-weight:400;font-variant-numeric:tabular-nums;margin-right:7px}.case h2{margin:0;font-size:23px;line-height:1.5;letter-spacing:.015em}.permalink{font-size:21px;color:#8795a3;text-decoration:none;padding:5px}.case-labels{display:flex;align-items:center;flex-wrap:wrap;gap:7px;padding:12px 24px 0;font-size:12px}.source-label,.classification,.state,.tag{display:inline-block;border:1px solid var(--line);padding:2px 8px;border-radius:4px;background:#fafbfc;line-height:1.7}.source-label{color:#415568}.classification.training{background:#fff8e9;border-color:#eadab6;color:#72541c}.classification.ordinary{background:#eff5f9;border-color:#d4e1eb;color:#345e7d}.state.release{color:#276857;background:#edf6f1;border-color:#d0e4d9}.state.cancel{color:#8a3946;background:#fcf0f2;border-color:#e9cdd3}.tag{color:var(--muted);border-color:transparent;background:#f0f3f6}.record-count{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums}.description{margin:11px 24px 19px;color:var(--muted);font-size:14px;max-width:1100px}.comparison-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:0 24px 21px}.comparison{min-width:0}.image-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:10px}.image-heading h3{font-size:13px;margin:0;font-weight:700}.published .image-heading h3{color:var(--blue)}.preview .image-heading h3{color:var(--preview)}.version{font-size:11px;font-weight:500;padding-left:6px;color:var(--muted)}.kind{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:1px 6px}.image-link{display:block;background:#10171e;border-radius:5px;overflow:hidden;line-height:0;box-shadow:0 0 0 1px #17232f10}.image-link img{display:block;width:100%;height:auto;object-fit:contain}.image-footer{display:flex;justify-content:space-between;gap:12px;margin-top:7px;font-size:11px;color:#74818d;font-variant-numeric:tabular-nums}.image-footer a{text-decoration:none;color:var(--muted)}.image-footer a:hover{text-decoration:underline;color:var(--blue)}.render-error{min-height:240px;aspect-ratio:6/5;border:1px dashed #d0a7ae;border-radius:5px;background:#fff7f8;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:24px;text-align:center;color:#873b49}.render-error p{font-size:13px;max-width:440px;overflow-wrap:anywhere}
 .source-details{border-top:1px solid var(--line);font-size:13px}.source-details summary{padding:12px 24px;cursor:pointer;color:var(--muted);background:#fafbfc}.source-details[open] summary{border-bottom:1px solid var(--line)}.details-content{padding:18px 24px 22px}.details-content dl{margin:0}.details-content dl>div{display:grid;grid-template-columns:140px 1fr;gap:10px;margin-bottom:8px}.details-content dt{color:var(--muted)}.details-content dd{margin:0;min-width:0;overflow-wrap:anywhere}.details-content code{font-size:12px}.date-note{color:var(--muted);font-size:12px;margin:14px 0}.records-link{display:inline-block;margin:0 0 4px}.details-content h4{margin:20px 0 8px;font-size:13px}.details-content pre{margin:0;padding:16px;background:#f3f5f7;border-radius:5px;font:12px/1.8 ui-monospace,"Noto Sans CJK JP",monospace;white-space:pre-wrap;overflow-wrap:anywhere}.empty{text-align:center;padding:65px 20px;border:1px dashed #c7d1da;border-radius:10px;background:#ffffff80}.empty h2{font-size:21px;margin:0 0 8px}.empty p{font-size:14px;color:var(--muted);margin:0 0 16px}.page-footer{padding-top:0;padding-bottom:30px;display:flex;justify-content:space-between;gap:20px;color:var(--muted);font-size:12px}.page-footer p{margin:0}[hidden]{display:none!important}
+.build-info{margin:8px 0 0;font-size:11px;color:var(--muted);overflow-wrap:anywhere}.filters .reason-filter{grid-column:1/-1}.reason-summary{margin-top:14px;font-size:12px;color:var(--muted)}.reason-summary summary{cursor:pointer}.reason-summary p{margin:7px 0}.reason-summary ul{display:flex;flex-wrap:wrap;gap:6px 18px;padding:0;margin:10px 0 0;list-style:none}.reason-summary li{overflow-wrap:anywhere}.reason-summary strong{color:var(--ink);font-variant-numeric:tabular-nums}.comparison-grid.single{grid-template-columns:minmax(0,1fr)}.display-decision{margin-top:12px;padding:10px 12px;background:#f5f7f9;border:1px solid var(--line);border-radius:5px;font-size:12px;overflow-wrap:anywhere}.display-decision p{margin:0}.decision-heading{font-weight:650}.display-decision ul{padding-left:18px;margin:6px 0 0}.display-decision li+li{margin-top:7px}.reason-stage{color:var(--muted);font-size:11px;border:1px solid var(--line);border-radius:3px;padding:1px 4px}.display-decision .reason-detail{margin-top:3px;color:var(--muted);white-space:pre-wrap}.display-decision .decision-unchanged{margin-top:4px;color:var(--muted)}.display-decision.unrecorded{padding:6px 0;border:0;background:none;color:var(--muted)}
 @media(min-width:1700px){.header-inner,main,.page-footer{max-width:1640px}}
 @media(max-width:1000px){.header-inner,main,.page-footer{padding-left:24px;padding-right:24px}.filters{grid-template-columns:repeat(4,1fr)}.filters .search{grid-column:1/-1}.case-heading{padding:20px 20px 0}.case-labels{padding-left:20px;padding-right:20px}.description{margin-left:20px;margin-right:20px}.comparison-grid{padding-left:20px;padding-right:20px;gap:14px}.case h2{font-size:21px}}
 @media(max-width:680px){.header-inner,main,.page-footer{padding-left:16px;padding-right:16px}.header-inner{padding-top:24px;padding-bottom:21px}.heading-line{align-items:flex-start}.heading-line h1{font-size:26px}.heading-line a{font-size:11px;padding-top:7px}.intro{font-size:13px}.notice{font-size:11px;align-items:flex-start;gap:7px}.notice::before{margin-top:6px}.toolbar{padding:15px}.filters{grid-template-columns:1fr 1fr;gap:10px}.toolbar-top{align-items:flex-start}.toolbar-top p{font-size:12px}.toolbar-top strong{font-size:16px}.case-heading{padding:17px 16px 0}.case h2{font-size:20px}.case-labels{padding-left:16px;padding-right:16px;gap:5px;font-size:11px}.record-count{margin-left:0}.description{margin:10px 16px 16px;font-size:12px}.comparison-grid{grid-template-columns:1fr;padding:0 16px 17px;gap:19px}.source-details summary{padding:11px 16px}.details-content{padding:16px}.details-content dl>div{grid-template-columns:1fr;gap:1px;margin-bottom:11px}.page-footer{display:block}.page-footer p+p{margin-top:7px}}
@@ -142,23 +183,34 @@ _JS = '''
   const form = document.getElementById('filters');
   const cards = Array.from(document.querySelectorAll('.case'));
   const query = document.getElementById('search');
+  const reason = document.getElementById('reason');
   const selectors = ['category', 'source-kind', 'classification', 'state'];
   const normalize = text => text.normalize('NFKC').toLocaleLowerCase('ja');
   const searchable = cards.map(card => normalize(card.textContent));
+  const reasonCodes = cards.map(card => JSON.parse(card.dataset.reasonCodes));
   function update() {
     const terms = normalize(query.value).trim().split(/\\s+/).filter(Boolean);
+    const counts = new Map();
     let shown = 0;
     cards.forEach((card, index) => {
       const selected = selectors.every(key => {
         const value = document.getElementById(key).value;
         return !value || card.getAttribute('data-' + key) === value;
       });
-      const visible = selected && terms.every(term => searchable[index].includes(term));
+      const matches = selected && terms.every(term => searchable[index].includes(term));
+      if (matches) reasonCodes[index].forEach(code => counts.set(code, (counts.get(code) || 0) + 1));
+      const visible = matches && (!reason.value || reasonCodes[index].includes(reason.value));
       card.hidden = !visible;
       if (visible) shown++;
     });
     document.getElementById('shown-count').textContent = String(shown);
     document.getElementById('empty').hidden = shown !== 0;
+    Array.from(reason.options).filter(option => option.value).forEach(option => {
+      option.textContent = option.dataset.label + '（' + (counts.get(option.value) || 0) + '件）';
+    });
+    document.querySelectorAll('[data-reason-count]').forEach(item => {
+      item.textContent = String(counts.get(item.dataset.reasonCount) || 0);
+    });
   }
   function reset() {
     form.reset();
@@ -179,7 +231,16 @@ _JS = '''
 def render_html(manifest):
     """Render complete escaped HTML; the browser never fetches its manifest."""
     cases = manifest['cases']
-    published_version = manifest['published_version']
+    published_version = manifest.get('published_version', '公開済み版')
+    comparison = any('published' in case['images'] for case in cases)
+    intro = (f'同じ入力データで、公開済み {_escape(published_version)} と作業版を比較できます。'
+             if comparison else '作業版の画像と、受信内容に応じた表示理由を確認できます。')
+    build_info = ''
+    if manifest.get('commit'):
+        working_tree = (' · 未コミットの変更を含む' if manifest.get('working_tree') is True
+                        else ' · 未コミットの変更なし' if manifest.get('working_tree') is False else '')
+        build_info = (f'<p class="build-info">コード：<code>{_escape(manifest["commit"])}</code>'
+                      f'{working_tree}</p>')
     slugs = [case['slug'] for case in cases]
     if len(set(slugs)) != len(slugs):
         raise ValueError('Gallery case IDs must be unique')
@@ -192,6 +253,26 @@ def render_html(manifest):
             ('source_kind', 'source-kind', 'データの由来', SOURCES),
             ('classification', 'classification', '電文の区分', CLASSIFICATIONS),
             ('state', 'state', '状態', STATES)))
+    reason_labels, reason_counts = {}, {}
+    for case in cases:
+        items = dict(_reason_items(case['images'].get('preview', {})))
+        for code, label in items.items():
+            reason_labels.setdefault(code, label)
+            reason_counts[code] = reason_counts.get(code, 0) + 1
+    reason_options = ''.join(
+        f'<option value="{_escape(code)}" data-label="{_escape(label)}">'
+        f'{_escape(label)}（{reason_counts[code]}件）</option>'
+        for code, label in reason_labels.items())
+    filters += ('<label class="reason-filter">表示理由・記録状態（作業版）'
+                '<select id="reason" name="reason"><option value="">すべて</option>'
+                f'{reason_options}</select></label>')
+    reason_totals = ''.join(
+        f'<li>{_escape(label)}：<strong data-reason-count="{_escape(code)}">'
+        f'{reason_counts[code]}</strong> 件</li>' for code, label in reason_labels.items())
+    reason_summary = ('<details class="reason-summary"><summary>作業版の理由別件数</summary>'
+                      '<p>理由以外の検索条件を適用した件数です。複数の理由を持つ画像は各理由に数えます。'
+                      '描画エラーは表示の切替と分けて集計します。</p>'
+                      f'<ul>{reason_totals}</ul></details>')
     categories = len({case['category'] for case in cases})
     license_link = (f'<br><a href="{_local_path(manifest["source_license_path"])}" '
                     'target="_blank" rel="noopener">受信ログのライセンス</a>'
@@ -202,12 +283,12 @@ def render_html(manifest):
 <style>{_CSS}</style></head><body>
 <header class="page-header"><div class="header-inner"><div class="heading-line"><h1>画像ギャラリー</h1>
 <a href="manifest.json" target="_blank" rel="noopener">一覧データ JSON ↗</a></div>
-<p class="intro">同じ入力データで、公開済み {_escape(published_version)} と作業版を比較できます。</p>
+<p class="intro">{intro}</p>{build_info}
 <p class="notice">過去の受信・訓練・合成サンプル / 現在の災害情報ではありません</p></div></header>
 <main><section class="toolbar" aria-label="表示するサンプルを選択"><div class="toolbar-top">
 <p role="status" aria-live="polite" aria-atomic="true"><strong id="shown-count">{len(cases)}</strong> / {len(cases)} 件を表示 <span>· {categories} 種類</span></p>
 <button id="reset" type="button" class="reset" data-reset hidden>条件をリセット</button></div>
-<form id="filters" class="filters" hidden><label class="search">キーワード検索<input id="search" name="search" type="search" placeholder="例：台風、阿蘇山、解除" autocomplete="off"></label>{filters}</form>
+<form id="filters" class="filters" hidden><label class="search">キーワード検索<input id="search" name="search" type="search" placeholder="例：台風、阿蘇山、解除" autocomplete="off"></label>{filters}</form>{reason_summary}
 </section><noscript><p class="no-script">すべてのサンプルを表示しています。絞り込みにはJavaScriptが必要です。</p></noscript>
 <div id="cases">{rows}</div>
 <section id="empty" class="empty" hidden><h2>該当するサンプルがありません</h2><p>検索語や絞り込み条件を変更してください。</p><button type="button" class="reset" data-reset>条件をリセット</button></section>

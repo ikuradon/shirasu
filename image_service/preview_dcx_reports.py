@@ -18,6 +18,8 @@ from azarashi.definitions.qzss.dcx.ex1_target_area_code import ex1_target_area_c
 from azarashi.definitions.qzss.dcx.ex9_target_area_code import ex9_target_area_code_ja
 from azarashi.reports import dcx
 
+from image_service.preview_diagnostics import PreviewFallback, Reason, error_reason, unique_reasons
+
 
 @dataclass(frozen=True)
 class Ellipse:
@@ -53,6 +55,7 @@ class DcxPlan:
     areas: tuple[Area, ...]
     details: tuple[str, ...]
     note: str
+    reasons: tuple[Reason, ...] = ()
 
 
 # These are hazard names, not Japanese warning levels. Other defined hazards
@@ -85,51 +88,57 @@ _MAIN_WIDTHS = (('a12', 16), ('a13', 17), ('a14', 5), ('a15', 5), ('a16', 6))
 _EX_WIDTHS = (('ex2', 1), ('ex3', 17), ('ex4', 17), ('ex5', 5), ('ex6', 5), ('ex7', 7))
 
 
-def _raw(camf, field, width):
+def _raw(camf, field, width, *, stage='selection'):
     value = getattr(camf, field, None)
     if type(value) is not int or not 0 <= value < 1 << width:
-        raise ValueError('Missing or invalid DCX raw field')
+        raise PreviewFallback('invalid_fields', stage=stage, detail=field,
+                              technical='Missing or invalid DCX raw field')
     return value
 
 
 def _number(report, field):
     value = getattr(report, field, None)
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-        raise ValueError('Missing or invalid DCX geometry')
+        raise PreviewFallback('invalid_fields', stage='geometry', detail=field,
+                              technical='Missing or invalid DCX geometry')
     return float(value)
 
 
 def _position(lon, lat):
     if not -180 <= lon <= 180 or not -90 <= lat <= 90:
-        raise ValueError('DCX coordinate is outside the earth')
+        raise PreviewFallback('invalid_fields', stage='geometry', detail='緯度・経度の範囲',
+                              technical='DCX coordinate is outside the earth')
 
 
-def _main_absent(camf):
+def _main_absent(camf, *, stage='geometry'):
     # Only the domestic specification assigns the all-zero sentinel to EX1.
-    return all(_raw(camf, field, width) == 0 for field, width in _MAIN_WIDTHS)
+    return all(_raw(camf, field, width, stage=stage) == 0 for field, width in _MAIN_WIDTHS)
 
 
 def _geometries(report):
     camf = report.camf
     if report.ignore_a12_to_a16 is not False or type(report) is dcx.JAlert:
-        return ()
+        raise PreviewFallback('no_geometry', stage='geometry', detail='A12-A16: 通報の無視指定')
     if camf.a2 == 111 and _main_absent(camf):
-        return ()
+        raise PreviewFallback('no_geometry', stage='geometry', detail='A12-A16: 全ゼロの区域参照指定')
     for field, width in _MAIN_WIDTHS:
-        _raw(camf, field, width)
+        _raw(camf, field, width, stage='geometry')
     if report.ignore_a17_to_a18 is not False:
-        return ()
-    setting = _raw(camf, 'a17', 2)
+        raise PreviewFallback('no_geometry', stage='geometry', detail='A17-A18: 通報の無視指定')
+    setting = _raw(camf, 'a17', 2, stage='geometry')
     if setting == 2 or (setting == 3 and camf.a4 not in _SCALAR_B4):
         # Never draw just the main ellipse of a multiple-geometry message.
-        return ()
+        detail = 'B3: 第2楕円と個別指示' if setting == 2 else 'B4: 未対応の追加位置・詳細設定'
+        raise PreviewFallback('unsupported_geometry', stage='geometry', detail=detail)
     if type(report) is dcx.MTInfo:
         # DCX-004 requires EX2 *and* EX3..EX7 to be zero for no additional
         # instruction. The decoder's ignore flag alone does not check EX2.
-        if any(_raw(camf, field, width) for field, width in _EX_WIDTHS):
-            return ()
+        if any(_raw(camf, field, width, stage='geometry') for field, width in _EX_WIDTHS):
+            raise PreviewFallback('unsupported_geometry', stage='geometry',
+                                  detail='EX2-EX7: 追加範囲に関する避難指示')
         if report.ignore_ex2_to_ex7 is not True:
-            return ()
+            raise PreviewFallback('invalid_fields', stage='geometry',
+                                  detail='EX2-EX7: 全ゼロと無視指定が不一致')
 
     if setting == 0:
         # Raw axis zero is 216.2 metres, with finer C3/C4 adjustments; it does
@@ -146,7 +155,8 @@ def _geometries(report):
     azimuth = _number(report, 'a16_ellipse_azimuth')
     _position(lon, lat)
     if not 0 < minor <= major <= 2500 or not -90 <= azimuth < 90:
-        raise ValueError('Invalid DCX ellipse')
+        raise PreviewFallback('invalid_fields', stage='geometry', detail='楕円の半軸長・方位角',
+                              technical='Invalid DCX ellipse')
     result = (Ellipse(lon, lat, major, minor, azimuth),)
     if setting == 1:
         lat = _number(report, 'c5_latitude_of_centre_of_hazard')
@@ -158,7 +168,9 @@ def _geometries(report):
 
 def _area(code):
     if type(code) is not int or code == 0 or code not in ex1_target_area_code_ja:
-        raise ValueError('Unknown DCX administrative code')
+        detail = f'JIS code={code}' if type(code) is int and 0 <= code <= 65535 else 'JIS code'
+        raise PreviewFallback('unknown_area', stage='area', detail=detail,
+                              technical='Unknown DCX administrative code')
     name = ex1_target_area_code_ja[code]
     if code % 1000 == 0 and 1 <= code // 1000 <= 47:
         return Area('prefectures', code // 1000, name)
@@ -169,27 +181,37 @@ def _areas(report):
     camf = report.camf
     if type(report) is dcx.JAlert:
         if report.ignore_ex8_to_ex9 is not False:
-            return ()
-        mode, bits = _raw(camf, 'ex8', 1), _raw(camf, 'ex9', 64)
+            raise PreviewFallback('no_area', stage='area', detail='EX8-EX9: 通報の無視指定')
+        mode, bits = _raw(camf, 'ex8', 1, stage='area'), _raw(camf, 'ex9', 64, stage='area')
         if mode == 0:
             if bits & ((1 << 17) - 1):
-                raise ValueError('Unknown EX9 reserved bits')
+                raise PreviewFallback('unknown_area', stage='area', detail='EX9: 予約ビットが非ゼロ',
+                                      technical='Unknown EX9 reserved bits')
+            if not bits:
+                raise PreviewFallback('no_area', stage='area', detail='EX9: 都道府県の指定なし')
             return tuple(Area('prefectures', bit + 1, ex9_target_area_code_ja[1 << bit])
                          for bit in range(47) if (bits >> 17) & (1 << bit))
         codes = tuple((bits >> shift) & 0xffff for shift in (48, 32, 16, 0))
         if any(code and code % 1000 == 0 for code in codes):
             # EX8=1 explicitly selects municipalities. Prefectural coverage
             # uses EX8=0; table membership alone cannot authorize widening.
-            raise ValueError('Prefecture code in a municipal EX9 slot')
+            raise PreviewFallback('unknown_area', stage='area', detail='EX9: 市区町村枠に都道府県コード',
+                                  technical='Prefecture code in a municipal EX9 slot')
         # Resolve every non-empty slot before deduplicating. One unknown code
         # invalidates the whole candidate, not only that part of the map.
+        if not any(codes):
+            raise PreviewFallback('no_area', stage='area', detail='EX9: 市区町村の指定なし')
         return tuple(dict.fromkeys(_area(code) for code in codes if code))
     if type(report) in (dcx.LAlert, dcx.MTInfo):
-        if report.ignore_ex1 is not False or not _main_absent(camf):
-            return ()
-        code = _raw(camf, 'ex1', 16)
-        return (_area(code),) if code else ()
-    return ()
+        if report.ignore_ex1 is not False:
+            raise PreviewFallback('no_area', stage='area', detail='EX1: 通報の無視指定')
+        if not _main_absent(camf, stage='area'):
+            raise PreviewFallback('no_area', stage='area', detail='EX1: 主楕円があり独立した区域指定ではない')
+        code = _raw(camf, 'ex1', 16, stage='area')
+        if not code:
+            raise PreviewFallback('no_area', stage='area', detail='EX1: 対象区域の指定なし')
+        return (_area(code),)
+    raise PreviewFallback('no_area', stage='area', detail='海外通報の共通CAMFに行政区域指定なし')
 
 
 def dcx_plan(reports):
@@ -201,7 +223,8 @@ def dcx_plan(reports):
     """
     reports = tuple(reports)
     if len(reports) != 1 or type(reports[0]) not in _SOURCES:
-        raise ValueError('DCX preview expects one supported alert')
+        raise PreviewFallback('unsupported_report', stage='selection', detail='単一の対応DCX通報が必要',
+                              technical='DCX preview expects one supported alert')
     report, = reports
     camf = report.camf
     hazard = getattr(camf, 'a4', None)
@@ -211,32 +234,37 @@ def dcx_plan(reports):
     status = _STATUS.get(getattr(camf, 'a1', None), '状態不明')
     details = (_SOURCES[type(report)],)
     geometries, areas = (), ()
+    reasons = []
     try:
         _raw(camf, 'a1', 2)
         country = _raw(camf, 'a2', 9)
         version = _raw(camf, 'vn', 6)
-        if not known_hazard or (country == 111 and version != 1):
-            raise ValueError('Unsupported domestic version or hazard')
+        if not known_hazard:
+            detail = f'A4={hazard}' if type(hazard) is int and 0 <= hazard <= 127 else 'A4'
+            raise PreviewFallback('unknown_hazard', stage='selection', detail=detail)
+        if country == 111 and version != 1:
+            raise PreviewFallback('unsupported_version', stage='selection', detail=f'国内DCX Vn={version}')
         # Ignore flags do not make a mismatched report class authoritative.
         provider = _raw(camf, 'a3', 5)
         if ((type(report) is dcx.OutsideJapan) == (country == 111)
                 or (type(report) is dcx.LAlert and provider != 1)
                 or (type(report) is dcx.JAlert and provider not in (2, 3))
                 or (type(report) is dcx.MTInfo and provider != 4)):
-            raise ValueError('Inconsistent DCX provider')
-    except ValueError:
-        pass
+            raise PreviewFallback('invalid_fields', stage='selection', detail='通報種別とA2/A3の不一致',
+                                  technical='Inconsistent DCX provider')
+    except ValueError as error:
+        reasons.append(error_reason(error, stage='selection'))
     else:
         # These must remain separate: failure of one does not invalidate an
         # independently transmitted candidate at the next fallback tier.
         try:
             geometries = _geometries(report)
-        except ValueError:
-            pass
+        except ValueError as error:
+            reasons.append(error_reason(error, stage='geometry'))
         try:
             areas = _areas(report)
-        except ValueError:
-            pass
+        except ValueError as error:
+            reasons.append(error_reason(error, stage='area'))
     kind = 'geometry' if geometries else 'area' if areas else 'topic'
     return DcxPlan(topic, headline, status, kind, geometries, areas,
-                   details, '詳しい情報は投稿本文へ')
+                   details, '詳しい情報は投稿本文へ', unique_reasons(reasons))

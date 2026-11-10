@@ -51,6 +51,9 @@ python3.12 -m venv /tmp/shirasu-images-venv
 
 `dist/gallery/index.html` をブラウザで開くと、種類・実受信／アーカイブ／合成・訓練区分・
 発表／解除／取消で絞り込めます。検索では地名や「離島」「多数区域」も指定できます。
+作業版には「地点・範囲／対象区域／トピック／地図／要旨」の選択結果と、切り替えた理由を
+画像の下に表示します。未対応の通報バージョン、区域境界の不足、追加範囲の未対応、
+配置上の制約、取消を区別し、理由別の絞り込みと件数確認もできます。
 PNGを選ぶと原寸で表示し、出典・復号テキスト・入力JSONを各ケースから確認できます。
 HTML・PNG・JSONはすべて同じ出力フォルダに収まり、サーバーやネット接続は必要ありません。
 
@@ -63,7 +66,11 @@ python -B scripts/render_gallery.py --list
 python -B scripts/render_gallery.py --output dist/gallery-ash --case ash-detail
 python -B scripts/render_gallery.py --output dist/gallery-v1 --published-version v1 \
   --case typhoon-track --case marine
+python -B scripts/render_gallery.py --output dist/preview --preview-only
 ```
+
+`--preview-only` は作業版だけのギャラリーを生成します。公開版との比較を必要としない
+デザイン確認に使用できます。理由はHTMLとJSONへ記録し、PNGや署名付きURLには加えません。
 
 `--list` は描画依存や地図アセットなしでも、受信側の依存関係だけで動作します。
 描画コマンドには上記の画像サービス用Pythonを使用してください。
@@ -91,6 +98,12 @@ docker run --rm --network none --volume "$PWD:/source:ro" --volume "$PWD/dist:/o
 含めず、秘密鍵・設定・配送DB・外部通信・投稿処理を使用しません。
 `manifest.json` に各入力の由来・出力PNGのハッシュ・描画結果を保存し、
 公開ログのMITライセンスも出力フォルダへ同梱します。
+作業版の `cases[].images.preview.decision` には `mode` と `reasons` を記録します。
+各理由は固定の `code`、判断段階を表す `stage`、日本語の `message`、必要に応じた `detail` を持ちます。
+正常な切替は描画エラーに数えません。理由が空なら対応した表示を直接使用し、項目がなければ
+理由未記録として扱います。公開済み版や以前のmanifestの理由を推測で補うことはありません。
+既知の制約だけを分類し、切替時の未知の例外は `unclassified_fallback` として例外原文を記録しません。
+実際にPNGを生成できなかった場合は、従来どおり描画エラーと終了コード1で示します。
 
 ## 未公開画像のプレビュー
 

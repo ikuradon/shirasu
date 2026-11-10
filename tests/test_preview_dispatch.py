@@ -29,6 +29,7 @@ class PreviewDispatchTests(unittest.TestCase):
                 image, figure = self.capture(records)
                 self.assertEqual(image.png[:8], b'\x89PNG\r\n\x1a\n')
                 self.assertTrue(figure.axes, 'A supported sample must retain its geographic map')
+                self.assertEqual(image.decision.as_dict(), {'mode': 'map', 'reasons': []})
                 self.assertTrue(any(artist.get_gid() == 'preview-prefecture-boundaries'
                                     for artist in figure.axes[0].collections))
                 locators = [axis for axis in figure.axes if axis.get_gid() == 'preview-locator']
@@ -57,6 +58,34 @@ class PreviewDispatchTests(unittest.TestCase):
                 image, figure = self.capture(records)
             self.assertEqual(figure.axes, [])
             self.assertEqual(image.png[:8], b'\x89PNG\r\n\x1a\n')
+            self.assertEqual(image.decision.mode, 'summary')
+            self.assertEqual(image.decision.reasons[0].code, 'unclassified_fallback')
+
+    def test_known_constraint_is_classified_but_unknown_exception_text_stays_private(self):
+        secret = '/private/data/<script>untrusted exception detail</script>'
+        for message, expected in (('Wide title does not fit', 'layout_unavailable'),
+                                  (secret, 'unclassified_fallback')):
+            def fail(fig, reports):
+                fig.add_subplot()
+                raise ValueError(message)
+
+            with self.subTest(expected=expected), \
+                    patch.dict(preview.DRAWERS, {base.dcr.Weather: fail}):
+                image, figure = self.capture(sample('weather'))
+            self.assertEqual(figure.axes, [])
+            self.assertEqual(image.decision.mode, 'summary')
+            self.assertEqual(image.decision.reasons[0].code, expected)
+            self.assertNotIn(message, str(image.decision.as_dict()))
+
+    def test_unsupported_drawer_is_separate_from_rendering_failure(self):
+        with patch.dict(preview.DRAWERS, {base.dcr.Weather: None}):
+            image, figure = self.capture(sample('weather'))
+        self.assertEqual(figure.axes, [])
+        self.assertEqual(image.decision.reasons[0].code, 'unsupported_report')
+        with patch.dict(preview.DRAWERS, {base.dcr.Weather: unittest.mock.Mock(
+                side_effect=RuntimeError('renderer unavailable'))}):
+            with self.assertRaisesRegex(RuntimeError, 'renderer unavailable'):
+                preview.render(sample('weather'))
 
     def test_cancellations_are_explicit_and_do_not_reuse_the_cancelled_map(self):
         for name in ('weather', 'typhoon', 'volcano', 'flood'):
@@ -67,6 +96,8 @@ class PreviewDispatchTests(unittest.TestCase):
                 text = ''.join(label.get_text() for label in figure.texts)
                 self.assertIn('【取消】', text)
                 self.assertIn('取り消されました', text)
+                self.assertEqual(image.decision.mode, 'summary')
+                self.assertEqual([item.code for item in image.decision.reasons], ['cancelled'])
 
 
 if __name__ == '__main__':

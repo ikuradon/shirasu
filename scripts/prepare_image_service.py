@@ -66,6 +66,8 @@ PREVIEW_FILES = (
     'image_service/preview_wide_dcx.py',
     'image_service/preview_dcx_reports.py',
     'image_service/preview_dcx_geometry.py',
+    'image_service/preview_diagnostics.py',
+    'image_service/preview_diagnostic_errors.py',
     'image_service/nwp_map.py',
     'image_service/nwp_reports.py',
     'image_service/assets/preview/nwp_points.json',

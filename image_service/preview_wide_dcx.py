@@ -16,6 +16,7 @@ from image_service import preview_wide_layout as wide
 from image_service import render as base
 from image_service.preview_dcx_geometry import ellipse_ring
 from image_service.preview_dcx_reports import Ellipse, Point, dcx_plan
+from image_service.preview_diagnostics import PreviewFallback, error_reason, unique_reasons
 
 
 MAP_CREDIT = '情報：みちびき DCX / 地形：Natural Earth'
@@ -71,14 +72,16 @@ def _geometry(fig, report, plan):
             rings.append(ellipse_ring(item, reference=reference))
         elif isinstance(item, Point) and item.role == 'hazard_center':
             if not -85 < item.lat < 85 or not np.isfinite((item.lon, item.lat)).all():
-                raise ValueError('Unprojectable DCX hazard position')
+                raise PreviewFallback('projection_unavailable', stage='geometry', detail='災害中心位置',
+                                      technical='Unprojectable DCX hazard position')
             points.append((item.lon + round((reference - item.lon) / 360) * 360,
                            float(base._my(item.lat))))
         else:
-            raise ValueError('Unsupported DCX geometry role')
+            raise PreviewFallback('unsupported_geometry', stage='geometry', detail='未対応の位置・範囲の役割',
+                                  technical='Unsupported DCX geometry role')
     sequences = (*rings, *((np.asarray(points),) if points else ()))
     if not sequences:
-        raise ValueError('No DCX geometry')
+        raise PreviewFallback('no_geometry', stage='geometry', technical='No DCX geometry')
     locator = _nearby_locator(plan.geometries) if isinstance(report, dcx.OutsideJapan) else ()
     view = wide.map_axes(fig, sequences, full=sequences, locator_context=locator)
     colour = _colour(report)
@@ -105,15 +108,19 @@ def _area(fig, report, plan):
             feature = ash_map._municipalities().get(area.code)
             features = (feature,) if feature else None
         else:
-            raise ValueError('Unsupported DCX target area layer')
+            raise PreviewFallback('unknown_area', stage='area', detail='未対応の区域レイヤー',
+                                  technical='Unsupported DCX target area layer')
         if not features:
-            raise ValueError('A received DCX target area is missing from the pinned map')
+            detail = (f'{area.layer}: code={area.code}'
+                      if type(area.code) is int and 0 <= area.code < 10_000_000 else area.layer)
+            raise PreviewFallback('missing_boundary', stage='area', detail=detail,
+                                  technical='A received DCX target area is missing from the pinned map')
         for feature in features:
             parts = region_map._geometry(feature, 'prefectures', 139.)
             paths.setdefault(area.code, []).extend(region_map._polygon_path(part) for part in parts)
             sequences.extend(ring for part in parts for ring in part)
     if not sequences:
-        raise ValueError('No DCX target areas')
+        raise PreviewFallback('no_area', stage='area', technical='No DCX target areas')
     # Every component belongs to the received scope. Fit the complete union,
     # including remote islands, instead of silently showing its largest part.
     view = wide.map_axes(fig, sequences, full=sequences)
@@ -143,7 +150,8 @@ def _topic(fig, report, plan):
         if len(lines) <= 2:
             break
     else:
-        raise ValueError('DCX topic title does not fit')
+        raise PreviewFallback('layout_unavailable', stage='layout', detail='DCXトピック見出し',
+                              technical='DCX topic title does not fit')
     for index, line in enumerate(lines):
         wide.text(fig, .375, .365 - index * .075, line, size,
                   ha='center', va='center', bold=True, gid='dcx-topic')
@@ -154,26 +162,36 @@ def draw_dcx(fig, reports):
     reports = tuple(reports)
     plan = dcx_plan(reports)
     report, = reports
-    candidates = []
-    if plan.geometries:
-        candidates.append(('geometry', _geometry))
-    if plan.areas:
-        candidates.append(('area', _area))
-    candidates.append(('topic', _topic))
-    for mode, draw in candidates:
+    # Record only decisions needed to reach the selected mode. For example,
+    # an absent administrative fallback is irrelevant when geometry succeeds.
+    reasons = [item for item in plan.reasons if item.stage == 'selection']
+    candidates = (('geometry', plan.geometries, _geometry),
+                  ('area', plan.areas, _area), ('topic', True, _topic))
+    for mode, available, draw in candidates:
+        if not available:
+            reasons.extend(item for item in plan.reasons if item.stage == mode)
+            continue
+        stage = mode if mode != 'topic' else 'render'
         try:
             draw(fig, report, plan)
+            stage = 'layout'
             wide.validate(fig)
-        except ValueError:
+        except ValueError as error:
+            reasons.append(error_reason(error, stage=stage))
             fig.clear()
             if mode == 'topic':
-                raise
+                # The outer renderer may retry a clean topic card. Preserve
+                # every failed candidate even though this drawer cannot return
+                # a plan; arbitrary exception text stays technical-only.
+                last = reasons[-1]
+                raise PreviewFallback(last.code, stage=last.stage, detail=last.detail,
+                                      previous_reasons=reasons[:-1], technical=str(error)) from error
         else:
-            return replace(plan, scope_kind=mode)
+            return replace(plan, scope_kind=mode, reasons=unique_reasons(reasons))
 
 
-def draw_topic(fig, reports):
+def draw_topic(fig, reports, *, reasons=()):
     reports = tuple(reports)
     plan = dcx_plan(reports)
     _topic(fig, reports[0], plan)
-    return replace(plan, scope_kind='topic')
+    return replace(plan, scope_kind='topic', reasons=unique_reasons((*plan.reasons, *reasons)))

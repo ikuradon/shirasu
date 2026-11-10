@@ -1,6 +1,7 @@
 """Unpublished 16:9 renderer; never registered as a signed URL generation."""
 
 import io
+from dataclasses import dataclass
 
 from azarashi.reports import dcr, dcx
 from matplotlib import patheffects
@@ -14,6 +15,12 @@ from image_service import preview_wide_regions as regions
 from image_service import preview_wide_points as points
 from image_service import preview_wide_special as special
 from image_service import preview_wide_dcx as dcx_images
+from image_service.preview_diagnostics import Decision, error_reasons, reason, unique_reasons
+
+
+@dataclass(frozen=True)
+class RenderedPreview(base.RenderedImage):
+    decision: Decision
 
 DRAWERS = {
     dcr.Weather: regions.draw_weather,
@@ -54,20 +61,32 @@ def render(records):
             fig = layout.figure()
             drawer = DRAWERS.get(type(first))
             _, _, _, cancelled = base._metadata(first)
+            decision = Decision('map')
+            phase = 'selection'
             try:
                 if drawer is None or cancelled:
+                    code = 'cancelled' if cancelled else 'unsupported_report'
+                    decision = Decision('summary', (reason(code),))
                     layout.summary(fig, reports)
                 else:
-                    drawer(fig, reports)
+                    phase = 'render'
+                    plan = drawer(fig, reports)
+                    if isinstance(first, dcx.AlertBase):
+                        decision = Decision(plan.scope_kind, unique_reasons(plan.reasons))
+                    phase = 'layout'
                     layout.context_names(fig)
+                phase = 'layout'
                 layout.validate(fig)
-            except ValueError:
+            except ValueError as error:
                 # Never create a plausible partial map by dropping values.
+                reasons = unique_reasons((*decision.reasons, *error_reasons(error, stage=phase)))
                 fig.clear()
                 if isinstance(first, dcx.AlertBase):
-                    dcx_images.draw_topic(fig, reports)
+                    plan = dcx_images.draw_topic(fig, reports, reasons=reasons)
+                    decision = Decision('topic', unique_reasons(plan.reasons))
                 else:
                     layout.summary(fig, reports)
+                    decision = Decision('summary', reasons)
                 layout.validate(fig)
             for label in fig.findobj(Text):
                 if label.get_bbox_patch() is None:
@@ -76,7 +95,7 @@ def render(records):
             output = io.BytesIO()
             fig.savefig(output, format='png', dpi=layout.DPI, facecolor=layout.SEA,
                         metadata={'Software': 'shirasu-image-preview'})
-            return base.RenderedImage(output.getvalue(), type(first).__name__)
+            return RenderedPreview(output.getvalue(), type(first).__name__, decision)
         finally:
             if fig is not None:
                 fig.clear()

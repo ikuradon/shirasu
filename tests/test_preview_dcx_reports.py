@@ -3,13 +3,21 @@
 from copy import deepcopy
 import importlib.util
 import unittest
+from unittest.mock import Mock, patch
 
 HAS_DECODER = importlib.util.find_spec('azarashi') is not None
 if HAS_DECODER:
     import azarashi
+    from image_service import preview_dcx_reports as dcx_reports
     from image_service.preview_dcx_reports import Area, Ellipse, Point, dcx_plan
+    from image_service.preview_diagnostics import reason
     from qzqsm_samples import frames, reference_time
     from scripts.gallery_catalog import _field_variant
+
+HAS_RENDERER = HAS_DECODER and all(importlib.util.find_spec(name) for name in ('numpy', 'matplotlib'))
+if HAS_RENDERER:
+    from image_service import preview_wide_dcx as dcx_images
+    from image_service.preview_diagnostics import PreviewFallback, error_reasons
 
 
 @unittest.skipUnless(HAS_DECODER, 'DCX plans need the pinned azarashi dependency')
@@ -37,7 +45,9 @@ class DcxReportTests(unittest.TestCase):
             with self.subTest(index=index):
                 original = azarashi.decode(self.source[index], timestamp=self.when)
                 self.assertEqual(original.camf.vn, 0)
-                self.assert_topic(dcx_plan((original,)))
+                plan = dcx_plan((original,))
+                self.assert_topic(plan)
+                self.assertEqual(plan.reasons, (reason('unsupported_version', 'selection', '国内DCX Vn=0'),))
         self.assert_topic(self.plan(version=63))
 
     def test_lalert_ex1_uses_exact_defined_jis_codes(self):
@@ -45,11 +55,15 @@ class DcxReportTests(unittest.TestCase):
         self.assertEqual(plan.scope_kind, 'area')
         self.assertEqual(plan.areas, (Area('municipalities', 120200, '北海道函館市'),))
         self.assertEqual(plan.geometries, ())
+        self.assertEqual([(item.code, item.stage) for item in plan.reasons], [('no_geometry', 'geometry')])
         prefecture = self.plan(0, (146, 16, 13000))
         self.assertEqual(prefecture.areas, (Area('prefectures', 13, '東京都'),))
         for code in (0, 13400, 65535):
             with self.subTest(code=code):
-                self.assert_topic(self.plan(0, (146, 16, code)))
+                fallback = self.plan(0, (146, 16, code))
+                self.assert_topic(fallback)
+                self.assertEqual(fallback.reasons[-1].code, 'unknown_area' if code else 'no_area')
+                self.assertEqual(fallback.reasons[-1].stage, 'area')
 
     def test_missing_ward_asset_is_not_silently_replaced_with_its_city(self):
         # Asset availability is the renderer's responsibility. Preserve the
@@ -87,6 +101,9 @@ class DcxReportTests(unittest.TestCase):
         self.assertEqual(plan.areas, (), 'EX1 is not a target when the main ellipse is present')
         self.assertEqual(plan.topic, '洪水')
         self.assertEqual(plan.headline, '洪水情報')
+        # The semantic plan retains a lower-priority candidate's limitation;
+        # draw_dcx removes this irrelevant reason when geometry succeeds.
+        self.assertEqual([(item.code, item.stage) for item in plan.reasons], [('no_area', 'area')])
 
     def test_raw_zero_axes_are_small_ellipses_and_never_fabricated_point_pins(self):
         plan = self.plan(70, (113, 5, 0), (118, 5, 0), (131, 15, 0))
@@ -112,8 +129,14 @@ class DcxReportTests(unittest.TestCase):
         self.assert_topic(dcx_plan((report,)))
 
     def test_unsupported_extra_geometry_is_not_partially_drawn(self):
-        self.assert_topic(self.plan(70, (129, 2, 2)))
-        self.assert_topic(self.plan(70, (129, 2, 3), (40, 7, 36)))
+        for plan, detail in ((self.plan(70, (129, 2, 2)), 'B3'),
+                             (self.plan(70, (129, 2, 3), (40, 7, 36)), 'B4'),
+                             (self.plan(163), 'EX2-EX7')):
+            with self.subTest(detail=detail):
+                self.assert_topic(plan)
+                self.assertEqual(plan.reasons[0].code, 'unsupported_geometry')
+                self.assertEqual(plan.reasons[0].stage, 'geometry')
+                self.assertTrue(plan.reasons[0].detail.startswith(detail))
         scalar = self.plan(70, (129, 2, 3), (40, 7, 68))
         self.assertEqual(scalar.scope_kind, 'geometry')
         # Both real extra-evacuation geometry and the decoder's EX2-only flag
@@ -156,7 +179,10 @@ class DcxReportTests(unittest.TestCase):
             with self.subTest(field=field):
                 report = deepcopy(source)
                 setattr(report, field, value)
-                self.assert_topic(dcx_plan((report,)))
+                plan = dcx_plan((report,))
+                self.assert_topic(plan)
+                self.assertEqual((plan.reasons[0].code, plan.reasons[0].stage),
+                                 ('invalid_fields', 'geometry'))
 
     def test_release_status_and_training_are_not_warning_levels_or_cancellation(self):
         for raw, expected in ((0, '訓練'), (1, '発表'), (2, '更新'), (3, '解除')):
@@ -168,6 +194,20 @@ class DcxReportTests(unittest.TestCase):
         unknown_hazard = self.plan(70, (40, 7, 127))
         self.assert_topic(unknown_hazard)
         self.assertEqual(unknown_hazard.topic, '防災情報')
+        self.assertEqual(unknown_hazard.reasons, (reason('unknown_hazard', 'selection', 'A4=127'),))
+
+    def test_invalid_raw_fields_and_unknown_exceptions_keep_safe_distinct_reasons(self):
+        report = self.report()
+        report.camf.a1 = None
+        plan = dcx_plan((report,))
+        self.assert_topic(plan)
+        self.assertEqual(plan.reasons, (reason('invalid_fields', 'selection', 'a1'),))
+        sensitive = 'unknown failure containing /private/example-secret'
+        with patch.object(dcx_reports, '_geometries', side_effect=ValueError(sensitive)):
+            plan = self.plan()
+        self.assert_topic(plan)
+        self.assertEqual(plan.reasons[0], reason('unclassified_fallback', 'geometry'))
+        self.assertNotIn(sensitive, repr(plan))
 
     def test_no_mixed_bundle_or_unknown_provider_is_accepted(self):
         report = self.report()
@@ -175,6 +215,85 @@ class DcxReportTests(unittest.TestCase):
             with self.subTest(count=len(reports)):
                 with self.assertRaises(ValueError):
                     dcx_plan(reports)
+
+
+@unittest.skipUnless(HAS_RENDERER, 'DCX rendering decisions need isolated image dependencies')
+class DcxDiagnosticRenderingTests(unittest.TestCase):
+    """Exercise the fallback flow without drawing maps or allocating images."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.source = frames('dcx_archive_20260917')
+        cls.when = reference_time('dcx_archive_20260917')
+
+    report = DcxReportTests.report
+
+    def test_geometry_success_omits_the_unused_administrative_fallback_reason(self):
+        report, fig = self.report(), Mock()
+        with patch.object(dcx_images, '_geometry'), patch.object(dcx_images.wide, 'validate'):
+            plan = dcx_images.draw_dcx(fig, (report,))
+        self.assertEqual(plan.scope_kind, 'geometry')
+        self.assertEqual(plan.reasons, ())
+        fig.clear.assert_not_called()
+
+    def test_area_success_preserves_only_why_geometry_was_unavailable(self):
+        report, fig = self.report(0, (146, 16, 1202)), Mock()
+        with patch.object(dcx_images, '_area'), patch.object(dcx_images.wide, 'validate'):
+            plan = dcx_images.draw_dcx(fig, (report,))
+        self.assertEqual(plan.scope_kind, 'area')
+        self.assertEqual([(item.code, item.stage) for item in plan.reasons], [('no_geometry', 'geometry')])
+        fig.clear.assert_not_called()
+
+    def test_missing_boundary_retains_exact_code_and_falls_back_as_a_whole(self):
+        report, fig = self.report(0), Mock()
+        with patch.object(dcx_images.ash_map, '_municipalities', return_value={}), \
+                patch.object(dcx_images, '_topic'), patch.object(dcx_images.wide, 'validate'):
+            plan = dcx_images.draw_dcx(fig, (report,))
+        self.assertEqual(plan.scope_kind, 'topic')
+        self.assertEqual([item.code for item in plan.reasons], ['no_geometry', 'missing_boundary'])
+        self.assertEqual(plan.reasons[-1].detail, 'municipalities: code=110100')
+        fig.clear.assert_called_once()
+
+    def test_unknown_validation_error_is_not_guessed_to_be_layout_failure_or_exposed(self):
+        report, fig = self.report(), Mock()
+        sensitive = 'unrecognized layout failure containing /private/example-secret'
+        with patch.object(dcx_images, '_geometry'), patch.object(dcx_images, '_topic'), \
+                patch.object(dcx_images.wide, 'validate', side_effect=[ValueError(sensitive), None]):
+            plan = dcx_images.draw_dcx(fig, (report,))
+        self.assertEqual(plan.scope_kind, 'topic')
+        self.assertEqual([(item.code, item.stage) for item in plan.reasons],
+                         [('unclassified_fallback', 'layout'), ('no_area', 'area')])
+        self.assertNotIn(sensitive, repr(plan))
+        fig.clear.assert_called_once()
+
+    def test_outer_topic_fallback_merges_and_deduplicates_authored_reasons(self):
+        report, fig = self.report(), Mock()
+        failure = reason('layout_unavailable', 'layout', '画像外の文字')
+        with patch.object(dcx_images, '_topic'):
+            plan = dcx_images.draw_topic(fig, (report,), reasons=(failure, failure))
+        self.assertEqual(plan.scope_kind, 'topic')
+        self.assertEqual([item.code for item in plan.reasons], ['no_area', 'layout_unavailable'])
+        self.assertEqual(plan.reasons[-1], failure)
+
+    def test_transient_topic_failure_retains_prior_candidate_failures_for_outer_retry(self):
+        report, fig = self.report(), Mock()
+        geometry_failure = PreviewFallback('projection_unavailable', stage='geometry',
+                                           detail='災害中心位置')
+        sensitive = 'transient topic failure containing /private/example-secret'
+        with patch.object(dcx_images, '_geometry', side_effect=geometry_failure), \
+                patch.object(dcx_images, '_topic', side_effect=[ValueError(sensitive), None]), \
+                patch.object(dcx_images.wide, 'validate'):
+            with self.assertRaises(PreviewFallback) as caught:
+                dcx_images.draw_dcx(fig, (report,))
+            reasons = error_reasons(caught.exception, stage='render')
+            self.assertEqual([(item.code, item.stage) for item in reasons],
+                             [('projection_unavailable', 'geometry'), ('no_area', 'area'),
+                              ('unclassified_fallback', 'render')])
+            plan = dcx_images.draw_topic(fig, (report,), reasons=reasons)
+        self.assertEqual(plan.scope_kind, 'topic')
+        self.assertEqual(set(plan.reasons), set(reasons))
+        self.assertEqual(len(plan.reasons), 3)
+        self.assertNotIn(sensitive, repr(plan))
 
 
 if __name__ == '__main__':

@@ -76,7 +76,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         for destination in (file, directory, symlink, dangling):
             with self.subTest(destination=destination.name), \
                     patch.object(render_gallery, '_preflight') as preflight, \
-                    patch.object(render_gallery, '_render_image') as render:
+                    patch.object(render_gallery, '_render_with_decision') as render:
                 with self.assertRaises((FileExistsError, ValueError)):
                     render_gallery.generate(destination, selected_cases=('marine',))
                 render.assert_not_called()
@@ -93,7 +93,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
                         {'published_version': 'v5'}):
             with self.subTest(options=options), \
                     patch.object(render_gallery, '_preflight') as preflight, \
-                    patch.object(render_gallery, '_render_image') as render:
+                    patch.object(render_gallery, '_render_with_decision') as render:
                 with self.assertRaises(ValueError):
                     render_gallery.generate(self.output, **options)
                 preflight.assert_not_called()
@@ -102,7 +102,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
 
     def test_missing_assets_leave_no_partial_gallery(self):
         with patch.object(render_gallery, 'ROOT', self.root), \
-                patch.object(render_gallery, '_render_image') as render:
+                patch.object(render_gallery, '_render_with_decision') as render:
             with self.assertRaisesRegex(FileNotFoundError, 'prepare_flood_assets.py'):
                 render_gallery.generate(self.output, selected_cases=('marine',))
         render.assert_not_called()
@@ -110,11 +110,11 @@ runpy.run_path(sys.argv[0], run_name='__main__')
 
     def test_generation_links_original_records_and_hashes_actual_png_bytes(self):
         with patch.object(render_gallery, '_preflight') as preflight, \
-                patch.object(render_gallery, '_render_image', return_value=(PNG, 'map')) as render, \
+                patch.object(render_gallery, '_render_with_decision', return_value=(PNG, 'map', None)) as render, \
                 redirect_stdout(io.StringIO()):
             result = render_gallery.generate(self.output, published_version='v3',
                                              selected_cases=('marine',))
-        preflight.assert_called_once_with('v3')
+        preflight.assert_called_once_with('v3', preview_only=False)
         self.assertEqual(result['published_version'], 'v3')
         self.assertEqual(result['error_count'], 0)
         self.assertEqual((self.output / result['source_license_path']).read_bytes(),
@@ -149,10 +149,10 @@ runpy.run_path(sys.argv[0], run_name='__main__')
                 def render(records, version):
                     if version == failed_version:
                         raise ValueError('fixture cannot be rendered')
-                    return PNG, 'summary'
+                    return PNG, 'summary', None
 
                 with patch.object(render_gallery, '_preflight'), \
-                        patch.object(render_gallery, '_render_image', side_effect=render), \
+                        patch.object(render_gallery, '_render_with_decision', side_effect=render), \
                         redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                     status = render_gallery.main(['--output', str(output), '--case', 'marine'])
                 self.assertEqual(status, 1)
@@ -169,8 +169,8 @@ runpy.run_path(sys.argv[0], run_name='__main__')
     def test_topic_png_is_recorded_separately_without_changing_published_comparison_or_text(self):
         case = next(case for case in load_cases() if case.slug == 'dcx-jalert')
         with patch.object(render_gallery, '_preflight'), \
-                patch.object(render_gallery, '_render_image',
-                             side_effect=lambda records, version: (PNG, 'topic' if version == 'preview' else 'summary')), \
+                patch.object(render_gallery, '_render_with_decision',
+                             side_effect=lambda records, version: (PNG, 'topic' if version == 'preview' else 'summary', None)), \
                 redirect_stdout(io.StringIO()):
             result = render_gallery.generate(self.output, selected_cases=(case.slug,))
         self.assertEqual(result['error_count'], 0)
@@ -187,8 +187,8 @@ runpy.run_path(sys.argv[0], run_name='__main__')
 
     def test_unknown_png_kind_remains_a_visible_failure(self):
         with patch.object(render_gallery, '_preflight'), \
-                patch.object(render_gallery, '_render_image',
-                             side_effect=lambda records, version: (PNG, 'unknown' if version == 'preview' else 'summary')), \
+                patch.object(render_gallery, '_render_with_decision',
+                             side_effect=lambda records, version: (PNG, 'unknown' if version == 'preview' else 'summary', None)), \
                 redirect_stdout(io.StringIO()):
             result = render_gallery.generate(self.output, selected_cases=('dcx-jalert',))
         self.assertEqual(result['error_count'], 1)
@@ -196,6 +196,44 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         self.assertIn('不正な描画結果', row['images']['preview']['error'])
         self.assertNotIn('path', row['images']['preview'])
         self.assertEqual(row['images']['published']['kind'], 'summary')
+
+    def test_successful_fallback_records_reasons_without_counting_as_error(self):
+        decision = {'mode': 'topic', 'reasons': [{
+            'code': 'unsupported_version', 'stage': 'selection',
+            'message': '未対応の通報バージョン', 'detail': '国内DCX Vn=0'}]}
+        with patch.object(render_gallery, '_preflight'), \
+                patch.object(render_gallery, '_render_with_decision',
+                             return_value=(PNG, 'topic', decision)), \
+                redirect_stdout(io.StringIO()):
+            result = render_gallery.generate(self.output, selected_cases=('dcx-jalert',))
+        self.assertEqual(result['error_count'], 0)
+        row, = result['cases']
+        self.assertEqual(row['images']['preview']['decision'], decision)
+        self.assertNotIn('decision', row['images']['published'])
+        saved = json.loads((self.output / 'manifest.json').read_text())
+        self.assertEqual(saved['cases'][0]['images']['preview']['decision'], decision)
+        self.assertIn('未対応の通報バージョン', (self.output / 'index.html').read_text())
+
+    def test_preview_only_cli_renders_one_image_and_records_no_published_version(self):
+        decision = {'mode': 'map', 'reasons': []}
+        with patch.object(render_gallery, '_preflight') as preflight, \
+                patch.object(render_gallery, '_render_with_decision',
+                             return_value=(PNG, 'map', decision)) as render, \
+                redirect_stdout(io.StringIO()):
+            status = render_gallery.main(['--output', str(self.output), '--preview-only',
+                                          '--case', 'marine'])
+        self.assertEqual(status, 0)
+        preflight.assert_called_once_with('v4', preview_only=True)
+        render.assert_called_once_with(self.case.records, 'preview')
+        result = json.loads((self.output / 'manifest.json').read_text())
+        self.assertEqual(result['renderer'], 'preview')
+        self.assertNotIn('published_version', result)
+        row, = result['cases']
+        self.assertEqual(set(row['images']), {'preview'})
+        self.assertEqual(row['images']['preview']['path'], 'images/marine.png')
+        self.assertEqual(row['images']['preview']['decision'], decision)
+        self.assertEqual(len(list((self.output / 'images').iterdir())), 1)
+        self.assertNotIn('公開版', (self.output / 'index.html').read_text())
 
 
 @unittest.skipUnless(HAS_RENDERER, 'Install image_service/requirements.txt for actual gallery rendering')
@@ -246,6 +284,10 @@ class GalleryRenderingTests(unittest.TestCase):
                 self.assertEqual((image['width'], image['height']), expected)
                 self.assertEqual(image['kind'], 'map')
                 self.assertTrue((output / image['path']).is_file())
+                if slot == 'preview':
+                    self.assertEqual(image['decision'], {'mode': 'map', 'reasons': []})
+                else:
+                    self.assertNotIn('decision', image)
             published_png = (output / row['images']['published']['path']).read_bytes()
             self.assertEqual(published_png, render_v4.render(case.records).png)
             self.assertIs(base.Figure.savefig, original_savefig)
