@@ -62,6 +62,7 @@ jobs:
           preview_wide_tsunami preview_wide_flood preview_wide_dcx preview_context_scale_integration
           preview_scale preview_place_labels preview_dcx_geometry preview_dcx_reports preview_diagnostic_errors dcx_ward_assets
           nankai_image image_alt gallery_catalog gallery_posts gallery_compare gallery_cli gallery_html
+          gallery_timeline timeline_catalog timeline_cli
           release_candidate release_images; do
           python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
       - name: Prepare immutable release rehearsal packages
@@ -122,7 +123,7 @@ jobs:
       - name: Check receiver publication against gallery fixtures
         run: >-
           docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
-          shirasu:test sh -c 'for suite in public_qzqsm_publication gallery_post_publication release_receiver; do
+          shirasu:test sh -c 'for suite in public_qzqsm_publication gallery_post_publication timeline_publication release_receiver; do
           python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
 
       - name: Build integration test image

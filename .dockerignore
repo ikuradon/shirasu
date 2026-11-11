@@ -64,6 +64,10 @@ tests/test_gallery_catalog.py
 tests/test_gallery_posts.py
 tests/test_gallery_cli.py
 tests/test_gallery_html.py
+tests/test_gallery_timeline.py
+tests/test_timeline_catalog.py
+tests/test_timeline_cli.py
+tests/test_timeline_publication.py
 tests/test_release_candidate.py
 tests/test_release_receiver.py
 tests/test_release_images.py
@@ -73,5 +77,7 @@ tests/test_public_qzqsm_publication.py
 # Keep gallery_catalog.py: receiver formatter tests use its pure frame helpers.
 scripts/gallery_html.py
 scripts/render_gallery.py
+scripts/render_timeline.py
+scripts/timeline_html.py
 dist
 .vercel
