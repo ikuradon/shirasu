@@ -119,7 +119,8 @@ python3 -B scripts/prepare_release_compose.py \
 既存の検証記録から公開対象200ファイルを抽出し、元の候補を保持したまま検証できています。
 既存Dockerイメージからの実`create/cp/rm`で119ファイルの復元・manifest照合も成功しました。
 この復元試験のregistry pull/inspectは代替し、cleanなCI記録は合成しています。
-**GitHub API・GHCRへの実アップロード、Actions上の実行はまだ行っていません。**
+**GitHub API・GHCRへの正式保管はまだ行っていません。**
+実装後のCI実行結果は[GitHub ActionsのTests](https://github.com/ikuradon/shirasu/actions/workflows/test.yml)で確認します。
 
 現在のローカル候補、承認済みプレビュー、Docker export、成功した検証記録は残します。
 最初のActions候補との比較、正式保管と復元の成功を確認してから、重複するローカル保管物を整理します。
