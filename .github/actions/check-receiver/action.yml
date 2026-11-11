@@ -1,0 +1,46 @@
+name: Check receiver
+description: Validate the receiver, recovery behavior and monitoring without deployment credentials.
+runs:
+  using: composite
+  steps:
+    - name: Validate Compose configuration
+      shell: bash
+      run: |
+        cp config.py.sample config.py
+        docker compose config --quiet
+        docker compose -f compose.yaml -f monitoring/compose.observer.yaml config --quiet
+
+    - name: Build application image
+      shell: bash
+      run: docker build --pull --tag shirasu:test .
+
+    - name: Check installed dependencies
+      shell: bash
+      run: docker run --rm --network none shirasu:test python -m pip check
+
+    - name: Run regression tests
+      shell: bash
+      run: docker run --rm --network none shirasu:test python -B -m unittest discover -s tests -v
+
+    - name: Check receiver publication against gallery fixtures
+      shell: bash
+      run: >-
+        docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
+        shirasu:test sh -c 'for suite in public_qzqsm_publication gallery_post_publication timeline_publication release_receiver; do
+        python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
+
+    - name: Build integration test image
+      shell: bash
+      run: docker build --target test --tag shirasu:integration .
+
+    - name: Run connection and crash recovery tests
+      shell: bash
+      run: docker run --rm --network none shirasu:integration python -B -m unittest discover -s tests/integration -v
+
+    - name: Check alert firing and recovery
+      shell: bash
+      run: >-
+        docker run --rm --network none --entrypoint promtool
+        --volume "$PWD/monitoring:/rules:ro"
+        prom/prometheus:v3.1.0@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218
+        test rules /rules/alerts.test.yml

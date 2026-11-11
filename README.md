@@ -72,6 +72,7 @@ docker compose logs --tail 100 -f shirasu
 一括公開に向け、画像・受信側の候補パッケージを固定して署名URL、実PNG、投稿添付・ALT、旧URL、切り戻しを確認する
 [通し検証の手順](docs/image-release-rehearsal.md)を用意しています。候補内だけでv5を登録し、通常配布と本番設定はv1〜v4のままです。
 候補を使う受信側の起動は[公開用Compose設定](docs/release-compose.md)で準備します。検証したイメージへ固定し、既存DB・設定を引き継ぎます。本番への切替はまだ行っていません。
+候補の正式なビルド・検証・保管は[GitHub Actionsの手順](docs/ci-release.md)へ集約します。手動workflowで検証済みイメージをprivate GHCRへ保存し、digestで復元して公開用設定へ接続します。
 
 ## 通報の再生・投稿プレビュー
 

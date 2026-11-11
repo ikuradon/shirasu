@@ -1,0 +1,64 @@
+name: Publish verified image release
+
+# No publication from pull requests, pushes, arbitrary refs or rebuilt artifacts.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-image-release
+  cancel-in-progress: false
+
+jobs:
+  verify-receiver:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out requested commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check receiver
+        uses: ./.github/actions/check-receiver
+  release:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: verify-receiver
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Check out the same commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Build and check images on the publication runner
+        uses: ./.github/actions/check-images
+      - name: Authenticate to GHCR
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USERNAME: ${{ github.actor }}
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+      - name: Publish the checked images and release metadata
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          python3 -B scripts/publish_ci_release.py
+          --check-root dist/release-check
+          --receiver-image shirasu:rehearsal
+          --renderer-image shirasu-images:rehearsal
+      - name: Log out of GHCR
+        if: always()
+        shell: bash
+        run: docker logout ghcr.io

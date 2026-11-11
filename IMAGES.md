@@ -67,6 +67,7 @@ Vercelへの問い合わせは受信・配送経路では行いません。描�
 この通常パッケージは公開済みv1〜v4用です。未公開画像一式を確認する候補パッケージは
 [一括公開前の通し検証](docs/image-release-rehearsal.md)で別途作成します。
 候補v5の受信側には[公開用Compose設定](docs/release-compose.md)を使います。
+正式な候補は[GitHub Actionsで検証・保管](docs/ci-release.md)し、GHCRの固定digestから復元した`images/`を公開に使います。
 通常checkoutのビルドはv1〜v4用なので、環境変数だけをv5/w1へ変更して起動する手順ではありません。
 
 ```sh

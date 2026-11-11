@@ -22,109 +22,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0 # Export the fixed pre-candidate public renderer reference.
-      - name: Prepare isolated source and build renderer
-        run: |
-          python3 scripts/prepare_image_service.py dist/image-service
-          docker build --pull -f image_service/Dockerfile -t shirasu-images:test dist/image-service
-      - name: Check image dependencies
-        run: docker run --rm --network none shirasu-images:test python -m pip check
-      - name: Check bundled renderers and map assets
-        run: >-
-          docker run --rm --network none shirasu-images:test python -B -c
-          'from image_service.render_v4 import verify_assets; verify_assets()'
-      - name: Check PNGs, signed HTTP responses, and source isolation
-        run: >-
-          docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
-          shirasu-images:test sh -c 'for suite in image_protocol image_renderer image_renderer_v2
-          image_renderer_v3 image_renderer_v4 image_package image_versions regional_reports marine_regions region_map
-          weather_map weather_map_v4 eew_map volcano_map map_v3; do
-          python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
-      - name: Build unpublished offline preview
-        run: |
-          docker run --rm --volume "$PWD:/source" --workdir /source shirasu-images:test sh -c \
-            'python -m pip install --require-hashes -r scripts/requirements-flood-assets.txt && \
-             python scripts/prepare_flood_assets.py && \
-             python -B -m unittest discover -s tests -p "test_flood_assets.py" -v'
-          git diff --exit-code -- image_service/assets/preview/flood_manifest.json image_service/assets/preview/FLOOD_NOTICE.txt
-          python3 scripts/prepare_image_service.py --include-preview dist/image-preview
-          docker build -f image_service/Dockerfile -t shirasu-images:preview dist/image-preview
-          docker run --rm --network none shirasu-images:preview python -B -c \
-            'from image_service.render_preview import verify_assets; verify_assets()'
-      - name: Check forecast points and offline preview isolation
-        run: >-
-          docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
-          shirasu-images:preview sh -c 'for suite in nwp_assets nwp_reports nwp_renderer image_preview_cli
-          ash_reports ash_renderer municipality_assets flood_reports flood_renderer flood_context
-          preview_regions preview_points preview_dispatch preview_wide_layout preview_fixed_map_axes preview_geometry_cache
-          preview_buffer_lifecycle preview_nankai
-          preview_cancel_scope preview_cancel_card preview_cancel_map preview_cancellation
-          preview_wide_regions preview_seismic_markers preview_wide_points preview_wide_special public_qzqsm_images
-          preview_wide_tsunami preview_wide_flood preview_wide_dcx preview_context_scale_integration
-          preview_scale preview_place_labels preview_dcx_geometry preview_dcx_reports preview_diagnostic_errors dcx_ward_assets
-          nankai_image image_alt gallery_catalog gallery_posts gallery_compare gallery_cli gallery_html
-          gallery_timeline timeline_catalog timeline_cli image_benchmark image_encoding_benchmark benchmark_html
-          webp_encoding_probe webp_benchmark webp_renderer webp_protocol webp_http webp_release
-          release_candidate release_images; do
-          python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
-      - name: Prepare immutable release rehearsal packages
-        run: |
-          python3 -B scripts/prepare_release_candidate.py dist/release-check/candidate
-          python3 -B scripts/prepare_release_baseline.py dist/release-check/legacy --ref 43e0fa4
-          python3 -B scripts/prepare_release_baseline.py dist/release-check/legacy \
-            --candidate-images dist/release-check/candidate/images --allow-routing-changes > dist/release-check/source-comparison.json
-          mkdir dist/release-check/results
-          docker build --pull=false -t shirasu-images:rehearsal dist/release-check/candidate/images
-          docker build --pull=false -t shirasu:rehearsal dist/release-check/candidate/receiver
-      - name: Verify release Compose merge, startup and PNG cutback
-        run: |
-          python3 -B -m unittest discover -s tests -p 'test_release_compose*.py' -v
-          python3 -B scripts/check_release_compose.py \
-            --bundle dist/release-check/candidate --image shirasu:rehearsal \
-            --output dist/release-check/results/compose.json
-      - name: Verify signed posts, old URLs, candidate PNGs and rollback
-        run: |
-          docker run --rm --network none \
-            --volume "$PWD/dist/release-check/candidate:/candidate:ro" \
-            --volume "$PWD:/checks:ro" --volume "$PWD/dist/release-check/results:/output" \
-            --workdir /candidate/receiver --env PYTHONPATH=/candidate/receiver:/checks:/checks/tests \
-            shirasu:rehearsal python -B /checks/scripts/check_release_receiver.py \
-            --bundle /candidate --output /output/posts.json
-          docker run --rm --network none \
-            --volume "$PWD/dist/release-check/legacy:/legacy:ro" \
-            --volume "$PWD:/checks:ro" --volume "$PWD/dist/release-check/results:/output" \
-            --workdir /legacy --env PYTHONPATH=/legacy:/checks \
-            shirasu-images:rehearsal python -B /checks/scripts/check_release_images.py \
-            --legacy-package /legacy --events /output/posts.json --output /output/legacy.json
-          docker run --rm --network none \
-            --volume "$PWD/dist/release-check/candidate:/candidate:ro" \
-            --volume "$PWD:/checks:ro" --volume "$PWD/dist/release-check/results:/output" \
-            --workdir /candidate/images --env PYTHONPATH=/candidate/images:/checks \
-            shirasu-images:rehearsal python -B /checks/scripts/check_release_images.py \
-            --bundle /candidate --events /output/posts.json --legacy-result /output/legacy.json \
-            --output /output/images.json
-          python3 -B scripts/prepare_release_candidate.py --verify dist/release-check/candidate
-      - name: Verify fixed WebP profile from signed posts to HTTP
-        run: |
-          docker run --rm --network none \
-            --volume "$PWD/dist/release-check/candidate:/candidate:ro" \
-            --volume "$PWD:/checks:ro" --volume "$PWD/dist/release-check/results:/output" \
-            --workdir /candidate/receiver --env PYTHONPATH=/candidate/receiver:/checks:/checks/tests \
-            shirasu:rehearsal python -B /checks/scripts/check_webp_release.py receiver \
-            --bundle /candidate --output /output/webp-posts.json
-          docker run --rm --network none \
-            --volume "$PWD:/checks:ro" --volume "$PWD/dist/release-check/results:/output" \
-            --workdir /checks --env PYTHONPATH=/checks \
-            shirasu-images:rehearsal python -B scripts/render_gallery.py \
-            --preview-only --output /output/png-gallery
-          docker run --rm --network none \
-            --volume "$PWD/dist/release-check/candidate:/candidate:ro" \
-            --volume "$PWD:/checks:ro" --volume "$PWD/dist/release-check/results:/output" \
-            --workdir /candidate/images --env PYTHONPATH=/candidate/images:/checks \
-            shirasu-images:rehearsal python -B /checks/scripts/check_webp_release.py images \
-            --bundle /candidate --events /output/webp-posts.json --gallery /output/png-gallery \
-            --output /output/webp-http.json
-          python3 -B scripts/prepare_release_candidate.py --verify dist/release-check/candidate
+          fetch-depth: 0
+      - name: Check image service and candidate
+        uses: ./.github/actions/check-images
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -133,37 +33,5 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Validate Compose configuration
-        run: |
-          cp config.py.sample config.py
-          docker compose config --quiet
-          docker compose -f compose.yaml -f monitoring/compose.observer.yaml config --quiet
-
-      - name: Build application image
-        run: docker build --pull --tag shirasu:test .
-
-      - name: Check installed dependencies
-        run: docker run --rm --network none shirasu:test python -m pip check
-
-      - name: Run regression tests
-        run: docker run --rm --network none shirasu:test python -B -m unittest discover -s tests -v
-
-      - name: Check receiver publication against gallery fixtures
-        run: >-
-          docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
-          shirasu:test sh -c 'for suite in public_qzqsm_publication gallery_post_publication timeline_publication release_receiver; do
-          python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
-
-      - name: Build integration test image
-        run: docker build --target test --tag shirasu:integration .
-
-      - name: Run connection and crash recovery tests
-        run: docker run --rm --network none shirasu:integration python -B -m unittest discover -s tests/integration -v
-
-      - name: Check alert firing and recovery
-        run: >-
-          docker run --rm --network none --entrypoint promtool
-          --volume "$PWD/monitoring:/rules:ro"
-          prom/prometheus:v3.1.0@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218
-          test rules /rules/alerts.test.yml
+      - name: Check receiver
+        uses: ./.github/actions/check-receiver
