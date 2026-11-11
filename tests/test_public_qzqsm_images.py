@@ -20,6 +20,7 @@ KEY = bytes(range(32))  # Public test key, never a deployment credential.
 RECEIVER = 'dcr_receiver_20260924'
 
 if HAS_RENDERER:
+    from matplotlib.colors import to_rgba
     from matplotlib.text import Text
     from image_service import render as base
     from image_service import render_v4 as published
@@ -57,6 +58,12 @@ class PublicQzqsmImageTests(unittest.TestCase):
                 'collection_gids': frozenset(artist.get_gid()
                     for axes in figure.axes for artist in axes.collections
                     if artist.get_gid()),
+                'ash_cells': [(artist.get_gid(), artist.get_facecolor())
+                    for artist in figure.artists
+                    if (artist.get_gid() or '').startswith('ash-cell-')],
+                'ash_cell_texts': [(text.get_gid(), text.get_text())
+                    for text in figure.texts
+                    if (text.get_gid() or '').startswith('ash-cell-')],
             })
             return result
 
@@ -173,13 +180,25 @@ class PublicQzqsmImageTests(unittest.TestCase):
         text = snapshot['texts']
         for phrase in ('訓練', '詳細', '阿蘇山', '阿蘇市', '高森町', '南阿蘇村'):
             self.assertIn(phrase, text)
-        # Equal phenomena may share a label, but the discrete forecast hours
-        # remain explicit (an interval must not be invented).
-        compact = text.replace('\n', '')
-        self.assertEqual(compact.count('基点＋1時間：やや多量の降灰'), 2)
-        self.assertEqual(compact.count('基点＋2・3・4・5・6時間：少量の降灰'), 2)
-        self.assertEqual(compact.count('基点＋1・2・3・4・5・6時間：少量の降灰'), 1)
-        self.assertNotIn('1〜6時間', compact)
+        # The wide preview uses a municipality-by-hour matrix. Match every
+        # actual saved cell to the independently pinned official scenario,
+        # including its wording and colour, rather than expecting the old
+        # grouped prose labels or deriving expectations from the renderer.
+        expected_cells, expected_texts = [], []
+        styles = {1: ('少量', '#d9d9d9'), 2: ('やや\n多量', '#ffff00')}
+        for entry in official_scenarios()['ash_detail']['entries']:
+            identity = f'ash-cell-{entry["municipality_code"]}-{entry["hour"]}-ash'
+            value, color = styles[entry['warning_code']]
+            expected_cells.append((identity, to_rgba(color)))
+            expected_texts.append((f'{identity}-{entry["warning_code"]}', value))
+        self.assertEqual(len(expected_cells), 18)
+        self.assertCountEqual(snapshot['ash_cells'], expected_cells)
+        self.assertCountEqual(snapshot['ash_cell_texts'], expected_texts)
+        for hour in range(1, 7):
+            self.assertEqual(text.splitlines().count(f'＋{hour}'), 1)
+        self.assertIn('基点からの時間', text)
+        self.assertIn('単位：時間', text)
+        self.assertNotIn('1〜6時間', text)
         anchors = {gid for gid in snapshot['collection_gids']
                    if gid.startswith('municipality-anchor-')}
         self.assertEqual(anchors, {'municipality-anchor-4321400',
