@@ -38,11 +38,36 @@ tests/test_flood_context.py
 tests/test_preview_regions.py
 tests/test_preview_points.py
 tests/test_preview_dispatch.py
+tests/test_preview_wide_layout.py
+tests/test_preview_wide_regions.py
+tests/test_preview_seismic_markers.py
+tests/test_preview_wide_points.py
+tests/test_preview_wide_special.py
+tests/test_preview_wide_tsunami.py
+tests/test_preview_wide_flood.py
+tests/test_preview_wide_dcx.py
+tests/test_preview_context_scale_integration.py
+tests/test_preview_scale.py
+tests/test_preview_place_labels.py
+tests/test_preview_dcx_geometry.py
+tests/test_preview_dcx_reports.py
+tests/test_preview_diagnostic_errors.py
+tests/test_dcx_ward_assets.py
+tests/test_preview_cancel_scope.py
+tests/test_preview_cancel_card.py
+tests/test_preview_cancel_map.py
+tests/test_preview_cancellation.py
+tests/test_preview_nankai.py
 tests/test_public_qzqsm_images.py
+tests/test_image_alt.py
 tests/test_gallery_catalog.py
+tests/test_gallery_posts.py
 tests/test_gallery_cli.py
 tests/test_gallery_html.py
-scripts/gallery_catalog.py
+# These receiver tests need image fixtures and run with a read-only source mount in CI.
+tests/test_gallery_post_publication.py
+tests/test_public_qzqsm_publication.py
+# Keep gallery_catalog.py: receiver formatter tests use its pure frame helpers.
 scripts/gallery_html.py
 scripts/render_gallery.py
 dist

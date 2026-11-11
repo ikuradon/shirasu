@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from azarashi.reports import dcr, dcx
 from matplotlib import patheffects
 from matplotlib.text import Text
+from nankai_image import header as nankai_header, is_nankai_entry
 
 from image_service import render as base
 from image_service import render_v4 as published
@@ -16,6 +17,7 @@ from image_service import preview_wide_points as points
 from image_service import preview_wide_special as special
 from image_service import preview_wide_dcx as dcx_images
 from image_service import preview_cancellation as cancellation
+from image_service import preview_nankai as nankai
 from image_service.preview_diagnostics import Decision, error_reasons, reason, unique_reasons
 
 
@@ -51,10 +53,37 @@ def verify_assets():
     return True
 
 
+def _finish(fig, category, decision):
+    for label in fig.findobj(Text):
+        if label.get_bbox_patch() is None:
+            label.set_path_effects([patheffects.withStroke(
+                linewidth=1.1, foreground=layout.SEA)])
+    output = io.BytesIO()
+    fig.savefig(output, format='png', dpi=layout.DPI, facecolor=layout.SEA,
+                metadata={'Software': 'shirasu-image-preview'})
+    return RenderedPreview(output.getvalue(), category, decision)
+
+
 def render(records, *, cancel_reference=None):
     records = tuple(records)
     with base._LOCK:
         verify_assets()
+        if any(is_nankai_entry(entry) for entry in records):
+            # A selected original page proves the headline. Do not invoke or
+            # reset azarashi's process-wide multipart text assembler here.
+            if len(records) != 1:
+                raise ValueError('Nankai headline images require one representative page')
+            if cancel_reference is not None:
+                raise ValueError('Nankai headline images do not accept cancellation references')
+            header = nankai_header(records[0])
+            fig = layout.figure()
+            try:
+                nankai.draw_card(fig, header)
+                nankai.validate(fig)
+                decision = Decision('topic', (reason('cancelled'),) if header.information == 2 else ())
+                return _finish(fig, 'NankaiTroughEarthquake', decision)
+            finally:
+                fig.clear()
         base._reset_assembly()
         fig = None
         try:
@@ -96,14 +125,7 @@ def render(records, *, cancel_reference=None):
                     layout.summary(fig, reports)
                     decision = Decision('summary', reasons)
                 layout.validate(fig)
-            for label in fig.findobj(Text):
-                if label.get_bbox_patch() is None:
-                    label.set_path_effects([patheffects.withStroke(
-                        linewidth=1.1, foreground=layout.SEA)])
-            output = io.BytesIO()
-            fig.savefig(output, format='png', dpi=layout.DPI, facecolor=layout.SEA,
-                        metadata={'Software': 'shirasu-image-preview'})
-            return RenderedPreview(output.getvalue(), type(first).__name__, decision)
+            return _finish(fig, type(first).__name__, decision)
         finally:
             if fig is not None:
                 fig.clear()

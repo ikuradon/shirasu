@@ -14,6 +14,8 @@ from pathlib import Path
 import azarashi
 from azarashi.reports import dcr
 
+from nankai_image import NankaiHeader, header as nankai_header, is_nankai_entry
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = Path('tests/fixtures/qzqsm')
@@ -40,12 +42,40 @@ class GalleryCase:
 
 
 def _decode(records):
-    return tuple(azarashi.decode(nmea, timestamp=datetime.fromtimestamp(ms / 1000, timezone.utc))
+    # Inspect actual raw types before decoding, including a mislabeled case.
+    # Instantiating a Nankai report would alter azarashi's shared page assembly.
+    return tuple(nankai_header((nmea, ms)) if is_nankai_entry((nmea, ms)) else
+                 azarashi.decode(nmea, timestamp=datetime.fromtimestamp(ms / 1000, timezone.utc))
                  for nmea, ms in records)
+
+
+def _validated_nankai(case, headers):
+    if (case.category != 'NankaiTroughEarthquake'
+            or not all(isinstance(item, NankaiHeader) for item in headers)):
+        raise ValueError(f'Gallery sample category changed: {case.slug}')
+    classification = {'training' if item.classification == 7 else 'ordinary' for item in headers}
+    if classification != {case.classification}:
+        raise ValueError(f'Gallery sample classification changed: {case.slug}')
+    if case.source_kind == 'synthetic' and case.classification != 'training':
+        raise ValueError('Synthetic gallery samples must be explicitly training messages')
+    if len({(item.issued_at, item.classification, item.information, item.serial, item.total)
+            for item in headers}) != 1:
+        raise ValueError(f'Gallery sample mixes announcements: {case.slug}')
+    if len({item.page for item in headers}) != len(headers):
+        raise ValueError(f'Gallery sample repeats a Nankai page: {case.slug}')
+    # Serial 6 is an issued investigation result, not a warning release.
+    state = 'cancel' if headers[0].information == 2 else 'issue'
+    if case.state != state:
+        raise ValueError(f'Gallery sample state changed: {case.slug}')
+    if case.cancel_reference:
+        raise ValueError('Nankai heading cards do not use cancellation map references')
+    return case
 
 
 def _validated(case):
     reports = _decode(case.records)
+    if any(isinstance(report, NankaiHeader) for report in reports):
+        return _validated_nankai(case, reports)
     if not reports or {type(report).__name__ for report in reports} != {case.category}:
         raise ValueError(f'Gallery sample category changed: {case.slug}')
     classification = {'training' if (report.report_classification_no == 7
@@ -127,7 +157,8 @@ def load_cases(root=ROOT):
 
     Numbered selections refer to zero-based QZQSM frames, excluding comments.
     The source hashes pin these selections independently of current decoding.
-    Nankai is intentionally absent: new Nankai posts use text, not images.
+    Nankai examples retain every received page; a heading card uses only their
+    shared metadata. Catalog validation never instantiates its page assembler.
     """
     root = Path(root)
     manifest = json.loads((root / CORPUS / 'manifest.json').read_text(encoding='utf-8'))
@@ -311,6 +342,23 @@ def load_cases(root=ROOT):
     recorded('weather-many', '気象 / 7区域・複数種別', 'Weather', (53, 54, 55),
              '同じ発表の3電文に含まれる7区域と複数の警報種別をまとめます。',
              tags=('多数区域', '複数電文'))
+
+    nankai_origin = ('実際の発表ではない合成訓練例です。Rc=7（訓練）、Vn=1、'
+                     '発表日時は2026年11月10日09時10分（JST）とし、'
+                     'CRC-24QとNMEAチェックサムを計算しています。')
+    for slug, keyword in (('nankai-advisory', '巨大地震注意'), ('nankai-ended', '調査終了')):
+        synthetic(slug, f'南海トラフ / {keyword}・合成訓練例', 'NankaiTroughEarthquake', slug,
+                  nankai_origin + '「訓練用」で始まる架空の本文を18バイトずつ5ページに分割し、'
+                  'UTF-8文字の途中でページをまたぐ入力を全文保持します。'
+                  + ('調査終了を警報解除や安全宣言として扱いません。' if slug == 'nankai-ended' else '')
+                  + '画像には見出しだけを示し、本文は投稿で確認します。',
+                  tags=('見出しカード', '複数電文'))
+    synthetic('nankai-cancel', '南海トラフ / 取消・合成訓練例',
+              'NankaiTroughEarthquake', 'nankai-cancel',
+              nankai_origin + 'It=2（取消）、情報種別は巨大地震注意です。'
+              '総2ページのうち1ページだけを受信した入力として、全文を待たず取消を示します。'
+              '未受信ページを補ったり、元の注意情報を再表示したりしません。',
+              state='cancel', tags=('見出しカード', '取消', '一部ページ'))
 
     def synthetic_cancel(slug, title, category, filename, description, *, original_fields=(),
                          cancel_fields=(), reference=False, tags=()):

@@ -209,6 +209,31 @@ def _images(images, reader):
             _fail('PNGの寸法と記録が一致しません')
 
 
+def _indexes(value, count, *, allow_empty=False):
+    if (not isinstance(value, list) or (not value and not allow_empty)
+            or any(type(index) is not int or not 0 <= index < count for index in value)
+            or len(set(value)) != len(value)):
+        _fail('画像入力の電文位置が不正です')
+    return tuple(value)
+
+
+def _preview_indexes(case):
+    return tuple(case.get('preview_record_indexes', range(case['record_count'])))
+
+
+def _post_image_indexes(post):
+    return tuple(post.get('image_record_indexes', post['record_indexes'] if post['image_enabled'] else ()))
+
+
+def _text_only_slots(owner):
+    if 'text_only_slots' not in owner:
+        return
+    slots = owner['text_only_slots']
+    if (not isinstance(slots, list) or any(slot not in ('preview', 'published') for slot in slots)
+            or len(set(slots)) != len(slots) or any(slot in owner['images'] for slot in slots)):
+        _fail('本文のみの表示枠が不正または画像と矛盾しています')
+
+
 def _validate(manifest, reader):
     if (not isinstance(manifest, dict) or type(manifest.get('schema_version')) is not int
             or manifest['schema_version'] != 1 or not isinstance(manifest.get('cases'), list)
@@ -224,7 +249,8 @@ def _validate(manifest, reader):
         value = manifest['post_preview']
         if (not isinstance(value, dict) or type(value.get('images_enabled')) is not bool
                 or not isinstance(value.get('history'), str) or not isinstance(value.get('input_timing'), str)
-                or type(value.get('collection_wait_seconds')) is not int or value['collection_wait_seconds'] <= 0):
+                or type(value.get('collection_wait_seconds')) is not int or value['collection_wait_seconds'] <= 0
+                or ('nankai_topic_images' in value and type(value['nankai_topic_images']) is not bool)):
             _fail('投稿プレビューの前提が不正です')
     if 'source_license_path' in manifest:
         try:
@@ -244,8 +270,11 @@ def _validate(manifest, reader):
                      if 'cancel_reference_path' in case else ())
         if type(case.get('record_count')) is not int or case['record_count'] != len(records):
             _fail('ケースの電文数が一致しません')
+        if 'preview_record_indexes' in case:
+            _indexes(case['preview_record_indexes'], len(records))
         inputs.append((case['slug'], (case['category'], records, reference)))
         _images(case.get('images'), reader)
+        _text_only_slots(case)
         if 'posts' in case:
             if not isinstance(case['posts'], list) or len(case['posts']) > 1000:
                 _fail('投稿一覧が不正です')
@@ -261,8 +290,13 @@ def _validate(manifest, reader):
                         or type(post.get('record_count')) is not int or post['record_count'] != len(indexes)):
                     _fail('投稿単位の記録が不正です')
                 _images(post.get('images'), reader)
+                _text_only_slots(post)
                 if not post['image_enabled'] and post['images']:
                     _fail('本文のみの投稿に画像が指定されています')
+                if 'image_record_indexes' in post:
+                    selected = _indexes(post['image_record_indexes'], len(records), allow_empty=True)
+                    if bool(selected) != post['image_enabled'] or not set(selected) <= set(indexes):
+                        _fail('投稿画像の入力が本文の入力または画像設定と一致しません')
     return tuple(inputs)
 
 
@@ -317,9 +351,19 @@ def _compare_posts(current, previous, manifest, old_manifest, *, same_input=True
         return _result('unavailable', note='投稿プレビューの前提が記録されていません')
     if not same_input:
         return _result('input_changed', note='通報の入力・順序・参照または種別が異なります')
-    if manifest['post_preview'] != old_manifest['post_preview']:
+    def conditions(value):
+        result = dict(value['post_preview'])
+        if current['category'] == 'NankaiTroughEarthquake':
+            result.setdefault('nankai_topic_images', False)
+        else:
+            result.pop('nankai_topic_images', None)
+        return result
+    if conditions(manifest) != conditions(old_manifest):
         return _result('input_changed', ('conditions',), '投稿プレビューの前提が異なります')
-    structure = lambda posts: [(p['kind'], p['record_indexes'], p['image_enabled']) for p in posts]
+    def enabled(post):
+        return post['image_enabled'] and 'preview' not in post.get('text_only_slots', ())
+    structure = lambda posts: [(p['kind'], p['record_indexes'], enabled(p),
+                               _post_image_indexes(p) if enabled(p) else ()) for p in posts]
     changes = []
     if structure(current['posts']) != structure(previous['posts']):
         changes.append('structure')
@@ -327,7 +371,7 @@ def _compare_posts(current, previous, manifest, old_manifest, *, same_input=True
         changes.append('text')
     unavailable = False
     for new, old in zip(current['posts'], previous['posts']):
-        if structure((new,)) != structure((old,)) or not new['image_enabled']:
+        if structure((new,)) != structure((old,)) or not enabled(new):
             continue
         difference = _image_changes(new['images'].get('preview'), old['images'].get('preview'))
         if difference is None:
@@ -360,6 +404,10 @@ def _snapshot(baseline):
         if 'cancel_reference_path' in case:
             case['cancel_reference_path'] = path(case['cancel_reference_path'])
         for owner in (case, *case.get('posts', ())):
+            if 'text_only_slots' in owner:
+                owner['text_only_slots'] = [slot for slot in owner['text_only_slots'] if slot == 'preview']
+                if not owner['text_only_slots']:
+                    del owner['text_only_slots']
             images = owner['images']
             owner['images'] = {'preview': images['preview']} if 'preview' in images else {}
             image = owner['images'].get('preview', {})
@@ -400,10 +448,13 @@ def attach_comparison(manifest, baseline, output):
             images = _result('input_changed', note='通報の入力・順序・参照または種別が異なります')
             posts = _compare_posts(case, old, manifest, snapshot, same_input=False)
         else:
-            changes = _image_changes(case['images'].get('preview'), old['images'].get('preview'))
-            images = (_result('unavailable', _alt_changes(case['images'].get('preview'), old['images'].get('preview')),
-                              note='比較できる作業版画像がありません') if changes is None
-                      else _result('changed' if changes else 'unchanged', changes))
+            if _preview_indexes(case) != _preview_indexes(old):
+                images = _result('input_changed', ('structure',), '作業版画像に使う電文・順序が異なります')
+            else:
+                changes = _image_changes(case['images'].get('preview'), old['images'].get('preview'))
+                images = (_result('unavailable', _alt_changes(case['images'].get('preview'), old['images'].get('preview')),
+                                  note='比較できる作業版画像がありません') if changes is None
+                          else _result('changed' if changes else 'unchanged', changes))
             posts = _compare_posts(case, old, manifest, snapshot)
         comparisons[case['slug']] = {'images': images, 'posts': posts,
                                      'previous': _prefixed(old) if old is not None else None}

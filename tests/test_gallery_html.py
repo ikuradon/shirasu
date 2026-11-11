@@ -122,6 +122,38 @@ class PostContents(HTMLParser):
 
 
 class GalleryHtmlTests(unittest.TestCase):
+    def test_nankai_published_post_is_text_only_and_preview_attaches_only_the_headline(self):
+        manifest = posting_sample()
+        case = manifest['cases'][0]
+        case['category'] = 'NankaiTroughEarthquake'
+        post, = case['posts']
+        post.update(kind='nankai', record_indexes=list(range(5)), record_count=5,
+                    image_record_indexes=[0], text_only_slots=['published'])
+        del post['images']['published']
+        content = render_html(manifest)
+        self.assertIn('公開版（本文のみ）', content)
+        self.assertIn('5電文 · 画像は入力 1 の見出し', content)
+        self.assertEqual(PostContents(content).bodies,
+                         [post['text'], with_image(post['text'], PostContents.MEDIA)])
+        self.assertEqual(len([a for a in Document(content).attrs('a')
+                              if a.get('class') == 'post-attachment']), 1)
+        # The saved preview comparison must never acquire a phantom public post.
+        from scripts.gallery_html import _posts
+        preview = _posts(case, 'v4', preview_only=True, embedded=True)
+        self.assertNotIn('公開版', preview)
+        self.assertEqual(PostContents(preview).bodies,
+                         [with_image(post['text'], PostContents.MEDIA)])
+
+    def test_post_image_inputs_and_text_only_slots_cannot_contradict_the_post(self):
+        for fields in ({'image_record_indexes': [4]}, {'image_record_indexes': []},
+                       {'image_record_indexes': [0, 0]}, {'image_record_indexes': [False]},
+                       {'text_only_slots': ['published']}, {'text_only_slots': ['other']}):
+            with self.subTest(fields=fields):
+                manifest = posting_sample()
+                manifest['cases'][0]['posts'][0].update(fields)
+                with self.assertRaises(ValueError):
+                    render_html(manifest)
+
     def test_optional_post_is_escaped_and_separate_from_the_decoded_source_text(self):
         manifest = sample()
         case = manifest['cases'][0]

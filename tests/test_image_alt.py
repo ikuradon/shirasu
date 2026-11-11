@@ -32,7 +32,7 @@ class ImageAltTests(unittest.TestCase):
     def record(self, slug):
         return self.cases[slug].records[0]
 
-    def test_all_fifteen_catalog_types_have_short_specific_one_paragraph_alt(self):
+    def test_all_catalog_types_have_short_specific_one_paragraph_alt(self):
         labels = {
             'Typhoon': '台風26号', 'Hypocenter': '震源情報', 'Weather': '気象警報等',
             'EarthquakeEarlyWarning': '緊急地震速報', 'SeismicIntensity': '震度情報',
@@ -41,6 +41,7 @@ class ImageAltTests(unittest.TestCase):
             'Marine': '海上警報', 'LAlert': 'Lアラート（空襲）',
             'JAlert': 'Jアラート（安全に関する警告）', 'MTInfo': '自治体情報（洪水）',
             'OutsideJapan': '海外向け防災情報',
+            'NankaiTroughEarthquake': '南海トラフ地震',
         }
         self.assertEqual({case.category for case in self.cases.values()}, set(labels))
         for case in self.cases.values():
@@ -208,19 +209,36 @@ class ImageAltTests(unittest.TestCase):
         for marker in ('訓練・試験を含む', '状態混在', '取消', '解除情報を含む', '確認できません'):
             self.assertIn(marker, text)
 
-    def test_nankai_is_rejected_before_decode_without_changing_shared_state(self):
+    def test_nankai_alt_uses_raw_headers_without_changing_shared_state(self):
         report = next(item for item in decode_reports('dcr_receiver_20260924')
                       if isinstance(item, dcr.NankaiTroughEarthquake))
         owner = dcr.NankaiTroughEarthquake
         saved = (owner.completed, owner.reports, owner.announcement)
         record = (report.nmea, round(report.timestamp.timestamp() * 1000))
         with patch('image_alt.azarashi.decode') as decoder:
-            with self.assertRaisesRegex(ValueError, 'text-only'):
-                image_alt_text((self.record('weather'), record))
+            text = image_alt_text((record,))
             decoder.assert_not_called()
+        self.assertIn('【訓練・試験】南海トラフ地震臨時情報（巨大地震注意）', text)
+        self.assertIn('発表日時：2026年09月24日10時35分（JST）', text)
+        self.assertNotIn('受信完了', text)
         self.assertIs(owner.completed, saved[0])
         self.assertIs(owner.reports, saved[1])
         self.assertIs(owner.announcement, saved[2])
+
+    def test_nankai_ended_is_not_all_clear_and_cancel_hides_old_hazard_keyword(self):
+        report = next(item for item in decode_reports('dcr_receiver_20260924')
+                      if isinstance(item, dcr.NankaiTroughEarthquake))
+        record = (report.nmea, round(report.timestamp.timestamp() * 1000))
+        with patch('image_alt.azarashi.decode', side_effect=AssertionError('No Nankai decode')):
+            ended = image_alt_text((changed(record, ((53, 4, 6),)),))
+            cancelled = image_alt_text((changed(record, ((41, 2, 2),)),))
+            corrected = image_alt_text((changed(record, ((41, 2, 1),)),))
+        self.assertIn('調査終了', ended)
+        self.assertNotIn('解除', ended)
+        self.assertIn('【訓練・試験】【取消】南海トラフ地震関連情報', cancelled)
+        self.assertIn('取り消されました', cancelled)
+        self.assertNotIn('巨大地震注意', cancelled)
+        self.assertIn('【訓練・試験】【訂正】', corrected)
 
     def test_validation_and_no_input_mutation_or_external_access(self):
         record = self.record('weather')

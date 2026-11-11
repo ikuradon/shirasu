@@ -29,6 +29,7 @@ from receiver import GpsdReceiver
 from message_format import report_message
 from image_publication import ImagePublisher, image_entry, with_image
 from image_alt import DEFAULT_IMAGE_ALT, image_alt_text
+from nankai_image import nankai_topic_entries
 
 
 logger = logging.getLogger('shirasu')
@@ -236,8 +237,8 @@ class Service:
                 elif result == 'buffered':
                     self.wake.set()
                 return result
-        # Nankai announcements carry prose assembled across received pages;
-        # a single-page summary image does not add useful information.
+        # Invalid/uncollected Nankai input must remain text-only. Topic images
+        # are selected only from validated complete/cancellation batches.
         include_image = not isinstance(report, dcr.NankaiTroughEarthquake)
         entries = ()
         if self.images is not None and include_image:
@@ -263,7 +264,13 @@ class Service:
             self.typhoons.maintain(now)
         batch = self.nankai.due(now)
         if batch is not None:
-            event = self.nostr.build_event(nankai_summary(batch))
+            entries = ()
+            if self.images is not None and getattr(self.images, 'supports_nankai_topic', False) is True:
+                try:
+                    entries = nankai_topic_entries(batch)
+                except (ValueError, TypeError, OverflowError) as error:
+                    logger.warning('Nankai image input unavailable: %s; publishing text', type(error).__name__)
+            event = self._build_event(nankai_summary(batch), entries, include_image=bool(entries))
             result = self.nankai.complete(batch, event.as_json(), event.id().to_hex(), now)
             if result == 'queued':
                 self.state['last_queued'] = now

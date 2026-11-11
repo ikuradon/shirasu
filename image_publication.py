@@ -69,6 +69,12 @@ class ImagePublisher:
     def url(self, entries):
         return self.base_url + make_path(entries, self.key_id, self.secret, version=self.version)
 
+    @property
+    def supports_nankai_topic(self):
+        # No published URL generation contains the topic renderer yet. Enable
+        # this capability for its generation during the coordinated release.
+        return False
+
 
 def image_entry(report):
     """Retain the original decoder's date context, not the publication time."""

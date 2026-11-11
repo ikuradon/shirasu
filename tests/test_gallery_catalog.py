@@ -14,6 +14,7 @@ import azarashi
 from azarashi.reports import dcr
 
 from message_format import report_message
+from nankai_image import header as nankai_header
 from scripts.gallery_catalog import _dcx_training_variant, _field_variant, _validated, load_cases
 
 
@@ -21,8 +22,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def decoded(case):
-    return [azarashi.decode(sentence, timestamp=datetime.fromtimestamp(ms / 1000, timezone.utc))
-            for sentence, ms in case.records]
+    # Independent decoder verification must not leave fixture pages in the
+    # process-wide assembler used by other publication tests.
+    with patch.object(dcr.NankaiTroughEarthquake, 'completed', False), \
+            patch.object(dcr.NankaiTroughEarthquake, 'reports', {}), \
+            patch.object(dcr.NankaiTroughEarthquake, 'announcement', None):
+        return [azarashi.decode(sentence, timestamp=datetime.fromtimestamp(ms / 1000, timezone.utc))
+                for sentence, ms in case.records]
 
 
 class GalleryCatalogTests(unittest.TestCase):
@@ -30,11 +36,11 @@ class GalleryCatalogTests(unittest.TestCase):
         self.cases = {case.slug: case for case in load_cases()}
 
     def test_catalog_covers_image_categories_with_stable_unique_output_names(self):
-        self.assertEqual(len(self.cases), 37)
+        self.assertEqual(len(self.cases), 40)
         self.assertEqual({case.category for case in self.cases.values()}, {
             'Typhoon', 'Hypocenter', 'Weather', 'EarthquakeEarlyWarning', 'SeismicIntensity',
             'Tsunami', 'Volcano', 'AshFall', 'Flood', 'NorthwestPacificTsunami', 'Marine',
-            'LAlert', 'JAlert', 'MTInfo', 'OutsideJapan',
+            'LAlert', 'JAlert', 'MTInfo', 'OutsideJapan', 'NankaiTroughEarthquake',
         })
         self.assertEqual(tuple(self.cases.values()), load_cases())
         for case in self.cases.values():
@@ -424,6 +430,72 @@ class GalleryCatalogTests(unittest.TestCase):
             self.assertEqual(set(pages), {99})
             self.assertIs(dcr.NankaiTroughEarthquake.announcement, announcement)
             self.assertFalse(dcr.NankaiTroughEarthquake.completed)
+
+    def test_nankai_heading_samples_preserve_full_training_pages_and_explicit_sources(self):
+        expected = {
+            'nankai-advisory': (5, 'issue', '訓練用A：巨大地震注意の表示を確認する架空の本文です。'),
+            'nankai-ended': (6, 'issue', '訓練用B：調査終了の表示を確認する架空の本文です。'),
+            'nankai-cancel': (5, 'cancel', '訓練用取消。'),
+        }
+        for slug, (serial, state, body) in expected.items():
+            with self.subTest(case=slug):
+                case = self.cases[slug]
+                self.assertEqual((case.category, case.source_kind, case.classification, case.state),
+                                 ('NankaiTroughEarthquake', 'synthetic', 'training', state))
+                self.assertEqual(case.source_file, f'image_service/examples/{slug}.json')
+                self.assertIsNone(case.source_url)
+                self.assertFalse(case.cancel_reference)
+                for value in (case.title, case.source_label, case.description):
+                    self.assertIn('合成訓練例', value)
+                rows = json.loads((ROOT / case.source_file).read_text())
+                self.assertTrue(all('Synthetic training' in row['description'] for row in rows))
+                self.assertEqual(case.records, tuple((row['nmea'], row['received_ms']) for row in rows))
+                headers = tuple(nankai_header(entry) for entry in case.records)
+                self.assertEqual({item.issued_at for item in headers},
+                                 {datetime(2026, 11, 10, 0, 10, tzinfo=timezone.utc)})
+                self.assertEqual({item.classification for item in headers}, {7})
+                self.assertEqual({item.serial for item in headers}, {serial})
+                self.assertEqual({item.information for item in headers}, {2 if state == 'cancel' else 0})
+                reports = decoded(case)  # Independently checks CRC-24Q and NMEA checksums.
+                chunks = [report.text_information for report in reports]
+                self.assertEqual(b''.join(chunks).replace(b'\0', b'').decode('utf-8'), body)
+                self.assertEqual({report.report_classification_no for report in reports}, {7})
+                if state == 'cancel':
+                    self.assertEqual([(item.page, item.total) for item in headers], [(1, 2)])
+                    self.assertIn('総2ページのうち1ページだけ', case.description)
+                else:
+                    self.assertEqual([(item.page, item.total) for item in headers],
+                                     [(page, 5) for page in range(1, 6)])
+                    with self.assertRaises(UnicodeDecodeError):
+                        chunks[0].decode('utf-8')
+        self.assertIn('警報解除や安全宣言として扱いません', self.cases['nankai-ended'].description)
+
+    def test_nankai_validation_rejects_mislabeled_or_mixed_metadata_without_decoder_state_changes(self):
+        case = self.cases['nankai-advisory']
+        different_serial = (self.cases['nankai-ended'].records[1],)
+        variants = (
+            replace(case, category='Weather'),
+            replace(case, classification='ordinary'),
+            replace(case, state='release'),
+            replace(self.cases['nankai-ended'], state='release'),
+            replace(case, records=case.records[:1] + different_serial),
+            replace(case, records=case.records[:1] + case.records[:1]),
+            replace(case, records=case.records[:1] + self.cases['weather'].records),
+            replace(case, cancel_reference=case.records),
+        )
+        pages, announcement = {99: object()}, object()
+        with patch.object(dcr.NankaiTroughEarthquake, 'reports', pages), \
+                patch.object(dcr.NankaiTroughEarthquake, 'announcement', announcement), \
+                patch.object(dcr.NankaiTroughEarthquake, 'completed', False):
+            for variant in variants:
+                with self.subTest(category=variant.category, state=variant.state,
+                                  records=len(variant.records)):
+                    with self.assertRaises(ValueError):
+                        _validated(variant)
+                    self.assertIs(dcr.NankaiTroughEarthquake.reports, pages)
+                    self.assertEqual(set(pages), {99})
+                    self.assertIs(dcr.NankaiTroughEarthquake.announcement, announcement)
+                    self.assertFalse(dcr.NankaiTroughEarthquake.completed)
 
 
 if __name__ == '__main__':

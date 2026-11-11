@@ -13,6 +13,7 @@ from azarashi.definitions.qzss.dcr.marine_warning_code import marine_warning_cod
 from azarashi.reports import dcr, dcx
 
 from image_protocol import _records
+from nankai_image import header as nankai_header, is_nankai_entry
 
 
 DEFAULT_IMAGE_ALT = 'みちびき受信通報の図'
@@ -178,17 +179,22 @@ def image_alt_text(entries):
 
     Invalid entries or unsupported report types raise ValueError for the
     caller's DEFAULT_IMAGE_ALT fallback. Input order does not affect wording.
-    Nankai is text-only: reject it *before* decoding, so this extra decode can
-    never touch azarashi's process-wide, concurrently used Nankai assembly.
+    Nankai uses validated raw headers, so this extra decode never touches
+    azarashi's process-wide, concurrently used Nankai text assembly.
     """
     records = _records(entries)
-    for nmea, _ in records:
-        raw = int(nmea.split(',')[2].split('*')[0] + '0', 16)
-        if (raw >> (256 - 14)) & 63 == 43 and (raw >> (256 - 21)) & 15 == 4:
-            raise ValueError('Nankai bulletins use text-only publication')
+    facts = []
     try:
-        facts = tuple(_facts(azarashi.decode(nmea, timestamp=datetime.fromtimestamp(ms / 1000, timezone.utc)))
-                      for nmea, ms in records)
+        for entry in records:
+            if is_nankai_entry(entry):
+                item = nankai_header(entry)
+                title = item.title if item.information == 2 else item.title + '（' + item.keyword + '）'
+                facts.append(_Facts(title, 'dcr', item.classification == 7,
+                                    {0: '発表', 1: '訂正', 2: '取消'}[item.information],
+                                    'none', item.issued_at))
+            else:
+                nmea, ms = entry
+                facts.append(_facts(azarashi.decode(nmea, timestamp=datetime.fromtimestamp(ms / 1000, timezone.utc))))
     except azarashi.AzarashiException as error:
         raise ValueError('Unable to decode image ALT metadata') from error
     return _describe(facts)

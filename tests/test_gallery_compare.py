@@ -448,6 +448,129 @@ class GalleryCompareTests(unittest.TestCase):
                         attach_comparison(new, baseline, new_path)
                     self.assertFalse((new_path / 'baseline').exists())
 
+    def test_nankai_capability_and_explicit_indexes_keep_37_old_cases_comparable(self):
+        slugs = tuple(f'existing-{number}' for number in range(37))
+        self.gallery(self.old, slugs=slugs)
+        new = self.gallery(self.new, slugs=slugs + ('nankai-advisory', 'nankai-ended', 'nankai-cancel'))
+        new['post_preview']['nankai_topic_images'] = True
+        for case in new['cases']:
+            case['preview_record_indexes'] = [0]
+            case['posts'][0]['image_record_indexes'] = [0]
+            if case['slug'].startswith('nankai-'):
+                case['category'] = 'NankaiTroughEarthquake'
+                case['posts'][0]['kind'] = 'nankai'
+        result = self.compare(new=new)
+        for view in ('images', 'posts'):
+            self.assertEqual(result['baseline']['counts'][view]['unchanged'], 37)
+            self.assertEqual(result['baseline']['counts'][view]['added'], 3)
+            self.assertEqual(result['baseline']['counts'][view]['input_changed'], 0)
+        for case in result['cases'][37:]:
+            self.assertIsNone(case['comparison']['previous'])
+
+    def test_disabled_image_indexes_normalize_to_empty_for_older_posts(self):
+        old, new = self.gallery(self.old), self.gallery(self.new)
+        for manifest in (old, new):
+            post = manifest['cases'][0]['posts'][0]
+            post.update(image_enabled=False, images={})
+        new['cases'][0]['posts'][0]['image_record_indexes'] = []
+        comparison = self.compare(old, new)['cases'][0]['comparison']
+        self.assertEqual(comparison['posts']['status'], 'unchanged')
+
+    def test_representative_input_changes_are_separate_for_images_and_posts(self):
+        for changed in ('case', 'post'):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory(dir=self.root) as directory:
+                self.old, self.new = Path(directory) / 'old', Path(directory) / 'new'
+                old, new = self.gallery(self.old), self.gallery(self.new)
+                for root, manifest in ((self.old, old), (self.new, new)):
+                    case = manifest['cases'][0]
+                    (root / case['records_path']).write_text(json.dumps([
+                        {'nmea': NMEA, 'received_ms': 1000}, {'nmea': NMEA, 'received_ms': 2000}]))
+                    case['record_count'] = 2
+                    case['posts'][0].update(record_indexes=[0, 1], record_count=2)
+                if changed == 'case':
+                    new['cases'][0]['preview_record_indexes'] = [1]
+                else:
+                    new['cases'][0]['posts'][0]['image_record_indexes'] = [1]
+                comparison = self.compare(old, new)['cases'][0]['comparison']
+                self.assertEqual(comparison['images']['status'], 'input_changed' if changed == 'case' else 'unchanged')
+                self.assertEqual(comparison['posts']['status'], 'changed' if changed == 'post' else 'unchanged')
+                self.assertIn('structure', comparison['images' if changed == 'case' else 'posts']['changes'])
+
+    def test_nankai_capability_affects_only_nankai_post_conditions_with_absent_false_default(self):
+        for enabled in (False, True):
+            with self.subTest(enabled=enabled), tempfile.TemporaryDirectory(dir=self.root) as directory:
+                self.old, self.new = Path(directory) / 'old', Path(directory) / 'new'
+                old, new = self.gallery(self.old), self.gallery(self.new)
+                for manifest in (old, new):
+                    manifest['cases'][0]['category'] = 'NankaiTroughEarthquake'
+                    manifest['cases'][0]['posts'][0]['kind'] = 'nankai'
+                new['post_preview']['nankai_topic_images'] = enabled
+                comparison = self.compare(old, new)['cases'][0]['comparison']
+                self.assertEqual(comparison['images']['status'], 'unchanged')
+                self.assertEqual(comparison['posts']['status'], 'input_changed' if enabled else 'unchanged')
+                self.assertEqual(comparison['posts']['changes'], ['conditions'] if enabled else [])
+
+    def test_published_text_only_flag_does_not_change_preview_and_is_removed_from_snapshot(self):
+        old, new = self.gallery(self.old), self.gallery(self.new)
+        old['cases'][0]['posts'][0]['text_only_slots'] = ['published']
+        old['cases'][0]['posts'][0]['image_record_indexes'] = [0]
+        old['cases'][0]['preview_record_indexes'] = [0]
+        self.save(self.old, old)
+        before = (self.old / 'manifest.json').read_bytes()
+        comparison = self.compare(new=new)['cases'][0]['comparison']
+        self.assertEqual(comparison['posts']['status'], 'unchanged')
+        self.assertNotIn('text_only_slots', comparison['previous']['posts'][0])
+        snapshot = load_baseline(self.new / 'baseline').manifest
+        self.assertNotIn('text_only_slots', snapshot['cases'][0]['posts'][0])
+        self.assertEqual(snapshot['cases'][0]['posts'][0]['image_record_indexes'], [0])
+        self.assertEqual(snapshot['cases'][0]['preview_record_indexes'], [0])
+        self.assertEqual((self.old / 'manifest.json').read_bytes(), before)
+
+    def test_preview_text_only_flag_stays_in_snapshot_and_suppresses_preview_comparison(self):
+        old, new = self.gallery(self.old), self.gallery(self.new)
+        for manifest in (old, new):
+            post = manifest['cases'][0]['posts'][0]
+            post.update(images={}, text_only_slots=['preview', 'published'])
+        comparison = self.compare(old, new)['cases'][0]['comparison']
+        self.assertEqual(comparison['posts']['status'], 'unchanged')
+        snapshot = load_baseline(self.new / 'baseline').manifest
+        self.assertEqual(snapshot['cases'][0]['posts'][0]['text_only_slots'], ['preview'])
+
+    def test_invalid_optional_selection_and_capability_fields_are_rejected_before_copying(self):
+        changes = [
+            ('preview_record_indexes', value) for value in ([], [True], [-1], [2], [0, 0], None, '0')
+        ] + [
+            ('image_record_indexes', value) for value in ([], [True], [-1], [2], [0, 0], None, '0', [1])
+        ] + [
+            ('text_only_slots', value) for value in (None, 'published', ['unknown'], ['published', 'published'], ['preview'])
+        ] + [('nankai_topic_images', value) for value in (None, 1, 'true')]
+        for field, value in changes:
+            with self.subTest(field=field, value=value), tempfile.TemporaryDirectory(dir=self.root) as directory:
+                old_path, new_path = Path(directory) / 'old', Path(directory) / 'new'
+                old, new = self.gallery(old_path), self.gallery(new_path)
+                case = old['cases'][0]
+                # Index 1 is valid for the case but absent from its single post.
+                (old_path / case['records_path']).write_text(json.dumps([
+                    {'nmea': NMEA, 'received_ms': 1000}, {'nmea': NMEA, 'received_ms': 2000}]))
+                case['record_count'] = 2
+                owner = (case if field == 'preview_record_indexes' else old['post_preview']
+                         if field == 'nankai_topic_images' else case['posts'][0])
+                owner[field] = value
+                self.save(old_path, old)
+                with self.assertRaises(ValueError):
+                    load_baseline(old_path)
+                owner.pop(field)
+                self.save(old_path, old)
+                baseline = load_baseline(old_path)
+                new['cases'][0] = deepcopy(case)
+                (new_path / case['records_path']).write_bytes((old_path / case['records_path']).read_bytes())
+                new_owner = (new['cases'][0] if field == 'preview_record_indexes' else new['post_preview']
+                             if field == 'nankai_topic_images' else new['cases'][0]['posts'][0])
+                new_owner[field] = value
+                with self.assertRaises(ValueError):
+                    attach_comparison(new, baseline, new_path)
+                self.assertFalse((new_path / 'baseline').exists())
+
 
 if __name__ == '__main__':
     unittest.main()

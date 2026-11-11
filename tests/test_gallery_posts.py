@@ -42,6 +42,7 @@ class GalleryPostTests(unittest.TestCase):
                     self.assertEqual(post.text, report_message(decode(record)))
                     self.assertEqual((post.record_indexes, post.kind, post.image_enabled),
                                      ((index,), 'single', True))
+                    self.assertEqual(post.image_record_indexes, (index,))
         self.assertEqual(len(plan_posts(self.cases['weather-many'].records)), 3)
 
     def test_all_current_gallery_inputs_form_deterministic_posts_without_mutating_inputs(self):
@@ -59,6 +60,8 @@ class GalleryPostTests(unittest.TestCase):
                     self.assertTrue(all(0 <= index < len(records) for index in post.record_indexes))
                     self.assertIn(post.kind, ('single', 'typhoon', 'nankai'))
                     self.assertNotIn('https://images.', post.text)
+                    self.assertTrue(set(post.image_record_indexes) <= set(post.record_indexes))
+                    self.assertEqual(bool(post.image_record_indexes), post.image_enabled)
 
     def test_typhoon_batch_retains_forecast_order_and_first_received_provenance(self):
         original = self.cases['typhoon-cancel-reference'].cancel_reference
@@ -66,6 +69,7 @@ class GalleryPostTests(unittest.TestCase):
         post, = plan_posts(records)
         self.assertEqual((post.kind, post.image_enabled), ('typhoon', True))
         self.assertEqual(post.record_indexes, tuple(reversed(range(6))))
+        self.assertEqual(post.image_record_indexes, post.record_indexes)
         self.assertEqual(post.text, typhoon_summary(tuple(decode(record) for record in original)))
         self.assertEqual(post.text.count('NMEA: '), 6)
 
@@ -115,11 +119,45 @@ class GalleryPostTests(unittest.TestCase):
     def test_nankai_missing_pages_produce_metadata_only_after_the_virtual_deadline(self):
         page = self.nankai_pages()[0]
         record = page.nmea, round(page.timestamp.timestamp() * 1000)
-        post, = plan_posts((record, record))
-        self.assertEqual((post.kind, post.record_indexes, post.image_enabled), ('nankai', (0,), False))
-        self.assertIn('【本文未受信】', post.text)
-        self.assertIn('受信1/27ページ', post.text)
-        self.assertNotIn(expected_nankai_text()[:30], post.text.partition('\n---\n')[0])
+        for nankai_topics in (False, True):
+            with self.subTest(nankai_topics=nankai_topics):
+                post, = plan_posts((record, record), nankai_topics=nankai_topics)
+                self.assertEqual((post.kind, post.record_indexes, post.image_enabled), ('nankai', (0,), False))
+                self.assertEqual(post.image_record_indexes, ())
+                self.assertIn('【本文未受信】', post.text)
+                self.assertIn('受信1/27ページ', post.text)
+                self.assertNotIn(expected_nankai_text()[:30], post.text.partition('\n---\n')[0])
+
+    def test_nankai_topics_select_one_original_page_without_shortening_post_input(self):
+        for slug in ('nankai-advisory', 'nankai-ended', 'nankai-cancel'):
+            original = self.cases[slug].records
+            for records in (original, tuple(reversed(original))):
+                with self.subTest(slug=slug, reversed=records is not original):
+                    legacy, = plan_posts(records)
+                    topic, = plan_posts(records, nankai_topics=True)
+                    self.assertEqual(topic.text, legacy.text)
+                    self.assertEqual(topic.record_indexes, legacy.record_indexes)
+                    self.assertEqual(len(topic.record_indexes), len(original))
+                    self.assertFalse(legacy.image_enabled)
+                    self.assertEqual(legacy.image_record_indexes, ())
+                    self.assertTrue(topic.image_enabled)
+                    self.assertEqual(topic.image_record_indexes, (records.index(original[0]),))
+                    self.assertEqual(topic.text.count('\nNMEA: '), len(original))
+                    if slug == 'nankai-ended':
+                        self.assertIn('調査終了', topic.text)
+                        self.assertNotIn('【解除】', topic.text)
+                    if slug == 'nankai-cancel':
+                        self.assertIn('【取消】', topic.text)
+                        self.assertNotIn('【本文未受信】', topic.text)
+
+    def test_unreadable_complete_nankai_body_never_receives_a_topic_image(self):
+        original = self.cases['nankai-advisory'].records
+        bad = changed(original[0], ((57, 144, 255 << 136),))
+        post, = plan_posts((bad, *original[1:]), nankai_topics=True)
+        self.assertIn('本文の文字コードを読み取れません', post.text)
+        self.assertEqual(len(post.record_indexes), len(original))
+        self.assertFalse(post.image_enabled)
+        self.assertEqual(post.image_record_indexes, ())
 
     def test_nankai_cancellation_suppresses_pending_pages_and_has_no_image_or_old_body(self):
         pages = self.nankai_pages()

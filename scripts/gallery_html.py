@@ -170,9 +170,20 @@ def _posts(case, published_version, *, preview_only=False, id_prefix='', embedde
                 or not isinstance(post.get('images'), dict)):
             raise ValueError('Invalid gallery post unit')
         record_labels = '・'.join(str(number + 1) for number in indexes)
+        image_indexes = post.get('image_record_indexes', indexes if post['image_enabled'] else [])
+        text_slots = post.get('text_only_slots', [])
+        if (not isinstance(image_indexes, list)
+                or any(type(number) is not int or number not in indexes for number in image_indexes)
+                or len(set(image_indexes)) != len(image_indexes)
+                or bool(image_indexes) != post['image_enabled']
+                or not isinstance(text_slots, list)
+                or any(side not in ('published', 'preview') for side in text_slots)
+                or len(set(text_slots)) != len(text_slots)
+                or any(side in post['images'] for side in text_slots)):
+            raise ValueError('Invalid gallery post image inputs or slots')
         if post['image_enabled']:
             sides = ['preview'] if preview_only else [side for side in ('published', 'preview')
-                                                      if side in post['images']]
+                                                      if side in post['images'] or side in text_slots]
             if not sides:
                 sides = ['preview']
         else:
@@ -182,16 +193,19 @@ def _posts(case, published_version, *, preview_only=False, id_prefix='', embedde
         comparisons = []
         for side in sides:
             value = post['images'].get(side, {})
+            enabled = post['image_enabled'] and side not in text_slots
             heading = {'published': '公開版', 'preview': '作業版', 'text': '本文のみ'}[side]
+            if side in text_slots:
+                heading += '（本文のみ）'
             if embedded and side != 'text':
-                heading = '添付画像'
+                heading = '添付画像' if enabled else '本文のみ'
             version = (value.get('version', published_version if side == 'published' else 'preview')
                        if side != 'text' else '')
-            attachment = _post_attachment(case, value, heading) if post['image_enabled'] else None
+            attachment = _post_attachment(case, value, heading) if enabled else None
             content = _post_content(post['text'], attachment)
             content_id = _escape(f'{id_prefix}{case["slug"]}-post-{index}-{side}')
-            diagnostic = _decision(value) if post['image_enabled'] and not value.get('error') else ''
-            alt_details = _alt_details(value) if post['image_enabled'] else ''
+            diagnostic = _decision(value) if enabled and not value.get('error') else ''
+            alt_details = _alt_details(value) if enabled else ''
             comparisons.append(
                 f'<section class="post-comparison {side}"><div class="image-heading">'
                 f'<h4>{heading}<span class="version">{_escape(version)}</span></h4></div>'
@@ -202,11 +216,13 @@ def _posts(case, published_version, *, preview_only=False, id_prefix='', embedde
                 'aria-expanded="true" hidden>元に戻す</button></div></div></div>'
                 f'{alt_details}{diagnostic}</section>')
         grid = 'post-grid single' if len(sides) == 1 else 'post-grid'
+        image_note = (f' · 画像は入力 {"・".join(str(number + 1) for number in image_indexes)} の見出し'
+                      if post['kind'] == 'nankai' and post['image_enabled'] else '')
         units.append(
             f'<section class="post-unit" data-post-kind="{post["kind"]}" '
             f'data-record-indexes="{_escape(json.dumps(indexes))}">'
             f'<div class="post-unit-heading"><h3>投稿 {index} / {len(posts)}</h3>'
-            f'<p>入力 {record_labels} · {post["record_count"]}電文</p></div>'
+            f'<p>入力 {record_labels} · {post["record_count"]}電文{image_note}</p></div>'
             f'<div class="{grid}">{"".join(comparisons)}</div></section>')
     return f'<div class="{wrapper}">' + reference_note + ''.join(units) + '</div>'
 

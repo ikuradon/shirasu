@@ -38,9 +38,9 @@ class GalleryPostPublicationTests(unittest.IsolatedAsyncioTestCase):
         for name, value in (('completed', False), ('reports', {}), ('announcement', None)):
             self.enterContext(patch.object(dcr.NankaiTroughEarthquake, name, value))
 
-    async def assert_matches_service(self, records):
+    async def assert_matches_service(self, records, *, nankai_topics=False):
         records = tuple(records)
-        expected = plan_posts(records)
+        expected = plan_posts(records, nankai_topics=nankai_topics)
         clock = service_helpers.Clock()
         clock.now = 0.
         nostr = service_helpers.fake_nostr()
@@ -54,7 +54,7 @@ class GalleryPostPublicationTests(unittest.IsolatedAsyncioTestCase):
             image_inputs[url] = tuple(entries)
             return url
 
-        images = SimpleNamespace(url=Mock(side_effect=image_url))
+        images = SimpleNamespace(url=Mock(side_effect=image_url), supports_nankai_topic=nankai_topics)
         with Outbox(':memory:', nostr.identity) as outbox:
             self.assertEqual(outbox.connection.execute('PRAGMA database_list').fetchone()[2], '')
             service = main.Service(nostr, outbox, asyncio.Event(), clock=clock, images=images,
@@ -91,12 +91,14 @@ class GalleryPostPublicationTests(unittest.IsolatedAsyncioTestCase):
                     if urls:
                         url, = urls
                         self.assertEqual(content.replace('\n\n' + url, '', 1), post.text)
-                        self.assertEqual(image_inputs[url], tuple(records[i] for i in post.record_indexes))
+                        self.assertEqual(image_inputs[url], tuple(records[i] for i in post.image_record_indexes))
                         imeta = [tag.to_vec() for tag in event.tags() if tag.to_vec()[0] == 'imeta']
                         self.assertEqual(len(imeta), 1)
                         self.assertIn('alt ' + image_alt_text(image_inputs[url]), imeta[0])
                     else:
                         self.assertEqual(content, post.text)
+                        self.assertEqual(post.image_record_indexes, ())
+                    self.assertTrue(set(post.image_record_indexes) <= set(post.record_indexes))
                     self.assertTrue(post.record_indexes)
                     self.assertEqual(len(post.record_indexes), len(set(post.record_indexes)))
                     self.assertTrue(all(type(i) is int and 0 <= i < len(records)
@@ -118,9 +120,11 @@ class GalleryPostPublicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('【訓練・試験】', posts[0].text)
 
     async def test_every_catalog_case_uses_the_same_alt_in_signed_post_attachments(self):
-        for case in self.cases.values():
-            with self.subTest(case=case.slug, category=case.category):
-                await self.assert_matches_service(case.records)
+        self.assertEqual(len(self.cases), 40)
+        for nankai_topics in (False, True):
+            for case in self.cases.values():
+                with self.subTest(case=case.slug, category=case.category, nankai_topics=nankai_topics):
+                    await self.assert_matches_service(case.records, nankai_topics=nankai_topics)
 
     async def test_weather_many_is_three_live_posts_instead_of_a_fictional_grouped_post(self):
         records = self.cases['weather-many'].records
@@ -163,22 +167,24 @@ class GalleryPostPublicationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(posts[0].image_enabled)
                 self.assertIn(marker, posts[0].text)
 
-    async def test_all_twenty_seven_nankai_pages_make_one_complete_text_only_post(self):
+    async def test_all_twenty_seven_nankai_pages_keep_full_text_with_optional_one_page_image(self):
         pages = [report for report in decode_reports('dcr_receiver_20260924')
                  if isinstance(report, dcr.NankaiTroughEarthquake)]
         records = tuple((report.nmea, round(report.timestamp.timestamp() * 1000)) for report in pages)
         self.assertEqual(len(records), 27)
-        for inputs in (records, tuple(reversed(records))):
-            with self.subTest(reversed=inputs is not records):
-                posts = await self.assert_matches_service(inputs)
-                self.assertEqual(len(posts), 1)
-                self.assertEqual(posts[0].kind, 'nankai')
-                self.assertFalse(posts[0].image_enabled)
-                self.assertEqual(set(posts[0].record_indexes), set(range(27)))
-                body = posts[0].text.partition('\n---\n')[0].split('\n\n', 1)[1]
-                self.assertEqual(body, expected_nankai_text())
-                self.assertNotIn('本文未受信', posts[0].text)
-                self.assertNotIn('受信中', posts[0].text)
+        for nankai_topics in (False, True):
+            for inputs in (records, tuple(reversed(records))):
+                with self.subTest(reversed=inputs is not records, nankai_topics=nankai_topics):
+                    posts = await self.assert_matches_service(inputs, nankai_topics=nankai_topics)
+                    self.assertEqual(len(posts), 1)
+                    self.assertEqual(posts[0].kind, 'nankai')
+                    self.assertEqual(posts[0].image_enabled, nankai_topics)
+                    self.assertEqual(len(posts[0].image_record_indexes), int(nankai_topics))
+                    self.assertEqual(set(posts[0].record_indexes), set(range(27)))
+                    body = posts[0].text.partition('\n---\n')[0].split('\n\n', 1)[1]
+                    self.assertEqual(body, expected_nankai_text())
+                    self.assertNotIn('本文未受信', posts[0].text)
+                    self.assertNotIn('受信中', posts[0].text)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,27 @@
+[
+  {
+    "description": "Synthetic training example, not an actual Nankai Trough bulletin; UTF-8 body page 1 of 5.",
+    "nmea": "$QZQSM,55,C6AFA5A8050003745449F3DBDA73CA542177DE4D74555FF34F8228102DA12CC*73",
+    "received_ms": 1794269400000
+  },
+  {
+    "description": "Synthetic training example, not an actual Nankai Trough bulletin; UTF-8 body page 2 of 5.",
+    "nmea": "$QZQSM,55,C6AFA5A80500035DF3DAC1725D4371C0D77450D473D25D71C10428102B8D428*07",
+    "received_ms": 1794269400000
+  },
+  {
+    "description": "Synthetic training example, not an actual Nankai Trough bulletin; UTF-8 body page 3 of 5.",
+    "nmea": "$QZQSM,55,C6AFA5A80500034973D15D745546F1C0CCF1C145F34F5B73D4862810355238C*79",
+    "received_ms": 1794269400000
+  },
+  {
+    "description": "Synthetic training example, not an actual Nankai Trough bulletin; UTF-8 body page 4 of 5.",
+    "nmea": "$QZQSM,55,C6AFA5A80500035D71C0D7734E56734B43F1C0D3F1C0CCF1C00828101D1101C*0E",
+    "received_ms": 1794269400000
+  },
+  {
+    "description": "Synthetic training example, not an actual Nankai Trough bulletin; UTF-8 body page 5 of 5.",
+    "nmea": "$QZQSM,55,C6AFA5A80500034100000000000000000000000000000000000A281024995D4*01",
+    "received_ms": 1794269400000
+  }
+]

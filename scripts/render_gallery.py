@@ -21,6 +21,7 @@ if __package__ in (None, ''):
 from scripts.gallery_catalog import load_cases
 from scripts.gallery_html import render_html
 from image_alt import DEFAULT_IMAGE_ALT, image_alt_text
+from nankai_image import is_nankai_entry
 
 
 VERSIONS = ('v1', 'v2', 'v3', 'v4')
@@ -50,7 +51,7 @@ def _render_with_decision(records, version, *, cancel_reference=None):
 
     def observe(figure, *args, **kwargs):
         result = original(figure, *args, **kwargs)
-        if any(text.get_gid() == 'dcx-topic' for text in figure.texts):
+        if any(text.get_gid() in ('dcx-topic', 'nankai-topic') for text in figure.texts):
             kinds.append('topic')
         else:
             kinds.append('map' if figure.axes else 'summary')
@@ -79,6 +80,9 @@ def _render_image(records, version):
 
 
 def _decoded_text(records):
+    if any(is_nankai_entry(entry) for entry in records):
+        from scripts.gallery_posts import plan_posts
+        return '\n\n'.join(post.text.partition('\n---\n')[0] for post in plan_posts(records))
     import azarashi
     return '\n\n'.join(str(azarashi.decode(nmea, timestamp=datetime.fromtimestamp(
         milliseconds / 1000, timezone.utc))) for nmea, milliseconds in records)
@@ -87,6 +91,8 @@ def _decoded_text(records):
 def _post_text(records):
     """Show supplemented instruction posts without inventing grouped posts."""
     if len(records) != 1:
+        return None
+    if is_nankai_entry(records[0]):
         return None
     import azarashi
     from dcx_instructions import MtInfoEvacuationError, is_evacuation_destination, mtinfo_evacuation
@@ -194,7 +200,16 @@ def generate(output, *, published_version='v4', selected_cases=None, preview_onl
     texts = {case.slug: _decoded_text(case.records) for case in cases}
     posts = {case.slug: _post_text(case.records) for case in cases}
     from scripts.gallery_posts import plan_posts
-    planned_posts = {case.slug: plan_posts(case.records) for case in cases}
+    planned_posts = {case.slug: plan_posts(case.records, nankai_topics=True) for case in cases}
+    preview_indexes = {}
+    for case in cases:
+        if case.category == 'NankaiTroughEarthquake':
+            posts_for_case = planned_posts[case.slug]
+            if len(posts_for_case) != 1 or not posts_for_case[0].image_enabled:
+                raise ValueError('南海トラフの画像サンプルには完成した本文または取消報が必要です')
+            preview_indexes[case.slug] = posts_for_case[0].image_record_indexes
+        else:
+            preview_indexes[case.slug] = tuple(range(len(case.records)))
     source_info = _source_info()
     output.mkdir(parents=True, exist_ok=False)
     (output / 'images').mkdir()
@@ -205,7 +220,8 @@ def generate(output, *, published_version='v4', selected_cases=None, preview_onl
                 'error_count': 0, 'cases': [],
                 'post_preview': {'images_enabled': True, 'history': 'empty',
                                  'input_timing': 'same_virtual_time_in_input_order',
-                                 'collection_wait_seconds': 180}}
+                                 'collection_wait_seconds': 180,
+                                 'nankai_topic_images': True}}
     manifest.update(source_info)
     if preview_only:
         manifest['renderer'] = 'preview'
@@ -223,6 +239,7 @@ def generate(output, *, published_version='v4', selected_cases=None, preview_onl
                    reference_times=sorted({datetime.fromtimestamp(milliseconds / 1000, timezone.utc)
                                            .isoformat() for _, milliseconds in case.records}),
                    report_text=texts[case.slug], images={})
+        row['preview_record_indexes'] = list(preview_indexes[case.slug])
         if posts[case.slug] is not None:
             row['post_text'] = posts[case.slug]
         _write_json(output / row['records_path'],
@@ -237,20 +254,26 @@ def generate(output, *, published_version='v4', selected_cases=None, preview_onl
         for slot, version in slots:
             print(f'[{index}/{len(cases)}] {case.slug} / {version}', flush=True)
             reference = case.cancel_reference if version == 'preview' else ()
+            entries = (tuple(case.records[i] for i in preview_indexes[case.slug])
+                       if version == 'preview' else case.records)
             name = case.slug if preview_only else f'{case.slug}-{version}'
-            image = _save_image(output, name, case.records, version, cancel_reference=reference)
+            image = _save_image(output, name, entries, version, cancel_reference=reference)
             row['images'][slot] = image
-            saved_images[(version, case.records, reference)] = image
+            saved_images[(version, entries, reference)] = image
             manifest['error_count'] += int('error' in image)
         row['posts'] = []
         for number, post in enumerate(planned_posts[case.slug], 1):
             item = asdict(post)
             item['record_indexes'] = list(post.record_indexes)
+            item['image_record_indexes'] = list(post.image_record_indexes)
             item['record_count'] = len(post.record_indexes)
             item['images'] = {}
             if post.image_enabled:
-                entries = tuple(case.records[i] for i in post.record_indexes)
+                entries = tuple(case.records[i] for i in post.image_record_indexes)
                 for slot, version in slots:
+                    if post.kind == 'nankai' and slot == 'published':
+                        item['text_only_slots'] = ['published']
+                        continue  # Published URL generations do not support the topic.
                     # Offline confirmed originals are not accepted by the live
                     # image URL API; never sneak one into a posting example.
                     key = (version, entries, ())

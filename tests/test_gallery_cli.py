@@ -46,6 +46,49 @@ class GalleryCliTests(unittest.TestCase):
         self.output = self.root / 'gallery'
         self.case = next(case for case in load_cases() if case.slug == 'marine')
 
+    def test_nankai_preview_uses_one_original_header_but_keeps_all_text_pages(self):
+        for slug in ('nankai-advisory', 'nankai-ended', 'nankai-cancel'):
+            with self.subTest(slug=slug):
+                case = next(case for case in load_cases() if case.slug == slug)
+                output = self.root / slug
+                with patch.object(render_gallery, '_preflight'), \
+                        patch.object(render_gallery, '_render_with_decision',
+                                     return_value=(PNG, 'topic', {'mode': 'topic', 'reasons': []})) as render, \
+                        redirect_stdout(io.StringIO()):
+                    result = render_gallery.generate(output, selected_cases=(slug,), preview_only=True)
+                row, = result['cases']
+                post, = row['posts']
+                self.assertEqual(post['kind'], 'nankai')
+                self.assertEqual(post['record_count'], len(case.records))
+                self.assertEqual(post['image_record_indexes'], [0])
+                self.assertEqual(row['preview_record_indexes'], [0])
+                self.assertEqual(post['images']['preview'], row['images']['preview'])
+                for nmea, _ in case.records:
+                    self.assertIn(nmea, post['text'])
+                render.assert_called_once_with((case.records[0],), 'preview')
+                self.assertIn('訓練・試験', post['images']['preview']['alt'])
+                self.assertTrue(result['post_preview']['nankai_topic_images'])
+                self.assertEqual(result['error_count'], 0)
+
+    def test_nankai_published_post_remains_text_only_while_preview_has_a_topic(self):
+        case = next(case for case in load_cases() if case.slug == 'nankai-advisory')
+        with patch.object(render_gallery, '_preflight'), \
+                patch.object(render_gallery, '_render_with_decision',
+                             side_effect=lambda records, version: (
+                                 PNG, 'topic' if version == 'preview' else 'summary', None)) as render, \
+                redirect_stdout(io.StringIO()):
+            result = render_gallery.generate(self.output, selected_cases=(case.slug,))
+        row, = result['cases']
+        post, = row['posts']
+        self.assertEqual(post['text_only_slots'], ['published'])
+        self.assertEqual(set(post['images']), {'preview'})
+        self.assertEqual(render.call_count, 2)
+        self.assertEqual(render.call_args_list[0].args, (case.records, 'v4'))
+        self.assertEqual(render.call_args_list[1].args, ((case.records[0],), 'preview'))
+        html = (self.output / 'index.html').read_text()
+        self.assertIn('公開版（本文のみ）', html)
+        self.assertNotIn('添付画像の記録がありません', html)
+
     def test_list_runs_without_render_dependencies_config_or_network(self):
         # Exercise the actual script entrypoint in a fresh interpreter. Catalog
         # discovery should remain usable in the lightweight receiver environment.

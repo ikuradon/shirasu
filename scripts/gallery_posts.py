@@ -17,6 +17,7 @@ from azarashi.reports import dcr, dcx
 from image_protocol import MAX_TIMESTAMP_MS, _records as image_records
 from message_format import report_message
 from nankai import NankaiCollector, nankai_summary
+from nankai_image import nankai_topic_entries
 from outbox import Outbox
 from typhoon import TyphoonCollector, report_identity, typhoon_summary
 
@@ -34,6 +35,7 @@ class PlannedPost:
     record_indexes: tuple[int, ...]
     kind: str
     image_enabled: bool
+    image_record_indexes: tuple[int, ...] = ()
 
 
 @contextmanager
@@ -76,14 +78,16 @@ def _image_eligible(entries):
     return True
 
 
-def plan_posts(records):
+def plan_posts(records, *, nankai_topics=False):
     """Return actual formatter text and source indexes for a finite scenario.
 
     ``record_indexes`` follows each collector's entry order, not numeric index
     order. Duplicate receptions and superseded pending inputs need not appear
     in a post. Null/unknown DCX are excluded just as in the service; malformed
     decoding or collection failures raise instead of inventing a grouped post.
-    Images are enabled for eligible non-Nankai posts, without producing URLs.
+    Images are enabled for eligible posts, without producing URLs. Nankai topic
+    images require the unpublished capability explicitly; only their selected
+    representative page appears in ``image_record_indexes``.
     """
     records = _inputs(records)
     posts, accepted = [], {}
@@ -99,8 +103,15 @@ def plan_posts(records):
                 indexes = tuple(accepted[entry] for entry in batch.entries)
             except KeyError as error:
                 raise ValueError('A collected post lost its original input') from error
-            posts.append(PlannedPost(text, indexes, kind,
-                                     kind != 'nankai' and _image_eligible(batch.entries)))
+            entries = batch.entries if kind != 'nankai' else ()
+            if kind == 'nankai' and nankai_topics:
+                try:
+                    entries = nankai_topic_entries(batch)
+                except (ValueError, TypeError, OverflowError):
+                    entries = ()  # Match Service's text-only input fallback.
+            enabled = bool(entries) and _image_eligible(entries)
+            image_indexes = tuple(accepted[entry] for entry in entries) if enabled else ()
+            posts.append(PlannedPost(text, indexes, kind, enabled, image_indexes))
 
         def drain(now):
             # Match Service.publish_one's collection order before delivery.
@@ -145,9 +156,10 @@ def plan_posts(records):
                 result = box.enqueue(key, _PREVIEW_EVENT, 'offline-' + key, 0)
                 if result == 'queued':
                     entries = ((report.nmea, round(report.timestamp.timestamp() * 1000)),)
-                    posts.append(PlannedPost(text, (index,), 'single',
-                                             not isinstance(report, dcr.NankaiTroughEarthquake)
-                                             and _image_eligible(entries)))
+                    enabled = (not isinstance(report, dcr.NankaiTroughEarthquake)
+                               and _image_eligible(entries))
+                    posts.append(PlannedPost(text, (index,), 'single', enabled,
+                                             (index,) if enabled else ()))
             if result not in ('buffered', 'duplicate', 'queued'):
                 raise ValueError(f'Posting input {index} could not be planned: {result}')
             drain(0)
