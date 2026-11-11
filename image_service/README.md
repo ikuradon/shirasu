@@ -246,6 +246,8 @@ docker run --rm --network none \
 `scripts/benchmark_images.py`で、ギャラリーと投稿に使う画像の初回・再描画時間、
 PNG圧縮時間、PNG／WebP／JPEG／AVIFの容量・変換時間・画素差を比較できます。
 条件・形式設定・再実行方法は[計測の説明](../docs/image-benchmark.md)を参照してください。
+固定範囲の地図で重複する範囲計算を省いた変更は
+[地図の高速化と比較結果](../docs/map-bounds-performance.md)に記録しています。
 
 ```sh
 python -B scripts/benchmark_images.py --list

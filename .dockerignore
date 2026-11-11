@@ -39,6 +39,7 @@ tests/test_preview_regions.py
 tests/test_preview_points.py
 tests/test_preview_dispatch.py
 tests/test_preview_wide_layout.py
+tests/test_preview_fixed_map_axes.py
 tests/test_preview_wide_regions.py
 tests/test_preview_seismic_markers.py
 tests/test_preview_wide_points.py

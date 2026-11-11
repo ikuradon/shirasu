@@ -3,6 +3,9 @@
 未公開プレビューの同じ入力から、描画時間とPNG／WebP／JPEG／AVIFを比較するための
 オフライン計測です。公開済みレンダラー、署名URL、投稿設定は変更しません。
 
+以下は`5bec6af`時点の計測です。その後の地図の範囲計算の高速化は
+[変更内容と比較結果](map-bounds-performance.md)に記録します。
+
 ## 今回の実測
 
 Linux aarch64・論理4CPU、Python 3.12.16、Matplotlib 3.11.2、Pillow 13.0.0、

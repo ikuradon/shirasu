@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import math
 
 import numpy as np
+from matplotlib.axes import Axes
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.patches import PathPatch, Rectangle
@@ -264,8 +265,24 @@ def _limits(sequences, rectangle, *, minimum=4., position=(0, 0, 1, 1)):
             centre[1] - height * y, centre[1] + height * (1 - y))
 
 
+class _FixedMapAxes(Axes):
+    """Avoid scanning patch vertices for a map whose view is already fitted.
+
+    Both limits are set before adding geography and aspect adjusts the axes
+    box, so patch data limits cannot affect this view. Keep normal add_patch
+    bookkeeping (transforms, clipping and removal) and leave other axes alone.
+    If a caller later needs autoscaling, enable it *before* calling relim() and
+    autoscale_view() to rebuild bounds for the previously skipped patches.
+    """
+
+    def _update_patch_limits(self, patch):
+        if (self.get_autoscalex_on() or self.get_autoscaley_on()
+                or self.get_adjustable() != 'box'):
+            super()._update_patch_limits(patch)
+
+
 def _axes(fig, limits, *, position=(0, 0, 1, 1), graticule=True):
-    ax = fig.add_axes(position, facecolor=SEA)
+    ax = fig.add_axes(position, facecolor=SEA, axes_class=_FixedMapAxes)
     ax.set_xlim(*limits[:2])
     ax.set_ylim(*limits[2:])
     ax.set_aspect('equal')
