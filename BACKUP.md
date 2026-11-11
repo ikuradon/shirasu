@@ -83,12 +83,17 @@ docker compose run --rm --no-deps \
 まず復元元を上記のコマンドで検証し、以後そのファイルを変更しない状態で作業します。以下では同じBashセッションを使います。
 
 明示的にComposeファイルを指定する場合、既存の `compose.override.yaml` も含めます。現在の監視ネットワーク設定を失わないためです。
+公開候補の固定イメージを利用中は、[公開用Compose設定](docs/release-compose.md)も配列の最後に追加します。
+明示的な`-f`指定は`.env`の`COMPOSE_FILE`に優先するため、省略すると通常版へ戻ってしまいます。
+独自のプロジェクト名・追加Composeファイルも、運用中と同じ指定を引き継いでください。
 
 ```sh
 shirasu_compose=(docker compose -f compose.yaml)
 if [ -f compose.override.yaml ]; then
   shirasu_compose+=(-f compose.override.yaml)
 fi
+# 公開候補の利用中は、保管先に合わせて次の行も有効にする:
+# shirasu_compose+=(-f /absolute/retained/path/compose.release.yaml)
 "${shirasu_compose[@]}" stop shirasu metrics backup
 ```
 

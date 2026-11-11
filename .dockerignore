@@ -80,6 +80,8 @@ tests/test_webp_release.py
 tests/test_webp_benchmark.py
 tests/test_benchmark_html.py
 tests/test_release_candidate.py
+tests/test_release_compose.py
+tests/test_release_compose_prepare.py
 tests/test_release_receiver.py
 tests/test_release_images.py
 # These receiver tests need image fixtures and run with a read-only source mount in CI.
@@ -95,6 +97,8 @@ scripts/image_encoding_benchmark.py
 scripts/webp_encoding_probe.py
 scripts/benchmark_webp.py
 scripts/check_webp_release.py
+scripts/check_release_compose.py
+scripts/prepare_release_compose.py
 scripts/benchmark_html.py
 dist
 .vercel

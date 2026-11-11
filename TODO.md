@@ -5,7 +5,7 @@
 WebP統合までを`21209e5`でcommit済み。ローカルの164テスト、49入力の描画比較、実46投稿・45入力のHTTP確認は完了しています。
 以下は公開用の接続と実環境の確認です。本番の設定・状態・Vercelを今回改めて調査した結果ではなく、コードと検証記録に基づく未実施項目です。
 
-1. [ ] **固定した受信イメージを使うCompose設定を用意する。** 通常の`compose.yaml`はcheckoutをビルドし、対応版はv1〜v4のため、環境変数だけを`v5/w1`にしても起動できない。検証済み`candidate/receiver`から作ったイメージを指定するoverride等を用意し、通常ビルドへの取り違えを防ぐ。既存のComposeプロジェクト・DB volume・`config.py` bind・ネットワーク・healthcheckを引き継ぎ、テスト設定と一時DBで起動・切り戻しを確認する。
+1. [x] **固定した受信イメージを使うCompose設定を用意する。** [手順と結果](docs/release-compose.md)。候補とイメージ内の全配布ファイル・起動設定を照合し、完全なimage IDへ固定したoverrideを生成する。受信・監視・バックアップのbuildを削除してpullも禁止し、既存のproject・DB volume・config bind・ネットワーク・healthcheck等を継承。生成・実Composeマージ13テストと、一時DBでの本物の受信プロセスの起動・正常停止・再起動を確認した。v5/w1→v4/pngで保存済みイベントのJSON・ID・署名を維持し、新規投稿だけPNGになる。COMPOSE_FILEで通常の運用コマンドにも適用する手順とCIを追加（本番未反映）。
 2. [ ] **公開する配布物と検証記録を保管する。** 対象は`dist/webp-integration/candidate`の119ファイル、manifest `bbe56252eb30f1972abc8dffe7c77679f19bc5783d1146870ee8ed30aaf6ff1d`。commitとのファイル一致、受信イメージの識別子、検証結果を対応付け、`dist`の掃除で失わない場所へ保管する。commit後という理由だけで候補やmanifestを作り直さない。公開対象commitのCI結果も確認する。
 3. [ ] **画像サービスを先に検証・公開する。** 通常の画像パッケージではなく、同じ候補の`images/`をVercelの検証デプロイへ渡す。固定Pillow／libwebp・地理データ・フォント、初回と再描画の時間・メモリを実環境で確認してから本番へ反映する。本番ドメインのTLS・認証不要の取得・`/healthz`・既存鍵での署名検証、v5 WebP／PNGと旧v1〜v4の代表URLを照合し、MIME・画素・ETag・HEAD／304・改ざん拒否・CDNのキャッシュと再描画を確認する。この段階では受信側を切り替えない。
 4. [ ] **バックアップを検証して受信側を切り替える。** 直前のDBバックアップを作成・検証し、①の固定イメージと`SHIRASU_IMAGE_VERSION=v5`・`SHIRASU_IMAGE_ENCODING=w1`へ切り替える。既存DBを引き継ぎ、受信・集約・配送・画像URL生成エラーと、保存済みイベントの再送を確認する。

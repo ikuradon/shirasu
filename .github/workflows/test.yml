@@ -76,6 +76,12 @@ jobs:
           mkdir dist/release-check/results
           docker build --pull=false -t shirasu-images:rehearsal dist/release-check/candidate/images
           docker build --pull=false -t shirasu:rehearsal dist/release-check/candidate/receiver
+      - name: Verify release Compose merge, startup and PNG cutback
+        run: |
+          python3 -B -m unittest discover -s tests -p 'test_release_compose*.py' -v
+          python3 -B scripts/check_release_compose.py \
+            --bundle dist/release-check/candidate --image shirasu:rehearsal \
+            --output dist/release-check/results/compose.json
       - name: Verify signed posts, old URLs, candidate PNGs and rollback
         run: |
           docker run --rm --network none \

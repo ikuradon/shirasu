@@ -66,6 +66,8 @@ Vercelへの問い合わせは受信・配送経路では行いません。描�
 `config.py`、Nostr鍵、SQLite、バックアップ、`.env` が混入しません。
 この通常パッケージは公開済みv1〜v4用です。未公開画像一式を確認する候補パッケージは
 [一括公開前の通し検証](docs/image-release-rehearsal.md)で別途作成します。
+候補v5の受信側には[公開用Compose設定](docs/release-compose.md)を使います。
+通常checkoutのビルドはv1〜v4用なので、環境変数だけをv5/w1へ変更して起動する手順ではありません。
 
 ```sh
 python3 scripts/prepare_image_service.py dist/image-service
