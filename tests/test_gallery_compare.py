@@ -348,6 +348,106 @@ class GalleryCompareTests(unittest.TestCase):
                 attach_comparison(new, baseline, self.new)
             self.assertEqual(marker.read_text(), 'existing')
 
+    def test_identical_recorded_alt_is_preserved_in_the_copied_snapshot(self):
+        old = self.gallery(self.old)
+        new = self.gallery(self.new)
+        description = ' 【訓練】台風第5号の進路。\n南の海上から北へ進む。\n'
+        for manifest in (old, new):
+            case = manifest['cases'][0]
+            case['images']['preview']['alt'] = description
+            case['posts'][0]['images']['preview']['alt'] = description + '予報範囲を表示。'
+        result = self.compare(old, new)
+        comparison = result['cases'][0]['comparison']
+        for mode in ('images', 'posts'):
+            self.assertEqual(comparison[mode]['status'], 'unchanged')
+            self.assertEqual(comparison[mode]['changes'], [])
+        previous = comparison['previous']
+        self.assertEqual(previous['images']['preview']['alt'], description)
+        self.assertEqual(previous['posts'][0]['images']['preview']['alt'], description + '予報範囲を表示。')
+        copied = load_baseline(self.new / 'baseline').manifest['cases'][0]
+        self.assertEqual(copied['images']['preview']['alt'], description)
+        self.assertEqual(copied['posts'][0]['images']['preview']['alt'], description + '予報範囲を表示。')
+
+    def test_alt_only_changes_are_independent_for_case_images_and_post_attachments(self):
+        for changed in ('images', 'posts'):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory(dir=self.root) as directory:
+                self.old, self.new = Path(directory) / 'old', Path(directory) / 'new'
+                old, new = self.gallery(self.old), self.gallery(self.new)
+                for manifest in (old, new):
+                    case = manifest['cases'][0]
+                    for owner in (case, case['posts'][0]):
+                        owner['images']['preview']['alt'] = '以前の画像の説明'
+                case = new['cases'][0]
+                owner = case if changed == 'images' else case['posts'][0]
+                owner['images']['preview']['alt'] = '具体的に書き直した画像の説明'
+                comparison = self.compare(old, new)['cases'][0]['comparison']
+                self.assertEqual(comparison[changed]['status'], 'changed')
+                self.assertEqual(comparison[changed]['changes'], ['alt'])
+                other = 'posts' if changed == 'images' else 'images'
+                self.assertEqual(comparison[other]['status'], 'unchanged')
+                self.assertEqual(new['cases'][0]['images']['preview']['sha256'],
+                                 comparison['previous']['images']['preview']['sha256'])
+
+    def test_alt_recording_changes_preserve_png_comparability_in_both_directions(self):
+        for recorded in ('old', 'new'):
+            with self.subTest(recorded=recorded), tempfile.TemporaryDirectory(dir=self.root) as directory:
+                self.old, self.new = Path(directory) / 'old', Path(directory) / 'new'
+                old, new = self.gallery(self.old), self.gallery(self.new)
+                case = (old if recorded == 'old' else new)['cases'][0]
+                for owner in (case, case['posts'][0]):
+                    owner['images']['preview']['alt'] = '記録された画像の説明'
+                result = self.compare(old, new)
+                comparison = result['cases'][0]['comparison']
+                for mode in ('images', 'posts'):
+                    self.assertEqual(comparison[mode]['status'], 'changed')
+                    self.assertEqual(comparison[mode]['changes'], ['alt_recording'])
+                    self.assertEqual(result['baseline']['counts'][mode]['unavailable'], 0)
+                previous = comparison['previous']
+                self.assertEqual('alt' in previous['images']['preview'], recorded == 'old')
+                self.assertEqual('alt' in previous['posts'][0]['images']['preview'], recorded == 'old')
+                self.assertEqual((self.new / previous['images']['preview']['path']).read_bytes(), PNG)
+
+    def test_a_render_error_can_retain_known_alt_changes_but_stays_unavailable(self):
+        old, new = self.gallery(self.old), self.gallery(self.new)
+        for manifest, description in ((old, '以前の説明'), (new, '今回の説明')):
+            case = manifest['cases'][0]
+            for owner in (case, case['posts'][0]):
+                owner['images']['preview']['alt'] = description
+        for owner in (old['cases'][0], old['cases'][0]['posts'][0]):
+            owner['images']['preview'] = {'version': 'preview', 'error': 'Rendering failed', 'alt': '以前の説明'}
+        comparison = self.compare(old, new)['cases'][0]['comparison']
+        for mode in ('images', 'posts'):
+            self.assertEqual(comparison[mode]['status'], 'unavailable')
+            self.assertEqual(comparison[mode]['changes'], ['alt'])
+
+    def test_invalid_optional_alt_is_rejected_for_old_and_new_image_cells_before_copying(self):
+        def target(manifest, place):
+            case = manifest['cases'][0]
+            if place == 'post':
+                return case['posts'][0]['images']['preview']
+            if place == 'published':
+                case['images']['published'] = {**case['images']['preview'], 'version': 'v4'}
+                return case['images']['published']
+            if place == 'error':
+                case['images']['preview'] = {'version': 'preview', 'error': 'Rendering failed'}
+            return case['images']['preview']
+        for invalid in ('', ' \n\t', None, 0, False, [], {}):
+            for place in ('case', 'post', 'published', 'error'):
+                with self.subTest(invalid=invalid, place=place), tempfile.TemporaryDirectory(dir=self.root) as directory:
+                    old_path, new_path = Path(directory) / 'old', Path(directory) / 'new'
+                    old, new = self.gallery(old_path), self.gallery(new_path)
+                    target(old, place)['alt'] = invalid
+                    self.save(old_path, old)
+                    with self.assertRaisesRegex(ValueError, 'ALT'):
+                        load_baseline(old_path)
+                    target(old, place)['alt'] = '有効な画像の説明'
+                    self.save(old_path, old)
+                    baseline = load_baseline(old_path)
+                    target(new, place)['alt'] = invalid
+                    with self.assertRaisesRegex(ValueError, 'ALT'):
+                        attach_comparison(new, baseline, new_path)
+                    self.assertFalse((new_path / 'baseline').exists())
+
 
 if __name__ == '__main__':
     unittest.main()

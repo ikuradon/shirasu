@@ -20,6 +20,7 @@ if __package__ in (None, ''):
 
 from scripts.gallery_catalog import load_cases
 from scripts.gallery_html import render_html
+from image_alt import DEFAULT_IMAGE_ALT, image_alt_text
 
 
 VERSIONS = ('v1', 'v2', 'v3', 'v4')
@@ -136,6 +137,12 @@ def _save_image(output, name, records, version, *, cancel_reference=None):
             destination.write(png)
         image = {'path': relative, 'version': version, 'kind': kind,
                  'sha256': hashlib.sha256(png).hexdigest(), 'width': width, 'height': height}
+        try:
+            image['alt'] = image_alt_text(records)
+        except Exception:
+            # Match the receiver's fallback without turning a good PNG into a
+            # rendering error. The gallery still exposes the actual ALT used.
+            image['alt'] = DEFAULT_IMAGE_ALT
         if version == 'preview' and decision is not None:
             image['decision'] = decision
         return image

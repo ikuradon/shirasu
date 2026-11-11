@@ -15,6 +15,7 @@ from nostr_sdk import Event, Keys, RelayUrl
 import main
 from image_protocol import ProtocolError, parse_path
 from image_publication import ImagePublisher, image_entry
+from image_alt import DEFAULT_IMAGE_ALT, image_alt_text
 from outbox import Outbox, read_status
 
 
@@ -45,8 +46,8 @@ def fake_nostr():
     build_event = main.Nostr.build_event
     return SimpleNamespace(
         identity=keys.public_key().to_hex(),
-        build_event=Mock(side_effect=lambda text, image_url=None: build_event(
-            SimpleNamespace(keys=keys), text, image_url=image_url)),
+        build_event=Mock(side_effect=lambda text, image_url=None, image_alt=None: build_event(
+            SimpleNamespace(keys=keys), text, image_url=image_url, image_alt=image_alt)),
         send=AsyncMock(), connect=AsyncMock(), connected=AsyncMock(return_value=True),
         close=AsyncMock(),
     )
@@ -333,6 +334,7 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
             event = self.nostr.send.await_args.args[0]
             url = self.image_url(event)
             self.assertEqual(parse_path(urlsplit(url).path, {'k1': IMAGE_KEY}), (image_entry(report),))
+            self.assertIn('alt ' + image_alt_text((image_entry(report),)), event.tags()[0].to_vec())
             self.assertTrue(event.content().endswith('NMEA: ' + report.nmea))
         self.assertEqual(self.service.typhoons.pending_count(), 1)
         self.assertEqual(self.nostr.send.await_count, 2)
@@ -353,6 +355,8 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('受信した2時点', event.content())
         self.assertEqual(parse_path(urlsplit(self.image_url(event)).path, {'k1': IMAGE_KEY}),
                          tuple(image_entry(report) for report in self.typhoons))
+        self.assertIn('alt ' + image_alt_text(tuple(image_entry(report) for report in self.typhoons)),
+                      event.tags()[0].to_vec())
         self.assertEqual(self.service.typhoons.pending_count(), 0)
         self.assertEqual(await self.service.accept(self.typhoons[0]), 'duplicate')
         self.assertFalse(await self.service.publish_one())
@@ -445,6 +449,18 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(event.tags(), [])
         self.assertTrue(event.verify())
 
+    async def test_alt_failure_keeps_the_image_text_and_original_record_deliverable(self):
+        with patch.object(main, 'image_alt_text', side_effect=RuntimeError('description unavailable')):
+            self.assertEqual(await self.service.accept(self.report), 'queued')
+        self.assertIsNone(self.service.state['last_image_error'])
+        await self.service.publish_one()
+        event = self.nostr.send.await_args.args[0]
+        url = self.image_url(event)
+        self.assertEqual(parse_path(urlsplit(url).path, {'k1': IMAGE_KEY}), (image_entry(self.report),))
+        self.assertIn('alt ' + DEFAULT_IMAGE_ALT, event.tags()[0].to_vec())
+        self.assertEqual(event.content().replace('\n\n' + url, '', 1), main.report_message(self.report))
+        self.assertTrue(event.verify())
+
     async def test_invalid_receipt_context_falls_back_to_text_without_losing_report(self):
         with patch.object(main, 'image_entry', side_effect=ValueError('naive receipt timestamp')):
             self.assertEqual(await self.service.accept(self.report), 'queued')
@@ -475,7 +491,8 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.reopen()
         self.clock.now += 1
         self.nostr.send.side_effect = None
-        with patch.object(ImagePublisher, 'url', side_effect=AssertionError('retry must not regenerate URL')):
+        with patch.object(ImagePublisher, 'url', side_effect=AssertionError('retry must not regenerate URL')), \
+                patch.object(main, 'image_alt_text', side_effect=AssertionError('retry must not regenerate ALT')):
             self.assertTrue(await self.service.publish_one())
         retried = self.nostr.send.await_args.args[0]
         self.assertEqual(retried.as_json(), original.as_json())
@@ -523,6 +540,15 @@ class NostrTests(unittest.IsolatedAsyncioTestCase):
         restored = Event.from_json(event.as_json())
         self.assertTrue(restored.verify())
         self.assertEqual([tag.to_vec() for tag in restored.tags()], [tag.to_vec() for tag in event.tags()])
+
+    async def test_specific_image_alt_is_signed_and_text_only_events_have_no_image_metadata(self):
+        url = 'https://images.example.test/v1/k1/payload.signature.png'
+        alt = '【訓練・試験】【取消】気象警報・注意報。発表日時：2026年11月9日21時50分（JST）。'
+        event = self.nostr.build_event('通報本文\n\n' + url, image_url=url, image_alt=alt)
+        self.assertEqual([tag.to_vec() for tag in event.tags()],
+                         [['imeta', 'url ' + url, 'm image/png', 'alt ' + alt]])
+        self.assertTrue(Event.from_json(event.as_json()).verify())
+        self.assertEqual(self.nostr.build_event('本文のみ', image_alt=alt).tags(), [])
 
     async def test_no_ack_is_a_delivery_failure(self):
         for failures in ({self.relay: 'blocked: test rejection'}, {}):

@@ -142,7 +142,7 @@ class DeliveryIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(self.relay.close)
         self.addAsyncCleanup(self.stop_daemon)
         for filename in ('main.py', 'receiver.py', 'outbox.py', 'message_format.py', 'dcx_instructions.py',
-                         'image_publication.py', 'image_protocol.py', 'typhoon.py', 'nankai.py'):
+                         'image_publication.py', 'image_protocol.py', 'image_alt.py', 'typhoon.py', 'nankai.py'):
             shutil.copyfile(ROOT / filename, self.directory_path / filename)
         self.keys = Keys.generate()
         (self.directory_path / 'config.py').write_text(

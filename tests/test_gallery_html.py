@@ -750,6 +750,89 @@ class GalleryHtmlTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     render_html(manifest)
 
+    def test_recorded_alt_is_used_verbatim_on_images_and_reviewed_outside_post_frames(self):
+        manifest = posting_sample()
+        case = manifest['cases'][0]
+        values = [case['images'][side] for side in ('published', 'preview')]
+        values += [case['posts'][0]['images'][side] for side in ('published', 'preview')]
+        descriptions = [f'【訓練】画像 {index} の内容\n対象は「北海道」と青森県。\n' for index in range(4)]
+        for value, description in zip(values, descriptions):
+            value['alt'] = description
+        content = render_html(manifest)
+        document = Document(content)
+        self.assertEqual([image['alt'] for image in document.attrs('img')], descriptions)
+        self.assertEqual(len([attrs for attrs in document.attrs('details')
+                              if attrs.get('class') == 'image-alt']), 4)
+        for description in descriptions:
+            self.assertIn('<div class="image-alt-text">' + description + '</div>', content)
+        self.assertEqual(PostContents(content).bodies,
+                         [with_image(case['posts'][0]['text'], PostContents.MEDIA)] * 2)
+        self.assertEqual(content.count('</button></div></div></div><details class="image-alt">'), 2)
+        image_links = [attrs for attrs in document.attrs('a')
+                       if attrs.get('class') in ('image-link', 'post-attachment')]
+        for link, description in zip(image_links, descriptions):
+            self.assertIn(description, link['aria-label'], 'Link labels must not mask the recorded image description')
+
+    def test_legacy_alt_attributes_are_preserved_without_inventing_a_recorded_description(self):
+        manifest = posting_sample()
+        content = render_html(manifest)
+        document = Document(content)
+        self.assertEqual([image['alt'] for image in document.attrs('img')], [
+            '降灰予報 / 6時間分 / 公開版 / 要旨', '降灰予報 / 6時間分 / 作業版 / 地図',
+            '降灰予報 / 6時間分 / 公開版の添付画像', '降灰予報 / 6時間分 / 作業版の添付画像',
+        ])
+        self.assertEqual(content.count('この版にはALTの記録がありません。'), 4)
+        self.assertEqual(len([attrs for attrs in document.attrs('details')
+                              if attrs.get('class') == 'image-alt unrecorded']), 4)
+        self.assertNotIn('<div class="image-alt-text">', content)
+
+    def test_alt_text_cannot_inject_markup_or_escape_its_attribute(self):
+        manifest = posting_sample()
+        attack = '説明" onerror="alert(1)\n</script><script>alert(2)</script><img src=x>'
+        case = manifest['cases'][0]
+        for owner in (case, case['posts'][0]):
+            for image in owner['images'].values():
+                image['alt'] = attack
+        content = render_html(manifest)
+        document = Document(content)
+        self.assertEqual(len(document.attrs('img')), 4)
+        self.assertEqual(len(document.attrs('script')), 1)
+        self.assertTrue(all('onerror' not in attrs for _, attrs in document.elements))
+        self.assertEqual([image['alt'] for image in document.attrs('img')], [attack] * 4)
+        self.assertNotIn(attack, content)
+        self.assertEqual(PostContents(content).bodies,
+                         [with_image(case['posts'][0]['text'], PostContents.MEDIA)] * 2)
+
+    def test_alt_review_distinguishes_recording_changes_without_reconstructing_previous_alt(self):
+        manifest = baseline_sample()
+        case = manifest['cases'][0]
+        case['images']['preview']['alt'] = '今回の画像に記録された説明'
+        case['posts'][0]['images']['preview']['alt'] = '今回の添付画像に記録された説明'
+        case['comparison']['images'].update(status='changed', changes=['alt'], note='')
+        case['comparison']['posts'].update(status='changed', changes=['alt_recording'], note='')
+        content = render_html(manifest)
+        alts = [image['alt'] for image in Document(content).attrs('img')]
+        self.assertEqual(alts[1], case['images']['preview']['alt'])
+        self.assertEqual(alts[3], case['posts'][0]['images']['preview']['alt'])
+        self.assertNotEqual(alts[0], alts[1])
+        self.assertNotEqual(alts[2], alts[3])
+        self.assertEqual(content.count('この版にはALTの記録がありません。'), 2)
+        self.assertIn('<span class="comparison-change">代替テキスト（ALT）</span>', content)
+        self.assertIn('<span class="comparison-change">ALTの記録状態</span>', content)
+
+    def test_empty_or_non_string_alt_is_invalid_even_for_error_cells(self):
+        for value in ('', ' \n\t', None, 0, False, [], {}):
+            for target in ('case', 'post', 'error'):
+                with self.subTest(value=value, target=target):
+                    manifest = posting_sample()
+                    case = manifest['cases'][0]
+                    owner = case['posts'][0] if target == 'post' else case
+                    if target == 'error':
+                        owner['images']['preview'] = {'error': 'Rendering failed'}
+                    owner['images']['preview']['alt'] = value
+                    with self.assertRaisesRegex(ValueError, 'ALT'):
+                        render_html(manifest)
+
 
 if __name__ == '__main__':
     unittest.main()

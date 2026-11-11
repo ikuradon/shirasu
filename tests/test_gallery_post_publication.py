@@ -17,6 +17,7 @@ from azarashi.reports import dcr
 
 import main
 from image_publication import ImagePublisher
+from image_alt import image_alt_text
 from outbox import Outbox
 from scripts.gallery_catalog import load_cases
 from scripts.gallery_posts import plan_posts
@@ -91,6 +92,9 @@ class GalleryPostPublicationTests(unittest.IsolatedAsyncioTestCase):
                         url, = urls
                         self.assertEqual(content.replace('\n\n' + url, '', 1), post.text)
                         self.assertEqual(image_inputs[url], tuple(records[i] for i in post.record_indexes))
+                        imeta = [tag.to_vec() for tag in event.tags() if tag.to_vec()[0] == 'imeta']
+                        self.assertEqual(len(imeta), 1)
+                        self.assertIn('alt ' + image_alt_text(image_inputs[url]), imeta[0])
                     else:
                         self.assertEqual(content, post.text)
                     self.assertTrue(post.record_indexes)
@@ -112,6 +116,11 @@ class GalleryPostPublicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(posts[0].text.startswith('【海上警報】'))
         self.assertIn('\n■ ', posts[0].text)
         self.assertNotIn('【訓練・試験】', posts[0].text)
+
+    async def test_every_catalog_case_uses_the_same_alt_in_signed_post_attachments(self):
+        for case in self.cases.values():
+            with self.subTest(case=case.slug, category=case.category):
+                await self.assert_matches_service(case.records)
 
     async def test_weather_many_is_three_live_posts_instead_of_a_fictional_grouped_post(self):
         records = self.cases['weather-many'].records

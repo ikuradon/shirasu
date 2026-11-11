@@ -30,7 +30,8 @@ COMPARISON_STATUSES = {'changed': '変更あり', 'unchanged': '変更なし',
                        'input_changed': '入力が異なる', 'added': '今回追加',
                        'unavailable': '比較できない'}
 COMPARISON_CHANGES = {'image': '画像', 'mode': '表示方法', 'reasons': '表示理由',
-                      'text': '投稿本文', 'structure': '投稿構成', 'conditions': '投稿プレビューの前提'}
+                      'text': '投稿本文', 'structure': '投稿構成', 'conditions': '投稿プレビューの前提',
+                      'alt': '代替テキスト（ALT）', 'alt_recording': 'ALTの記録状態'}
 
 
 def _escape(value):
@@ -100,7 +101,27 @@ def _post_content(text, attachment=None):
     return _escape(before) + attachment + _escape(after)
 
 
+def _recorded_alt(image):
+    if 'alt' not in image:
+        return None
+    value = image['alt']
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError('Image ALT must be a nonempty string')
+    return value
+
+
+def _alt_details(image):
+    value = _recorded_alt(image)
+    if value is None:
+        return ('<details class="image-alt unrecorded"><summary>代替テキスト（ALT）'
+                '<span class="alt-recording">記録なし</span></summary>'
+                '<p>この版にはALTの記録がありません。</p></details>')
+    return ('<details class="image-alt"><summary>代替テキスト（ALT）</summary>'
+            f'<div class="image-alt-text">{_escape(value)}</div></details>')
+
+
 def _post_attachment(case, value, heading):
+    recorded_alt = _recorded_alt(value)
     if value.get('error'):
         return ('<span class="post-attachment-error"><strong>添付画像を描画できませんでした</strong>'
                 f'<span class="post-attachment-error-detail">{_escape(value["error"])}</span></span>')
@@ -111,9 +132,11 @@ def _post_attachment(case, value, heading):
     if type(width) is not int or type(height) is not int or width <= 0 or height <= 0:
         raise ValueError('Post attachment dimensions must be positive integers')
     label = _escape(f'{case["title"]} / {heading}の添付画像')
+    alt = _escape(recorded_alt) if recorded_alt is not None else label
+    link_label = f'{alt}（画像を原寸で開く）' if recorded_alt is not None else f'{label}を原寸で開く'
     return (f'<a class="post-attachment" href="{path}" target="_blank" rel="noopener" '
-            f'aria-label="{label}を原寸で開く"><img src="{path}" width="{width}" height="{height}" '
-            f'alt="{label}" loading="lazy" decoding="async"></a>')
+            f'aria-label="{link_label}"><img src="{path}" width="{width}" height="{height}" '
+            f'alt="{alt}" loading="lazy" decoding="async"></a>')
 
 
 def _posts(case, published_version, *, preview_only=False, id_prefix='', embedded=False):
@@ -168,6 +191,7 @@ def _posts(case, published_version, *, preview_only=False, id_prefix='', embedde
             content = _post_content(post['text'], attachment)
             content_id = _escape(f'{id_prefix}{case["slug"]}-post-{index}-{side}')
             diagnostic = _decision(value) if post['image_enabled'] and not value.get('error') else ''
+            alt_details = _alt_details(value) if post['image_enabled'] else ''
             comparisons.append(
                 f'<section class="post-comparison {side}"><div class="image-heading">'
                 f'<h4>{heading}<span class="version">{_escape(version)}</span></h4></div>'
@@ -176,7 +200,7 @@ def _posts(case, published_version, *, preview_only=False, id_prefix='', embedde
                 f'<div class="post-body" id="{content_id}">{content}</div></div>'
                 f'<button class="post-toggle" type="button" aria-controls="{content_id}" '
                 'aria-expanded="true" hidden>元に戻す</button></div></div></div>'
-                f'{diagnostic}</section>')
+                f'{alt_details}{diagnostic}</section>')
         grid = 'post-grid single' if len(sides) == 1 else 'post-grid'
         units.append(
             f'<section class="post-unit" data-post-kind="{post["kind"]}" '
@@ -207,6 +231,8 @@ def _decision(image):
 
 def _image(case, side, published_version, *, heading=None, column=None):
     value = case['images'][side]
+    recorded_alt = _recorded_alt(value)
+    alt_details = _alt_details(value)
     heading = heading or ('公開版' if side == 'published' else '作業版')
     column = column or side
     version = value.get('version', published_version if side == 'published' else 'preview')
@@ -217,20 +243,22 @@ def _image(case, side, published_version, *, heading=None, column=None):
     if value.get('error'):
         content = ('<div class="render-error"><strong>描画できませんでした</strong>'
                    f'<p>{_escape(value["error"])}</p></div>')
-        return f'<section class="comparison {column}">{top}{content}</section>'
+        return f'<section class="comparison {column}">{top}{content}{alt_details}</section>'
     path = _local_path(value['path'])
     width, height = value.get('width', 1440), value.get('height', 1200)
     if type(width) is not int or type(height) is not int or width <= 0 or height <= 0:
         raise ValueError('Gallery image dimensions must be positive integers')
     label = _escape(f'{case["title"]} / {heading} / {kind}')
+    alt = _escape(recorded_alt) if recorded_alt is not None else label
+    link_label = f'{alt}（画像を原寸で開く）' if recorded_alt is not None else f'{label}を原寸で開く'
     content = (f'<div class="image-viewport" role="group" aria-label="{label}の表示領域">'
                f'<a class="image-link" href="{path}" target="_blank" rel="noopener" '
-               f'aria-label="{label}を原寸で開く">'
+               f'aria-label="{link_label}">'
                f'<img src="{path}" width="{width}" height="{height}" '
-               f'alt="{label}" loading="lazy" decoding="async"></a></div>'
+               f'alt="{alt}" loading="lazy" decoding="async"></a></div>'
                f'<div class="image-footer"><span>元画像 {width} × {height}</span>'
                f'<a href="{path}" target="_blank" rel="noopener">PNGを原寸で開く ↗</a></div>')
-    return f'<section class="comparison {column}">{top}{content}{_decision(value)}</section>'
+    return f'<section class="comparison {column}">{top}{content}{alt_details}{_decision(value)}</section>'
 
 
 def _comparison_result(case, mode):
@@ -406,6 +434,7 @@ body[data-image-width] .post-viewport{overflow-x:auto;overscroll-behavior-x:cont
 
 
 _CSS += '''
+.image-alt{margin-top:10px;color:var(--muted);font-size:12px;overflow-wrap:anywhere}.image-alt summary{cursor:pointer}.image-alt-text{white-space:pre-wrap;padding:10px 12px;margin-top:6px;background:#f5f7f9;border:1px solid var(--line);border-radius:5px}.image-alt p{margin:7px 0 0}.alt-recording{font-size:11px;margin-left:8px;color:#74818d}body[data-image-width] .image-alt{max-width:var(--image-width);margin-left:auto;margin-right:auto}
 .baseline-info{padding:12px 14px;background:#f3f6f9;border:1px solid var(--line);border-radius:6px;margin-top:14px;font-size:12px;color:var(--muted)}.baseline-info p{margin:0}.baseline-info p+p{margin-top:5px}.baseline-info a{margin-left:10px}.baseline-unmatched{margin-top:8px}.baseline-unmatched summary{cursor:pointer}.baseline-unmatched ul{margin:7px 0 0;padding-left:20px}.baseline-unmatched code{font-size:11px;margin-left:6px}.comparison-notice{margin:0 24px 18px;padding:12px 14px;background:#f5f7f9;border:1px solid var(--line);border-radius:6px;font-size:13px}.comparison-notice>div{display:flex;align-items:center;flex-wrap:wrap;gap:6px}.comparison-notice p{margin:7px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font-size:12px}.comparison-status{font-weight:650;padding:2px 8px;border-radius:4px;border:1px solid #d0dbe4;background:#edf2f6;color:#415568}.comparison-status.changed{background:#fff6e8;color:#80581e;border-color:#e9d5b5}.comparison-status.input_changed{background:#f3eefb;color:#665085;border-color:#ded4ec}.comparison-status.added{background:#edf6f1;color:#276857;border-color:#d0e4d9}.comparison-change{padding:1px 7px;border:1px solid var(--line);border-radius:4px;background:#fff;font-size:11px}.baseline-post-view>.comparison-notice{margin-left:0;margin-right:0}.baseline-post-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}.baseline-column{min-width:0}.baseline-column-heading{font-size:15px;margin:0 0 16px;padding-bottom:9px;border-bottom:2px solid var(--line)}.previous>.baseline-column-heading,.previous .image-heading h3{color:var(--blue)}.current>.baseline-column-heading,.current .image-heading h3{color:var(--preview)}.baseline-unavailable{padding:24px;margin:0;border:1px dashed var(--line);border-radius:6px;color:var(--muted);font-size:13px}.filters .comparison-filter{grid-column:1/-1}.comparison-counts{margin-top:14px;font-size:12px;color:var(--muted)}.comparison-counts p{margin:0 0 6px}.comparison-counts ul{display:flex;gap:6px 18px;flex-wrap:wrap;list-style:none;padding:0;margin:0}.comparison-counts strong{color:var(--ink)}
 @media(max-width:1000px){.comparison-notice{margin-left:20px;margin-right:20px}.baseline-post-grid{gap:14px}}
 @media(max-width:680px){.comparison-notice{margin-left:16px;margin-right:16px}.baseline-post-grid{grid-template-columns:minmax(0,1fr);gap:24px}.baseline-info a{display:block;margin:4px 0 0}}

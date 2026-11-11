@@ -19,6 +19,7 @@ import zlib
 
 from scripts import render_gallery
 from scripts.gallery_catalog import load_cases
+from image_alt import DEFAULT_IMAGE_ALT, image_alt_text
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -151,11 +152,43 @@ runpy.run_path(sys.argv[0], run_name='__main__')
             self.assertEqual((image['width'], image['height']), (1, 1))
             self.assertEqual(image['version'], version)
             self.assertEqual(image['kind'], 'map')
+            self.assertEqual(image['alt'], image_alt_text(self.case.records))
         self.assertEqual(json.loads((self.output / 'manifest.json').read_text(encoding='utf-8')),
                          result)
         html = (self.output / 'index.html').read_text(encoding='utf-8')
         for path in (row['records_path'], *(item['path'] for item in row['images'].values())):
             self.assertIn(path, html)
+
+    def test_alt_describes_each_actual_attachment_input_without_original_cancellation_values(self):
+        selected = ('weather-many', 'weather-cancel-reference', 'typhoon-track')
+        cases = {case.slug: case for case in load_cases()}
+        with patch.object(render_gallery, '_preflight'), \
+                patch.object(render_gallery, '_render_with_decision', return_value=(PNG, 'map', None)), \
+                redirect_stdout(io.StringIO()):
+            result = render_gallery.generate(self.output, preview_only=True, selected_cases=selected)
+        for row in result['cases']:
+            records = cases[row['slug']].records
+            self.assertEqual(row['images']['preview']['alt'], image_alt_text(records))
+            for post in row['posts']:
+                entries = tuple(records[index] for index in post['record_indexes'])
+                if post['image_enabled']:
+                    self.assertEqual(post['images']['preview']['alt'], image_alt_text(entries))
+            if row['slug'] == 'weather-cancel-reference':
+                self.assertIn('取消', row['images']['preview']['alt'])
+                self.assertEqual(row['images']['preview']['alt'], row['posts'][0]['images']['preview']['alt'])
+
+    def test_alt_failure_keeps_successful_png_and_records_the_same_fallback_as_live_posts(self):
+        with patch.object(render_gallery, '_preflight'), \
+                patch.object(render_gallery, '_render_with_decision', return_value=(PNG, 'map', None)), \
+                patch.object(render_gallery, 'image_alt_text', side_effect=RuntimeError('unknown metadata')), \
+                redirect_stdout(io.StringIO()):
+            result = render_gallery.generate(self.output, preview_only=True, selected_cases=('marine',))
+        self.assertEqual(result['error_count'], 0)
+        row, = result['cases']
+        image = row['images']['preview']
+        self.assertEqual(image['alt'], DEFAULT_IMAGE_ALT)
+        self.assertEqual(row['posts'][0]['images']['preview']['alt'], DEFAULT_IMAGE_ALT)
+        self.assertEqual((self.output / image['path']).read_bytes(), PNG)
 
     def test_confirmed_reference_is_saved_and_only_passed_to_unpublished_renderer(self):
         case = next(c for c in load_cases() if c.slug == 'weather-cancel-reference')

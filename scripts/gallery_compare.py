@@ -189,6 +189,8 @@ def _images(images, reader):
         if not isinstance(image, dict) or image.get('version') not in (
                 ('preview',) if slot == 'preview' else ('v1', 'v2', 'v3', 'v4')):
             _fail('画像の版が不正です')
+        if 'alt' in image and (not isinstance(image['alt'], str) or not image['alt'].strip()):
+            _fail('画像のALTは空でない文字列が必要です')
         _decision(image)
         if 'error' in image:
             if (not isinstance(image['error'], str) or not image['error']
@@ -281,6 +283,14 @@ def _result(status, changes=(), note=''):
     return {'status': status, 'changes': list(dict.fromkeys(changes)), 'note': note}
 
 
+def _alt_changes(current, previous):
+    if not current or not previous:
+        return []
+    if ('alt' in current) != ('alt' in previous):
+        return ['alt_recording']
+    return ['alt'] if current.get('alt') != previous.get('alt') else []
+
+
 def _image_changes(current, previous):
     if not current or not previous or 'error' in current or 'error' in previous:
         return None
@@ -296,6 +306,7 @@ def _image_changes(current, previous):
                 if 'reasons' in value else None)
     if reasons(current) != reasons(previous):
         changes.append('reasons')
+    changes.extend(_alt_changes(current, previous))
     return changes
 
 
@@ -321,6 +332,7 @@ def _compare_posts(current, previous, manifest, old_manifest, *, same_input=True
         difference = _image_changes(new['images'].get('preview'), old['images'].get('preview'))
         if difference is None:
             unavailable = True
+            changes.extend(_alt_changes(new['images'].get('preview'), old['images'].get('preview')))
         else:
             changes.extend(difference)
     if unavailable:
@@ -389,7 +401,8 @@ def attach_comparison(manifest, baseline, output):
             posts = _compare_posts(case, old, manifest, snapshot, same_input=False)
         else:
             changes = _image_changes(case['images'].get('preview'), old['images'].get('preview'))
-            images = (_result('unavailable', note='比較できる作業版画像がありません') if changes is None
+            images = (_result('unavailable', _alt_changes(case['images'].get('preview'), old['images'].get('preview')),
+                              note='比較できる作業版画像がありません') if changes is None
                       else _result('changed' if changes else 'unchanged', changes))
             posts = _compare_posts(case, old, manifest, snapshot)
         comparisons[case['slug']] = {'images': images, 'posts': posts,

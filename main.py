@@ -28,6 +28,7 @@ from outbox import Outbox, event_id_prefix, read_event, read_history, read_statu
 from receiver import GpsdReceiver
 from message_format import report_message
 from image_publication import ImagePublisher, image_entry, with_image
+from image_alt import DEFAULT_IMAGE_ALT, image_alt_text
 
 
 logger = logging.getLogger('shirasu')
@@ -111,11 +112,12 @@ class Nostr:
     def identity(self):
         return self.keys.public_key().to_hex()
 
-    def build_event(self, message, image_url=None):
+    def build_event(self, message, image_url=None, image_alt=None):
         builder = EventBuilder(Kind(1), message)
         if image_url is not None:
+            alt = image_alt if isinstance(image_alt, str) and image_alt.strip() else DEFAULT_IMAGE_ALT
             builder = builder.tags([Tag.parse(['imeta', f'url {image_url}',
-                                             'm image/png', 'alt みちびき受信通報の図'])])
+                                             'm image/png', 'alt ' + alt])])
         return builder.finalize(self.keys)
 
     async def connect(self):
@@ -188,7 +190,15 @@ class Service:
                 logger.warning('Image URL unavailable: %s; publishing text', type(error).__name__)
             else:
                 self.state['last_image_error'] = None
-                return self.nostr.build_event(with_image(message, image_url), image_url=image_url)
+                try:
+                    alt = image_alt_text(entries)
+                except Exception as error:
+                    # A description failure must not suppress a valid image or
+                    # the readable report; retries reuse the signed fallback.
+                    logger.warning('Image description unavailable: %s; using default', type(error).__name__)
+                    alt = DEFAULT_IMAGE_ALT
+                return self.nostr.build_event(with_image(message, image_url),
+                                              image_url=image_url, image_alt=alt)
         return self.nostr.build_event(message)
 
     def _full(self):
