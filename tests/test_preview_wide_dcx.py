@@ -1,5 +1,6 @@
 """Recorded DCX and explicit training variants follow geometry → area → topic."""
 
+from copy import deepcopy
 from dataclasses import replace
 import importlib.util
 import unittest
@@ -80,6 +81,34 @@ class DcxRenderingTests(unittest.TestCase):
         self.assert_plain_locator(fig)
         self.assertLess(fig.axes[1].get_xlim()[1], 130,
                         'The overseas locator must use its own region rather than fixed Japan')
+
+    def test_b4_earthquake_keeps_the_entire_map_unavailable_and_the_original_text(self):
+        records = self.cases['dcx-earthquake-vector'].records
+        report, = base._decode(records)
+        before = str(report), deepcopy(report.camf.get_params()), report.nmea
+        expected_post = f'{report}\n---\nNMEA: {report.nmea}'
+        # Valid main geometry cannot create a plausible partial map while the
+        # earthquake's D3 reference direction and surface transform are unknown.
+        with patch.object(dcx_images, 'ellipse_ring') as ellipse, \
+                patch.object(dcx_images, 'secondary_ellipse_ring') as secondary:
+            image, fig = self.capture(records)
+        ellipse.assert_not_called()
+        secondary.assert_not_called()
+        self.assert_topic(fig)
+        self.assertEqual(image.decision.mode, 'topic')
+        failures = [item for item in image.decision.reasons if item.stage == 'geometry']
+        self.assertEqual(len(failures), 1)
+        self.assertEqual((failures[0].code, failures[0].detail),
+                         ('unsupported_geometry', 'B4地震: 震央方位D3の基準方向・地点変換が未確認'))
+        self.assertIn('地震情報', self.text(fig))
+        self.assertIn('【訓練・試験】', self.text(fig))
+        for label in ('震央位置', '震源の深さ', 'D3', 'D4'):
+            self.assertNotIn(label, self.text(fig))
+        self.assertEqual(report_message(report), expected_post)
+        self.assertEqual((str(report), report.camf.get_params(), report.nmea), before)
+        decoded_again, = base._decode(records)
+        self.assertEqual(str(decoded_again), before[0])
+        self.assertEqual(report_message(decoded_again), expected_post)
 
     def test_secondary_and_overlapping_ellipses_keep_both_complete_scopes(self):
         for slug in ('dcx-secondary-ellipse', 'dcx-secondary-overlap'):

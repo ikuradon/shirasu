@@ -11,6 +11,7 @@ if HAS_DECODER:
     from image_service import preview_dcx_reports as dcx_reports
     from image_service.preview_dcx_reports import Area, Ellipse, Point, SecondaryEllipse, dcx_plan
     from image_service.preview_diagnostics import reason
+    from message_format import report_message
     from qzqsm_samples import frames, reference_time
     from scripts.gallery_catalog import _field_variant
 
@@ -41,6 +42,12 @@ class DcxReportTests(unittest.TestCase):
         # C8=3 (scale 1), C9=16 (180 degrees), C10=5 (keep phone charged).
         return self.report(70, (26, 9, 100), (66, 1, 0), (67, 3, 0), (129, 2, 2),
                            (131, 2, 2), (133, 3, 3), (136, 5, 16), (141, 5, 5), *fields)
+
+    def earthquake_report(self, *fields, version=0):
+        # Synthetic foreign earthquake with a zero-code (.25 axis) vector.
+        return self.report(70, (26, 9, 100), (40, 7, 36), (66, 1, 0), (67, 3, 0), (129, 2, 3),
+                           (131, 4, 5), (135, 3, 3), (138, 4, 0), (142, 4, 0),
+                           *fields, version=version)
 
     def assert_topic(self, plan):
         self.assertEqual(plan.scope_kind, 'topic')
@@ -171,6 +178,128 @@ class DcxReportTests(unittest.TestCase):
                     self.assertEqual((plan.reasons[0].code, plan.reasons[0].stage),
                                      ('unsupported_geometry', 'geometry'))
                     self.assertIn('国内', plan.reasons[0].detail)
+
+    def assert_earthquake_unconfirmed(self, report):
+        plan = dcx_plan((report,))
+        self.assert_topic(plan)
+        self.assertEqual(plan.reasons[0], reason('unsupported_geometry', 'geometry',
+                         'B4地震: 震央方位D3の基準方向・地点変換が未確認'))
+        return plan
+
+    def test_b4_earthquake_known_magnitudes_and_reserved_values_have_distinct_reasons(self):
+        for value in range(16):
+            with self.subTest(magnitude=value):
+                report = self.earthquake_report((131, 4, value))
+                if value <= 8:
+                    self.assert_earthquake_unconfirmed(report)
+                else:
+                    plan = dcx_plan((report,))
+                    self.assert_topic(plan)
+                    self.assertEqual(plan.reasons[0], reason('unsupported_geometry', 'geometry',
+                                     f'B4地震: 予約済みの規模 D1={value}'))
+
+    def test_b4_earthquake_all_vector_codes_are_present_but_cannot_locate_a_point(self):
+        factors = (.25, .5, .75, 1, 2, 3, 5, 10, 20, 30, 40, 50, 70, 100, 150, 200)
+        for value in range(8):
+            with self.subTest(coefficient=value):
+                self.assert_earthquake_unconfirmed(self.earthquake_report((135, 3, value)))
+        for value in range(16):
+            with self.subTest(azimuth=value):
+                report = self.earthquake_report((138, 4, value))
+                self.assertEqual(report.d3_azimuth_from_centre_of_main_ellipse_to_epicentre, value * 22.5)
+                self.assert_earthquake_unconfirmed(report)
+            with self.subTest(distance=value):
+                report = self.earthquake_report((142, 4, value))
+                self.assertEqual(report.d4_vector_length_between_centre_of_main_ellipse_and_epicentre,
+                                 factors[value])
+                self.assert_earthquake_unconfirmed(report)
+
+    def test_b4_earthquake_status_and_foreign_version_do_not_authorize_a_guessed_map(self):
+        for state, status in ((0, '訓練'), (1, '発表'), (2, '更新'), (3, '解除')):
+            for version in (0, 1, 63):
+                with self.subTest(state=state, version=version):
+                    report = self.earthquake_report((24, 2, state), version=version)
+                    before = str(report), deepcopy(report.camf.get_params()), report.nmea
+                    plan = self.assert_earthquake_unconfirmed(report)
+                    self.assertEqual((plan.status, plan.topic, plan.headline), (status, '地震', '地震情報'))
+                    self.assertEqual(report_message(report), f'{before[0]}\n---\nNMEA: {before[2]}')
+                    self.assertEqual((str(report), report.camf.get_params(), report.nmea), before)
+
+    def test_b4_earthquake_requires_the_reviewed_international_library(self):
+        for library, version in ((1, 0), (0, 1), (0, 7), (1, 7)):
+            with self.subTest(library=library, version=version):
+                report = self.earthquake_report((66, 1, library), (67, 3, version))
+                plan = dcx_plan((report,))
+                self.assert_topic(plan)
+                self.assertEqual((plan.reasons[0].code, plan.reasons[0].stage),
+                                 ('unsupported_geometry', 'geometry'))
+                self.assertIn('未対応のライブラリ', plan.reasons[0].detail)
+                self.assertIn(f'A9={library}', plan.reasons[0].detail)
+                self.assertIn(f'A10={version}', plan.reasons[0].detail)
+        for field, width in (('a9', 1), ('a10', 3)):
+            for value in (None, False, -1, 1 << width, float('nan')):
+                with self.subTest(field=field, value=value):
+                    report = self.earthquake_report()
+                    setattr(report.camf, field, value)
+                    plan = dcx_plan((report,))
+                    self.assert_topic(plan)
+                    self.assertEqual(plan.reasons[0], reason('invalid_fields', 'geometry', field))
+
+    def test_b4_earthquake_cannot_bypass_the_domestic_b1_requirement(self):
+        for index in (70, 163):
+            with self.subTest(index=index):
+                report = self.report(index, (40, 7, 36), (129, 2, 3),
+                                     (131, 15, (5 << 11) | (3 << 8)), (162, 52, 0))
+                plan = dcx_plan((report,))
+                self.assert_topic(plan)
+                self.assertEqual(plan.reasons[0], reason('unsupported_geometry', 'geometry',
+                                 'B4: 国内通報はB1固定'))
+
+    def test_b4_earthquake_malformed_raw_fields_and_inconsistent_packing_are_invalid(self):
+        original = self.earthquake_report()
+        for field, width in (('a18', 15), ('d1', 4), ('d2', 3), ('d3', 4), ('d4', 4)):
+            for value in (None, True, -1, 1 << width, float('nan'), float('inf')):
+                with self.subTest(field=field, value=value):
+                    report = deepcopy(original)
+                    setattr(report.camf, field, value)
+                    plan = dcx_plan((report,))
+                    self.assert_topic(plan)
+                    self.assertEqual(plan.reasons[0], reason('invalid_fields', 'geometry', field))
+            with self.subTest(missing=field):
+                report = deepcopy(original)
+                delattr(report.camf, field)
+                self.assertEqual(dcx_plan((report,)).reasons[0], reason('invalid_fields', 'geometry', field))
+        report = deepcopy(original)
+        report.camf.a18 ^= 1
+        plan = dcx_plan((report,))
+        self.assert_topic(plan)
+        self.assertEqual(plan.reasons[0], reason('invalid_fields', 'geometry',
+                         'B4地震: A18とD1〜D4が不一致'))
+
+    def test_b4_earthquake_decoded_fields_must_match_the_transmitted_values(self):
+        original = self.earthquake_report()
+        for field in ('d1_magnitude_on_richter_scale', 'd2_seismic_coefficient',
+                      'd3_azimuth_from_centre_of_main_ellipse_to_epicentre',
+                      'd4_vector_length_between_centre_of_main_ellipse_and_epicentre'):
+            for value in (None, True, 'unrecognized', float('nan'), float('inf'), -1):
+                with self.subTest(field=field, value=value):
+                    report = deepcopy(original)
+                    setattr(report, field, value)
+                    plan = dcx_plan((report,))
+                    self.assert_topic(plan)
+                    self.assertEqual(plan.reasons[0], reason('invalid_fields', 'geometry', field))
+
+    def test_scalar_b4_retains_its_existing_main_ellipse(self):
+        # Non-earthquake B4 fields must not acquire the D3/D4 requirement.
+        expected = dcx_plan((self.earthquake_report((129, 2, 1)),)).geometries[0]
+        for hazard in (44, 68, 82):
+            with self.subTest(hazard=hazard):
+                report = self.earthquake_report((40, 7, hazard), (131, 15, 0))
+                plan = dcx_plan((report,))
+                self.assertEqual(plan.scope_kind, 'geometry')
+                self.assertEqual(plan.geometries, (expected,))
+                self.assertFalse(any(item.stage == 'geometry' for item in plan.reasons))
+                self.assertEqual(report_message(report), f'{report}\n---\nNMEA: {report.nmea}')
 
     def test_secondary_ellipse_keeps_main_frame_and_exact_transmitted_parameters(self):
         plan = dcx_plan((self.secondary_report(),))

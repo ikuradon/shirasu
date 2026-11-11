@@ -14,6 +14,8 @@ from dataclasses import dataclass
 import math
 
 from azarashi.definitions.camf.a4_hazard_category_and_type import a4_hazard_type
+from azarashi.definitions.camf.d_fields import d1_magnitude_on_richter_scale, d2_seismic_coefficient
+from azarashi.definitions.camf.d_fields import d4_vector_length_between_centre_of_main_ellipse_and_epicentre_value
 from azarashi.definitions.qzss.dcx.ex1_target_area_code import ex1_target_area_code_ja
 from azarashi.definitions.qzss.dcx.ex9_target_area_code import ex9_target_area_code_ja
 from azarashi.reports import dcx
@@ -92,7 +94,7 @@ _STATUS = {0: '訓練', 1: '発表', 2: '更新', 3: '解除'}
 _SOURCES = {dcx.LAlert: 'Lアラート', dcx.JAlert: 'Jアラート',
             dcx.MTInfo: '自治体情報', dcx.OutsideJapan: '海外通報'}
 # B4 entries known to contain scalar detail only. Earthquake (36) contains an
-# additional epicentre vector, so it is deliberately not in this set.
+# additional epicentre vector; it must be handled separately, never omitted.
 _SCALAR_B4 = frozenset((4, 5, 6, 9, 10, 11, 15, 16, 18, 19, 21, 23, 27, 30,
                          32, 33, 37, 43, 44, 47, 51, 53, 55, 56, 57, 58, 60,
                          63, 64, 65, 68, 69, 70, 71, 72, 74, 75, 76, 77, 79,
@@ -158,6 +160,48 @@ def _secondary(report, main):
     return SecondaryEllipse(main, shift, scale, rotation, instruction, role=role)
 
 
+def _earthquake_fallback(report):
+    """Validate B4 earthquake fields without inventing a D3 reference axis.
+
+    CAMF 1.2 sections 3.7.4 and 18.4.35.1-4 define the encoded values. We
+    have not confirmed D3's reference direction or an Earth-surface transform
+    for D4; the A16 ellipse-axis convention alone cannot locate an epicentre.
+    See docs/dcx-b4-support.md for the evidence needed to enable a map.
+    """
+    camf = report.camf
+    library = _raw(camf, 'a9', 1, stage='geometry')
+    version = _raw(camf, 'a10', 3, stage='geometry')
+    if (library, version) != (0, 0):
+        raise PreviewFallback('unsupported_geometry', stage='geometry',
+                              detail=f'B4地震: 未対応のライブラリ A9={library}, A10={version}')
+    magnitude, coefficient, azimuth, distance = (
+        _raw(camf, field, width, stage='geometry')
+        for field, width in (('d1', 4), ('d2', 3), ('d3', 4), ('d4', 4)))
+    packed = (magnitude << 11) | (coefficient << 8) | (azimuth << 4) | distance
+    if _raw(camf, 'a18', 15, stage='geometry') != packed:
+        raise PreviewFallback('invalid_fields', stage='geometry', detail='B4地震: A18とD1〜D4が不一致')
+    if magnitude > 8:
+        raise PreviewFallback('unsupported_geometry', stage='geometry',
+                              detail=f'B4地震: 予約済みの規模 D1={magnitude}')
+    for field, expected in (
+            ('d1_magnitude_on_richter_scale', d1_magnitude_on_richter_scale[magnitude]),
+            ('d2_seismic_coefficient', d2_seismic_coefficient[coefficient])):
+        if getattr(report, field, None) != expected:
+            raise PreviewFallback('invalid_fields', stage='geometry', detail=field,
+                                  technical='Inconsistent DCX earthquake parameter')
+    for field, expected in (
+            ('d3_azimuth_from_centre_of_main_ellipse_to_epicentre', azimuth * 22.5),
+            ('d4_vector_length_between_centre_of_main_ellipse_and_epicentre',
+             d4_vector_length_between_centre_of_main_ellipse_and_epicentre_value[distance])):
+        if _number(report, field) != expected:
+            raise PreviewFallback('invalid_fields', stage='geometry', detail=field,
+                                  technical='Inconsistent DCX earthquake vector')
+    # Raw D4=0 is a quarter-axis vector, not a missing point. Keep the entire
+    # map unavailable, including the main ellipse, until its location is known.
+    raise PreviewFallback('unsupported_geometry', stage='geometry',
+                          detail='B4地震: 震央方位D3の基準方向・地点変換が未確認')
+
+
 def _geometries(report):
     camf = report.camf
     if report.ignore_a12_to_a16 is not False or type(report) is dcx.JAlert:
@@ -174,6 +218,8 @@ def _geometries(report):
         # ignores these fields entirely. B3 support must not broaden that.
         raise PreviewFallback('unsupported_geometry', stage='geometry',
                               detail=f'B{setting + 1}: 国内通報はB1固定')
+    if setting == 3 and camf.a4 == 36:
+        _earthquake_fallback(report)
     if setting == 3 and camf.a4 not in _SCALAR_B4:
         # Never draw just the main ellipse of a multiple-geometry message.
         raise PreviewFallback('unsupported_geometry', stage='geometry', detail='B4: 未対応の追加位置・詳細設定')

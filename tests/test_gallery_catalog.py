@@ -12,6 +12,7 @@ from unittest.mock import patch
 import azarashi
 from azarashi.reports import dcr
 
+from message_format import report_message
 from scripts.gallery_catalog import _dcx_training_variant, load_cases
 
 
@@ -28,7 +29,7 @@ class GalleryCatalogTests(unittest.TestCase):
         self.cases = {case.slug: case for case in load_cases()}
 
     def test_catalog_covers_image_categories_with_stable_unique_output_names(self):
-        self.assertEqual(len(self.cases), 29)
+        self.assertEqual(len(self.cases), 30)
         self.assertEqual({case.category for case in self.cases.values()}, {
             'Typhoon', 'Hypocenter', 'Weather', 'EarthquakeEarlyWarning', 'SeismicIntensity',
             'Tsunami', 'Volcano', 'AshFall', 'Flood', 'NorthwestPacificTsunami', 'Marine',
@@ -215,6 +216,42 @@ class GalleryCatalogTests(unittest.TestCase):
         self.assertIn('0.25倍', overlap.description)
         self.assertIn('同心', overlap.description)
         self.assertIn('主範囲の指示が優先', overlap.description)
+
+    def test_earthquake_vector_sample_preserves_source_geometry_and_original_post_text(self):
+        case = self.cases['dcx-earthquake-vector']
+        original = self.cases['dcx-outside-japan']
+        source_report = decoded(original)[0]
+        self.assertEqual((case.source_kind, case.classification, case.state, case.category),
+                         ('synthetic', 'training', 'issue', 'OutsideJapan'))
+        self.assertEqual((case.source_file, case.source_sha256),
+                         (original.source_file, original.source_sha256))
+        self.assertIsNone(case.source_url)
+        for text in (case.title, case.source_label, case.description):
+            self.assertIn('合成訓練例', text)
+        for text in ('フレーム70', '国外Vn=0', 'ビット40〜46', '129〜145', 'CRC', 'NMEA',
+                     '0°', '0.25倍', '方位基準', '未確認', '主楕円だけを描かずトピック表示'):
+            self.assertIn(text, case.description)
+        self.assertNotEqual(case.records[0][0], original.records[0][0])
+        self.assertEqual(case.records[0][1], original.records[0][1])
+        # Decode the changed frame independently, checking CRC and NMEA checksum.
+        report = decoded(case)[0]
+        self.assertEqual((report.camf.a1, report.camf.a2, report.camf.vn), (0, 103, 0))
+        self.assertEqual((report.camf.a4, report.camf.a17), (36, 3))
+        self.assertEqual(tuple(getattr(report.camf, f'd{i}') for i in range(1, 5)), (5, 3, 0, 0))
+        self.assertEqual(report.d1_magnitude_on_richter_scale, '6.0-6.9 - Strong')
+        self.assertEqual(report.d2_seismic_coefficient, '5 weak')
+        self.assertEqual(report.d3_azimuth_from_centre_of_main_ellipse_to_epicentre, 0.)
+        self.assertEqual(report.d4_vector_length_between_centre_of_main_ellipse_and_epicentre, .25)
+        for field in ('a6', 'a7', 'a12', 'a13', 'a14', 'a15', 'a16'):
+            self.assertEqual(getattr(report.camf, field), getattr(source_report.camf, field))
+        self.assertEqual(report_message(report), f'{report}\n---\nNMEA: {report.nmea}')
+        payloads = [int(item.records[0][0].split('*')[0].split(',')[2] + '0', 16)
+                    for item in (case, original)]
+        allowed = 0
+        for offset, width in ((24, 2), (40, 7), (129, 17), (226, 24)):
+            allowed |= ((1 << width) - 1) << (256 - offset - width)
+        self.assertEqual((payloads[0] ^ payloads[1]) & ~allowed, 0,
+                         'Only the hazard, B4 settings, forced training flag and CRC may change')
 
     def test_dcx_derivation_always_forces_the_test_flag_without_altering_satellite_designation(self):
         original = self.cases['dcx-lalert']
