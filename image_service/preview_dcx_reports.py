@@ -18,6 +18,7 @@ from azarashi.definitions.qzss.dcx.ex1_target_area_code import ex1_target_area_c
 from azarashi.definitions.qzss.dcx.ex9_target_area_code import ex9_target_area_code_ja
 from azarashi.reports import dcx
 
+from dcx_instructions import is_evacuation_destination
 from image_service.preview_diagnostics import PreviewFallback, Reason, error_reason, unique_reasons
 
 
@@ -139,22 +140,22 @@ def _secondary(report, main):
     scale = (_raw(camf, 'c8', 3, stage='geometry') + 1) / 4
     rotation = _raw(camf, 'c9', 5, stage='geometry') * 11.25
     instruction = _raw(camf, 'c10', 5, stage='geometry')
-    if instruction == 0:
-        # This is an evacuation destination, with default IC-A-03 guidance
-        # for the main ellipse, not an ordinary target with "no instruction".
-        # Support it together with that guidance in the post text, separately.
-        raise PreviewFallback('unsupported_geometry', stage='geometry',
-                              detail='B3: 避難先と既定指示の組合せ（C10=0）は未対応')
-    if instruction not in (*range(1, 17), 30, 31):
+    if instruction not in (*range(17), 30, 31):
         raise PreviewFallback('unsupported_geometry', stage='geometry',
                               detail=f'B3: 予約済みの第2範囲指示 C10={instruction}')
+    if instruction == 0 and not is_evacuation_destination(report):
+        # Share the eligibility rule with the posting text. A destination map
+        # must never be enabled independently of its default main-area guidance.
+        raise PreviewFallback('invalid_fields', stage='geometry',
+                              detail='B3: 避難先の指定と既定指示の条件が不一致')
     for field, expected in (('c7_shift_of_second_ellipse_centre', shift),
                             ('c8_homothetic_factor_of_second_ellipse', scale),
                             ('c9_bearing_angle_of_second_ellipse', rotation)):
         if _number(report, field) != expected:
             raise PreviewFallback('invalid_fields', stage='geometry', detail=field,
                                   technical='Inconsistent DCX secondary ellipse parameter')
-    return SecondaryEllipse(main, shift, scale, rotation, instruction)
+    role = 'evacuation_destination' if instruction == 0 else 'secondary_target'
+    return SecondaryEllipse(main, shift, scale, rotation, instruction, role=role)
 
 
 def _geometries(report):

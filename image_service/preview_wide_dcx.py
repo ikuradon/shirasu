@@ -22,6 +22,7 @@ from image_service.preview_diagnostics import PreviewFallback, error_reason, uni
 MAP_CREDIT = '情報：みちびき DCX / 地形：Natural Earth'
 AREA_CREDIT = '情報：みちびき DCX / 区域：気象庁（加工） / 地形：Natural Earth'
 SECONDARY_COLOUR = '#d1b6f6'
+EVACUATION_COLOUR = '#ffd166'
 CHANNELS = {dcx.LAlert: 'Lアラート', dcx.JAlert: 'Jアラート',
             dcx.MTInfo: '自治体からの情報', dcx.OutsideJapan: '海外の災害情報'}
 
@@ -51,7 +52,11 @@ def _sidebar(fig, report, plan, *, mode):
         rows.append(wide.Row('受信した対象区域', names))
     if mode == 'geometry':
         if any(isinstance(item, SecondaryEllipse) for item in plan.geometries):
+            evacuation = any(isinstance(item, SecondaryEllipse) and item.role == 'evacuation_destination'
+                             for item in plan.geometries)
             rows.extend((wide.Row('主範囲（実線）', color=_colour(report)),
+                         wide.Row('避難先の指定（破線）', ('通報で指定された範囲',), color=EVACUATION_COLOUR)
+                         if evacuation else
                          wide.Row('第2範囲（破線）', ('個別指示は投稿本文へ',), color=SECONDARY_COLOUR)))
         elif any(isinstance(item, Ellipse) for item in plan.geometries):
             rows.append(wide.Row('地図の表示', ('通報の対象範囲',)))
@@ -76,8 +81,8 @@ def _geometry(fig, report, plan):
     for item in plan.geometries:
         if isinstance(item, Ellipse) and item.role == 'target':
             rings.append(ellipse_ring(item, reference=reference))
-        elif isinstance(item, SecondaryEllipse) and item.role == 'secondary_target':
-            secondaries.append(secondary_ellipse_ring(item, reference=reference))
+        elif isinstance(item, SecondaryEllipse) and item.role in ('secondary_target', 'evacuation_destination'):
+            secondaries.append((item, secondary_ellipse_ring(item, reference=reference)))
         elif isinstance(item, Point) and item.role == 'hazard_center':
             if not -85 < item.lat < 85 or not np.isfinite((item.lon, item.lat)).all():
                 raise PreviewFallback('projection_unavailable', stage='geometry', detail='災害中心位置',
@@ -87,17 +92,18 @@ def _geometry(fig, report, plan):
         else:
             raise PreviewFallback('unsupported_geometry', stage='geometry', detail='未対応の位置・範囲の役割',
                                   technical='Unsupported DCX geometry role')
-    sequences = (*rings, *secondaries, *((np.asarray(points),) if points else ()))
+    sequences = (*rings, *(ring for _, ring in secondaries), *((np.asarray(points),) if points else ()))
     if not sequences:
         raise PreviewFallback('no_geometry', stage='geometry', technical='No DCX geometry')
     locator = _nearby_locator(plan.geometries) if isinstance(report, dcx.OutsideJapan) else ()
     view = wide.map_axes(fig, sequences, full=sequences, locator_context=locator)
     colour = _colour(report)
-    for index, ring in enumerate(secondaries):
+    for index, (item, ring) in enumerate(secondaries):
         # Do not blend fills into a third apparent warning level in the
         # intersection. The main range's instructions take priority there.
         view.ax.add_patch(Polygon(ring, closed=True, facecolor='none',
-                                  edgecolor=SECONDARY_COLOUR, linewidth=2.3,
+                                  edgecolor=EVACUATION_COLOUR if item.role == 'evacuation_destination' else SECONDARY_COLOUR,
+                                  linewidth=2.3,
                                   linestyle='--', zorder=4.9, gid=f'dcx-secondary-ellipse-{index}'))
     for index, ring in enumerate(rings):
         view.ax.add_patch(Polygon(ring, closed=True, facecolor=colour + '24',
@@ -110,7 +116,9 @@ def _geometry(fig, report, plan):
     scope = ('通報対象範囲・災害中心位置' if rings and points else
              '通報の対象範囲 / 災害の被害範囲ではありません' if rings else '受信した災害中心位置')
     if secondaries:
-        scope = '通報の主範囲・第2範囲 / 被害範囲ではありません'
+        scope = ('通報の主範囲・避難先の指定'
+                 if any(item.role == 'evacuation_destination' for item, _ in secondaries)
+                 else '通報の主範囲・第2範囲 / 被害範囲ではありません')
     wide.header(fig, report, CHANNELS[type(report)], scope, credit=MAP_CREDIT)
     _sidebar(fig, report, plan, mode='geometry')
 

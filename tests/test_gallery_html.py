@@ -43,6 +43,36 @@ class Document(HTMLParser):
 
 
 class GalleryHtmlTests(unittest.TestCase):
+    def test_optional_post_is_escaped_and_separate_from_the_decoded_source_text(self):
+        manifest = sample()
+        case = manifest['cases'][0]
+        attack = '</script><script>alert("x")</script><img src=x onerror=alert(1)>'
+        case['post_text'] = '訓練の既定指示\n' + attack + '\n---\nNMEA: $QZQSM,55,0123*AB'
+        content = render_html(manifest)
+        document = Document(content)
+        self.assertEqual(len(document.attrs('script')), 1)
+        self.assertEqual(len(document.attrs('img')), 2)
+        self.assertEqual(content.count('<summary>投稿本文</summary>'), 1)
+        self.assertIn('<details class="source-details post-details">', content)
+        self.assertIn('訓練の既定指示\n&lt;/script&gt;&lt;script&gt;alert(&quot;x&quot;)', content)
+        self.assertIn('\n---\nNMEA: $QZQSM,55,0123*AB</pre>', content)
+        self.assertNotIn(attack, content)
+        self.assertIn('</details>\n  <details class="source-details">'
+                      '<summary>出典・入力データを確認</summary>', content)
+        self.assertIn('<h4>電文のテキスト</h4><pre>' + case['report_text'] + '</pre>', content)
+        for _, attributes in document.elements:
+            self.assertNotIn('onerror', attributes)
+
+    def test_absent_or_empty_post_keeps_the_existing_document_without_an_extra_section(self):
+        manifest = sample()
+        original = render_html(manifest)
+        self.assertNotIn('post-details', original)
+        self.assertNotIn('<summary>投稿本文</summary>', original)
+        for value in (None, ''):
+            with self.subTest(post_text=value):
+                manifest['cases'][0]['post_text'] = value
+                self.assertEqual(render_html(manifest), original)
+
     def test_document_exposes_provenance_separate_from_training_and_side_by_side_images(self):
         content = render_html(sample())
         document = Document(content)

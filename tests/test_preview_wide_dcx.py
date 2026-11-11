@@ -11,6 +11,7 @@ from test_image_renderer import change_fields
 HAS_RENDERER = all(importlib.util.find_spec(name) for name in ('azarashi', 'matplotlib', 'numpy'))
 if HAS_RENDERER:
     import numpy as np
+    from matplotlib.colors import to_rgba
     from matplotlib.path import Path
     from image_service import ash_map, region_map
     from image_service import render as base
@@ -19,6 +20,7 @@ if HAS_RENDERER:
     from image_service import preview_wide_layout as wide
     from image_service.preview_dcx_reports import Point, SecondaryEllipse, dcx_plan
     from scripts.gallery_catalog import load_cases
+    from message_format import report_message
 
 
 @unittest.skipUnless(HAS_RENDERER, 'DCX rendering uses the isolated image renderer')
@@ -120,15 +122,66 @@ class DcxRenderingTests(unittest.TestCase):
         self.assertEqual(image.decision.mode, 'topic')
         self.assertTrue(any(item.stage == 'geometry' for item in image.decision.reasons))
 
-    def test_secondary_evacuation_destination_remains_an_explicit_topic_fallback(self):
-        image, fig = self.capture(self.cases['dcx-secondary-evacuation'].records)
+    def test_evacuation_destination_is_yellow_without_overriding_the_main_scope(self):
+        for slug in ('dcx-secondary-evacuation', 'dcx-evacuation-overlap'):
+            with self.subTest(slug=slug):
+                records = self.cases[slug].records
+                report, = base._decode(records)
+                plan = dcx_plan((report,))
+                main, destination = plan.geometries
+                self.assertEqual(destination.role, 'evacuation_destination')
+                image, fig = self.capture(records)
+                self.assertEqual(image.decision.mode, 'geometry')
+                self.assertFalse(image.decision.reasons)
+                shapes = {p.get_gid(): p for p in fig.axes[0].patches
+                          if (p.get_gid() or '').startswith('dcx-')}
+                self.assertEqual(set(shapes), {'dcx-target-ellipse-0', 'dcx-secondary-ellipse-0'})
+                primary, secondary = shapes['dcx-target-ellipse-0'], shapes['dcx-secondary-ellipse-0']
+                np.testing.assert_allclose(primary.get_xy(), dcx_images.ellipse_ring(main, reference=main.lon))
+                np.testing.assert_allclose(secondary.get_xy(),
+                                           dcx_images.secondary_ellipse_ring(destination, reference=main.lon))
+                for shape in shapes.values():
+                    self.assert_visible(fig, shape.get_xy())
+                self.assertEqual(secondary.get_edgecolor(), to_rgba('#ffd166'))
+                self.assertEqual(secondary.get_facecolor()[3], 0,
+                                 'A designated destination is not a uniformly safe filled area')
+                self.assertEqual(secondary.get_linestyle(), '--')
+                self.assertEqual(primary.get_linestyle(), '-')
+                self.assertGreater(primary.get_zorder(), secondary.get_zorder())
+                labels = self.text(fig).replace('\n', '')
+                for phrase in ('通報の主範囲・避難先の指定', '避難先の指定（破線）',
+                               '通報で指定された範囲', '重なる区域は主範囲の指示を優先'):
+                    self.assertIn(phrase, labels)
+                self.assertNotIn('安全区域', labels)
+                self.assertNotIn('安全な場所', labels)
+                self.assertFalse(any((artist.get_gid() or '').startswith('dcx-hazard-point-')
+                                     for artist in fig.axes[0].collections))
+                self.assert_plain_locator(fig)
+                self.assertIn('IC-A-03', report_message(report))
+
+    def test_unprojectable_evacuation_keeps_default_post_guidance_but_no_partial_map(self):
+        records = self.cases['dcx-secondary-evacuation'].records
+        report, = base._decode(records)
+        text = report_message(report)
+        self.assertIn('IC-A-03', text)
+        with patch.object(dcx_images, 'secondary_ellipse_ring',
+                          side_effect=ValueError('DCX ellipse has no unique near WGS84 surface')):
+            image, fig = self.capture(records)
         self.assert_topic(fig)
         self.assertEqual(image.decision.mode, 'topic')
-        failures = [item for item in image.decision.reasons if item.stage == 'geometry']
-        self.assertEqual(len(failures), 1)
-        self.assertEqual(failures[0].code, 'unsupported_geometry')
-        self.assertIn('C10=0', failures[0].detail)
-        self.assertIn('避難先', failures[0].detail)
+        self.assertTrue(any(reason.code == 'projection_unavailable' for reason in image.decision.reasons))
+        self.assertEqual(report_message(report), text)
+
+    def test_evacuation_release_retains_its_status_and_received_destination(self):
+        sentence, at = self.cases['dcx-secondary-evacuation'].records[0]
+        records = ((change_fields(sentence, ((24, 2, 3),)), at),)
+        image, fig = self.capture(records)
+        self.assertEqual(image.decision.mode, 'geometry')
+        self.assertIn('【解除】', self.text(fig))
+        self.assertNotIn('取消', self.text(fig))
+        self.assertTrue(any(p.get_gid() == 'dcx-secondary-ellipse-0' for p in fig.axes[0].patches))
+        report, = base._decode(records)
+        self.assertIn('【解除】', report_message(report))
 
     def test_municipal_and_prefectural_maps_keep_every_received_component(self):
         for slug, expected_codes in (('dcx-municipality', {120200}),

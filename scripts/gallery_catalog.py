@@ -221,9 +221,15 @@ def load_cases(root=ROOT):
                   source=RECEIVER, tags=('第2楕円', '範囲の重なり'))
     synthetic_dcx('dcx-secondary-evacuation', 'DCX / 第2楕円の避難先特例・合成訓練例', 'OutsideJapan', 70,
                   secondary_origin + 'A17=2、C7=2、C8=3（1倍）、C9=8（90度）、C10=0を指定します。'
-                  'C10=0の避難先特例は未対応のため、トピック表示へ戻す確認例です。',
+                  '第2楕円を通報で指定された避難先として表示し、主範囲に対する既定指示を投稿本文で確認します。',
                   fields=((129, 2, 2), (131, 2, 2), (133, 3, 3), (136, 5, 8), (141, 5, 0)),
-                  source=RECEIVER, tags=('第2楕円', '避難先特例', '未対応'))
+                  source=RECEIVER, tags=('第2楕円', '避難先特例'))
+    synthetic_dcx('dcx-evacuation-overlap', 'DCX / 避難先の完全な重なり・合成訓練例', 'OutsideJapan', 70,
+                  secondary_origin + 'A17=2、C7=0、C8=0（0.25倍）、C9=0、C10=0を指定します。'
+                  '主楕円と同心で、その内側に収まる避難先の指定を保持します。'
+                  '重なる区域では主範囲の指示が優先し、避難先の指定から実際の安全性は推定しません。',
+                  fields=((129, 2, 2), (131, 2, 0), (133, 3, 0), (136, 5, 0), (141, 5, 0)),
+                  source=RECEIVER, tags=('第2楕円', '避難先特例', '範囲の重なり'))
     synthetic_dcx('dcx-municipality', 'DCX / 市町村の対象区域', 'LAlert', 0,
                   '公式アーカイブのフレーム0から派生した合成訓練例です。'
                   'Vn=1、A1=0（試験）、EX1=1202（函館市）に設定し、'

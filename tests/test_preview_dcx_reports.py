@@ -191,11 +191,13 @@ class DcxReportTests(unittest.TestCase):
         self.assertEqual(secondary, SecondaryEllipse(main, 3, 2., 348.75, 5))
 
     def test_secondary_instruction_codes_require_the_reviewed_international_library(self):
-        for code in (*range(1, 17), 30, 31):
+        for code in (*range(17), 30, 31):
             with self.subTest(code=code):
                 plan = dcx_plan((self.secondary_report((141, 5, code)),))
                 self.assertEqual(plan.scope_kind, 'geometry')
                 self.assertEqual(plan.geometries[1].instruction_code, code)
+                self.assertEqual(plan.geometries[1].role,
+                                 'evacuation_destination' if code == 0 else 'secondary_target')
         for fields in (((66, 1, 1),), ((67, 3, 1),), ((67, 3, 7),)):
             with self.subTest(fields=fields):
                 plan = dcx_plan((self.secondary_report(*fields),))
@@ -203,15 +205,59 @@ class DcxReportTests(unittest.TestCase):
                 self.assertEqual(plan.reasons[0].code, 'unsupported_geometry')
                 self.assertIn('ライブラリ', plan.reasons[0].detail)
 
-    def test_secondary_evacuation_and_reserved_instructions_decline_the_whole_geometry(self):
-        for code in (0, *range(17, 30)):
+    def test_evacuation_destination_is_not_an_additional_hazard_target(self):
+        for state, expected_status in ((0, '訓練'), (1, '発表'), (2, '更新'), (3, '解除')):
+            with self.subTest(state=state):
+                report = self.secondary_report((24, 2, state), (141, 5, 0))
+                before = (str(report), deepcopy(report.camf.get_params()))
+                plan = dcx_plan((report,))
+                self.assertEqual(plan.scope_kind, 'geometry')
+                main, destination = plan.geometries
+                self.assertEqual(destination,
+                                 SecondaryEllipse(main, 2, 1., 180., 0, role='evacuation_destination'))
+                self.assertEqual(plan.status, expected_status)
+                self.assertEqual(plan.areas, ())
+                self.assertEqual((str(report), report.camf.get_params()), before)
+
+    def test_all_zero_b3_fields_keep_the_destination_inside_the_main_scope(self):
+        plan = dcx_plan((self.secondary_report((131, 15, 0)),))
+        self.assertEqual(plan.scope_kind, 'geometry')
+        main, destination = plan.geometries
+        self.assertEqual(destination,
+                         SecondaryEllipse(main, 0, .25, 0., 0, role='evacuation_destination'))
+        self.assertEqual(len(plan.geometries), 2, 'The main scope must still take priority in the overlap')
+
+    def test_evacuation_destination_requires_the_same_library_and_version_as_its_text(self):
+        for fields in (((66, 1, 1),), ((67, 3, 1),), ((67, 3, 7),)):
+            with self.subTest(fields=fields):
+                plan = dcx_plan((self.secondary_report((141, 5, 0), *fields),))
+                self.assert_topic(plan)
+                self.assertEqual(plan.reasons[0].code, 'unsupported_geometry')
+                self.assertIn('ライブラリ', plan.reasons[0].detail)
+        for version in (0, 1, 31, 63):
+            with self.subTest(version=version):
+                plan = dcx_plan((self.secondary_report((141, 5, 0), (214, 6, version)),))
+                self.assertEqual(plan.scope_kind, 'geometry')
+                self.assertEqual(plan.geometries[1].role, 'evacuation_destination')
+
+    def test_evacuation_map_declines_a_descriptor_that_cannot_receive_default_post_guidance(self):
+        report = self.secondary_report((141, 5, 0))
+        # A stale decoded C10=0 cannot override a contradictory raw A18.
+        # Both the post formatter and map must use the same qualification.
+        report.camf.a18 ^= 1
+        plan = dcx_plan((report,))
+        self.assert_topic(plan)
+        self.assertEqual((plan.reasons[0].code, plan.reasons[0].stage), ('invalid_fields', 'geometry'))
+
+    def test_reserved_secondary_instructions_decline_the_whole_geometry(self):
+        for code in range(17, 30):
             with self.subTest(code=code):
                 plan = dcx_plan((self.secondary_report((141, 5, code)),))
                 self.assert_topic(plan)
                 self.assertEqual((plan.reasons[0].code, plan.reasons[0].stage),
                                  ('unsupported_geometry', 'geometry'))
                 self.assertIn(f'C10={code}', plan.reasons[0].detail)
-                self.assertIn('避難先' if code == 0 else '予約', plan.reasons[0].detail)
+                self.assertIn('予約', plan.reasons[0].detail)
 
     def test_invalid_or_inconsistent_secondary_fields_do_not_leave_the_main_ellipse(self):
         changes = (('camf', 'c7', 4), ('camf', 'c8', -1), ('camf', 'c9', 32),

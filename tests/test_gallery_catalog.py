@@ -28,7 +28,7 @@ class GalleryCatalogTests(unittest.TestCase):
         self.cases = {case.slug: case for case in load_cases()}
 
     def test_catalog_covers_image_categories_with_stable_unique_output_names(self):
-        self.assertEqual(len(self.cases), 28)
+        self.assertEqual(len(self.cases), 29)
         self.assertEqual({case.category for case in self.cases.values()}, {
             'Typhoon', 'Hypocenter', 'Weather', 'EarthquakeEarlyWarning', 'SeismicIntensity',
             'Tsunami', 'Volcano', 'AshFall', 'Flood', 'NorthwestPacificTsunami', 'Marine',
@@ -171,6 +171,7 @@ class GalleryCatalogTests(unittest.TestCase):
             ('dcx-secondary-ellipse', (2, 3, 8, 30)),
             ('dcx-secondary-overlap', (0, 7, 0, 30)),
             ('dcx-secondary-evacuation', (2, 3, 8, 0)),
+            ('dcx-evacuation-overlap', (0, 0, 0, 0)),
         )
         for slug, expected in variants:
             with self.subTest(case=slug):
@@ -206,8 +207,14 @@ class GalleryCatalogTests(unittest.TestCase):
                 self.assertEqual((payloads[0] ^ payloads[1]) & ~allowed, 0,
                                  'Only B3 settings, the forced training flag and CRC may change')
         evacuation = self.cases['dcx-secondary-evacuation']
-        self.assertIn('未対応', evacuation.description)
-        self.assertIn('トピック表示', evacuation.description)
+        self.assertIn('既定指示', evacuation.description)
+        self.assertIn('投稿本文', evacuation.description)
+        self.assertNotIn('未対応', evacuation.description)
+        self.assertNotIn('未対応', evacuation.tags)
+        overlap = self.cases['dcx-evacuation-overlap']
+        self.assertIn('0.25倍', overlap.description)
+        self.assertIn('同心', overlap.description)
+        self.assertIn('主範囲の指示が優先', overlap.description)
 
     def test_dcx_derivation_always_forces_the_test_flag_without_altering_satellite_designation(self):
         original = self.cases['dcx-lalert']

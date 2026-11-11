@@ -1,18 +1,22 @@
 """Replay received broadcasts without network access or production keys."""
 
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+import azarashi
 from azarashi.reports import dcr
 
 import main
-from image_publication import ImagePublisher
+from image_publication import ImagePublisher, image_entry, with_image
+from message_format import report_message
 from outbox import Outbox
 from qzqsm_samples import decode_reports, expected_nankai_text
 import test_main as service_helpers
+from scripts.gallery_catalog import load_cases
 
 
 class PublicQzqsmPublicationTests(unittest.IsolatedAsyncioTestCase):
@@ -142,6 +146,53 @@ class PublicQzqsmPublicationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await self.service.accept(report), 'duplicate')
         self.assertFalse(await self.service.publish_one())
         self.assertEqual(self.nostr.send.await_count, 211)
+
+    def evacuation_report(self):
+        case = next(c for c in load_cases() if c.slug == 'dcx-secondary-evacuation')
+        sentence, milliseconds = case.records[0]
+        return azarashi.decode(sentence, timestamp=datetime.fromtimestamp(milliseconds / 1000, timezone.utc))
+
+    async def test_evacuation_default_guidance_is_saved_with_or_without_an_image(self):
+        report = self.evacuation_report()
+        before = str(report), report.camf.get_params(), report.nmea
+        expected = report_message(report)
+        self.assertIn('IC-A-03', expected)
+        self.assertIn('【訓練・試験】', expected.splitlines()[0])
+        self.assertNotIn('黄色', expected.partition('\n\n')[0],
+                         'Guidance cannot depend on an attached or successfully rendered map')
+        broken_images = Mock()
+        broken_images.url.side_effect = ValueError('synthetic URL failure')
+        for index, images in enumerate((None, self.images, broken_images)):
+            with self.subTest(images=index):
+                nostr = service_helpers.fake_nostr()
+                with Outbox(Path(self.directory.name) / f'evacuation-{index}.sqlite3', nostr.identity) as box:
+                    service = main.Service(nostr, box, asyncio.Event(), clock=self.clock, images=images)
+                    self.assertEqual(await service.accept(report), 'queued')
+                    self.assertTrue(await service.publish_one())
+                    event = nostr.send.await_args.args[0]
+                    expected_content = (with_image(expected, images.url((image_entry(report),)))
+                                        if images is self.images else expected)
+                    self.assertEqual(event.content(), expected_content)
+                    self.assertTrue(event.verify())
+                    self.assertTrue(event.content().endswith('\n---\nNMEA: ' + report.nmea))
+                    if images is not self.images:
+                        self.assertEqual(event.tags(), [])
+                    saved = box.connection.execute('SELECT event_json FROM events').fetchone()['event_json']
+                    self.assertEqual(await service.accept(report), 'duplicate')
+                    self.assertEqual(box.connection.execute('SELECT event_json FROM events').fetchone()['event_json'], saved)
+                    self.assertFalse(await service.publish_one())
+                    self.assertEqual(nostr.send.await_count, 1)
+        self.assertEqual((str(report), report.camf.get_params(), report.nmea), before)
+
+    async def test_existing_signed_evacuation_event_is_not_rewritten_by_new_formatting(self):
+        report = self.evacuation_report()
+        legacy = self.nostr.build_event(f'{report}\n---\nNMEA: {report.nmea}')
+        self.assertNotEqual(legacy.content(), report_message(report))
+        self.assertEqual(self.outbox.enqueue(main.report_key(report), legacy.as_json(),
+                                            legacy.id().to_hex(), self.clock()), 'queued')
+        self.assertEqual(await self.service.accept(report), 'duplicate')
+        self.assertTrue(await self.service.publish_one())
+        self.assertEqual(self.nostr.send.await_args.args[0].as_json(), legacy.as_json())
 
 
 if __name__ == '__main__':

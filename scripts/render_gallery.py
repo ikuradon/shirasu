@@ -81,6 +81,19 @@ def _decoded_text(records):
         milliseconds / 1000, timezone.utc))) for nmea, milliseconds in records)
 
 
+def _post_text(records):
+    """Expose the actual C10=0 post without inventing one for grouped records."""
+    if len(records) != 1:
+        return None
+    import azarashi
+    from dcx_instructions import is_evacuation_destination
+    from message_format import report_message
+
+    nmea, milliseconds = records[0]
+    report = azarashi.decode(nmea, timestamp=datetime.fromtimestamp(milliseconds / 1000, timezone.utc))
+    return report_message(report) if is_evacuation_destination(report) else None
+
+
 def _write_json(path, value):
     with path.open('x', encoding='utf-8') as destination:
         json.dump(value, destination, ensure_ascii=False, indent=2)
@@ -119,6 +132,7 @@ def generate(output, *, published_version='v4', selected_cases=None, preview_onl
     _preflight(published_version, preview_only=preview_only)
     license_text = (ROOT / 'tests/fixtures/qzqsm/LICENSE.azarashi').read_text(encoding='utf-8')
     texts = {case.slug: _decoded_text(case.records) for case in cases}
+    posts = {case.slug: _post_text(case.records) for case in cases}
     output.mkdir(parents=True, exist_ok=False)
     (output / 'images').mkdir()
     (output / 'records').mkdir()
@@ -140,6 +154,8 @@ def generate(output, *, published_version='v4', selected_cases=None, preview_onl
                    reference_times=sorted({datetime.fromtimestamp(milliseconds / 1000, timezone.utc)
                                            .isoformat() for _, milliseconds in case.records}),
                    report_text=texts[case.slug], images={})
+        if posts[case.slug] is not None:
+            row['post_text'] = posts[case.slug]
         _write_json(output / row['records_path'],
                     [{'nmea': nmea, 'received_ms': milliseconds}
                      for nmea, milliseconds in case.records])

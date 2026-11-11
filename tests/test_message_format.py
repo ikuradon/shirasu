@@ -1,4 +1,4 @@
-"""Verify that grouped marine posts preserve the decoded warning information."""
+"""Preserve received details while formatting supported report instructions."""
 
 import copy
 from datetime import datetime, timezone
@@ -9,8 +9,11 @@ from azarashi.definitions.qzss.dcr.information_type import information_type
 from azarashi.definitions.qzss.dcr.marine_forecast_region import marine_forecast_region
 from azarashi.definitions.qzss.dcr.marine_warning_code import marine_warning_code
 from azarashi.definitions.qzss.dcr.report_classification import report_classification
+from azarashi.reports import dcr
 
 from message_format import report_message
+from qzqsm_samples import decode_reports, manifest
+from test_dcx_instructions import evacuation_report
 
 
 MARINE = '$QZQSM,58,53ADF5A111800283FC5083541042820D5047EA17994309A8622000113240198*7B'
@@ -154,6 +157,83 @@ class MessageFormatTests(unittest.TestCase):
             with self.subTest(sentence=sentence):
                 report = azarashi.decode(sentence, timestamp=RECEIVED_AT)
                 self.assertEqual(report_message(report), f'{report}\n---\nNMEA: {report.nmea}')
+
+
+class DcxEvacuationMessageTests(unittest.TestCase):
+    def test_new_and_updated_alerts_explain_the_default_for_people_in_the_main_area(self):
+        for state, marker in ((1, '【発表】'), (2, '【更新】')):
+            with self.subTest(state=state):
+                report = evacuation_report((24, 2, state))
+                text = report_message(report)
+                self.assertTrue(text.startswith(marker + 'DCX／避難先の指定\n'))
+                self.assertIn('主範囲内の人への既定指示（IC-A-03）：危険区域を直ちに離れ、', text)
+                self.assertIn('受信した第2楕円で指定された避難先へ移動し、', text)
+                self.assertIn('ラジオなどで案内・情報を確認する、という内容です。', text)
+                self.assertIn('その範囲内への別の指示がないことと、主範囲内の人への既定指示がないことは異なります。', text)
+                self.assertIn('重なる区域では、主範囲の指示が優先します。', text)
+                supplement = text.split('受信値の復号テキスト', 1)[0]
+                for image_assumption in ('黄色', '添付', '画像', 'あなたは'):
+                    self.assertNotIn(image_assumption, supplement)
+
+    def test_training_is_labelled_before_any_instruction(self):
+        text = report_message(evacuation_report((24, 2, 0)))
+        self.assertTrue(text.startswith('【訓練・試験】DCX／避難先の指定\n'
+                                        '以下は訓練電文に含まれる指示の説明です。\n'))
+        self.assertIn('*** This is a test message ***', text)
+
+    def test_release_explains_the_setting_without_a_fresh_evacuation_instruction(self):
+        text = report_message(evacuation_report((24, 2, 3)))
+        self.assertTrue(text.startswith('【解除】DCX／避難先の指定\n'))
+        supplement = text.split('受信値の復号テキスト', 1)[0]
+        self.assertIn('既定指示（IC-A-03）の設定が含まれています。', supplement)
+        self.assertIn('解除の通知であり、新たな避難行動を促すものとして扱いません。', supplement)
+        self.assertNotIn('直ちに', supplement)
+        self.assertNotIn('移動し、', supplement)
+
+    def test_explicit_a11_instructions_and_received_frame_are_preserved_verbatim(self):
+        # Nonempty A and B instructions are not replaced by the C10 default.
+        report = evacuation_report((24, 2, 1), (70, 5, 3), (75, 5, 7))
+        original_text = str(report)
+        original_params = copy.deepcopy({name: value for name, value in report.get_params().items()
+                                         if name != 'camf'})
+        original_camf = copy.deepcopy(report.camf.get_params())
+        camf = report.camf
+        text = report_message(report)
+        self.assertTrue(text.endswith(f'{original_text}\n---\nNMEA: {report.nmea}'))
+        for attribute in ('a11_international_library_a', 'a11_international_library_b'):
+            instruction = getattr(report, attribute)
+            self.assertTrue(instruction)
+            self.assertIn(instruction, text)
+        self.assertEqual(str(report), original_text)
+        self.assertEqual({name: value for name, value in report.get_params().items()
+                          if name != 'camf'}, original_params)
+        self.assertIs(report.camf, camf)
+        self.assertEqual(report.camf.get_params(), original_camf)
+
+    def test_instruction_survives_undrawable_geometry_and_foreign_versions(self):
+        for fields in (((80, 16, 65535),), ((214, 6, 63),),
+                       ((113, 5, 31), (118, 5, 31), (131, 2, 3), (133, 3, 7))):
+            with self.subTest(fields=fields):
+                report = evacuation_report(*fields)
+                self.assertIn('主範囲内の人への既定指示（IC-A-03）', report_message(report))
+
+    def test_unreviewed_libraries_and_other_secondary_configurations_remain_byte_identical(self):
+        for fields in (((66, 1, 1),), ((67, 3, 1),), ((141, 5, 1),),
+                       ((141, 5, 17),), ((141, 5, 31),), ((129, 2, 3),)):
+            with self.subTest(fields=fields):
+                report = evacuation_report(*fields)
+                self.assertEqual(report_message(report), f'{report}\n---\nNMEA: {report.nmea}')
+
+    def test_public_recording_keeps_all_other_posts_byte_identical(self):
+        checked = 0
+        for recording in manifest()['recordings']:
+            for report in decode_reports(recording):
+                if isinstance(report, (dcr.Marine, dcr.NankaiTroughEarthquake)):
+                    continue  # These already have separate formatters.
+                with self.subTest(recording=recording, nmea=report.nmea):
+                    self.assertEqual(report_message(report), f'{report}\n---\nNMEA: {report.nmea}')
+                    checked += 1
+        self.assertGreater(checked, 200)
 
 
 if __name__ == '__main__':

@@ -4,6 +4,8 @@ from datetime import timedelta, timezone
 
 from azarashi.reports import dcr
 
+from dcx_instructions import is_evacuation_destination
+
 
 JST = timezone(timedelta(hours=9), 'JST')
 
@@ -63,11 +65,37 @@ def _nankai_text(report):
     ))
 
 
+def _dcx_evacuation_text(report):
+    """Explain the implicit main-area instruction without rewriting raw A11."""
+    state = report.camf.a1
+    marker = {0: '【訓練・試験】', 1: '【発表】', 2: '【更新】', 3: '【解除】'}[state]
+    lines = [marker + 'DCX／避難先の指定']
+    if state == 0:
+        lines.append('以下は訓練電文に含まれる指示の説明です。')
+    if state == 3:
+        lines.append('この解除通報には、主範囲から第2楕円の避難先へ移動する'
+                     '既定指示（IC-A-03）の設定が含まれています。'
+                     '解除の通知であり、新たな避難行動を促すものとして扱いません。')
+    else:
+        lines.append('主範囲内の人への既定指示（IC-A-03）：危険区域を直ちに離れ、'
+                     '受信した第2楕円で指定された避難先へ移動し、'
+                     'ラジオなどで案内・情報を確認する、という内容です。')
+    lines.extend((
+        '第2楕円は通報が指定する避難先です。その範囲内への別の指示がないことと、'
+        '主範囲内の人への既定指示がないことは異なります。',
+        '主範囲と第2楕円が重なる区域では、主範囲の指示が優先します。',
+        '', '受信値の復号テキスト（既定指示の補足は上記）：', str(report),
+    ))
+    return '\n'.join(lines)
+
+
 def report_message(report):
     if isinstance(report, dcr.Marine):
         text = _marine_text(report)
     elif isinstance(report, dcr.NankaiTroughEarthquake):
         text = _nankai_text(report)
+    elif is_evacuation_destination(report):
+        text = _dcx_evacuation_text(report)
     else:
         text = str(report)
     return f'{text}\n---\nNMEA: {report.nmea}'

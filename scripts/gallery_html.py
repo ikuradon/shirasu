@@ -139,6 +139,10 @@ def _case(case, index, published_version):
     metadata = ''.join(f'<div><dt>{key}</dt><dd>{value}</dd></div>' for key, value in rows if value)
     text = case.get('report_text', '')
     body = f'<h4>電文のテキスト</h4><pre>{_escape(text)}</pre>' if text else ''
+    post_text = case.get('post_text')
+    post = ('<details class="source-details post-details"><summary>投稿本文</summary>'
+            f'<div class="details-content"><pre>{_escape(post_text)}</pre></div></details>\n  '
+            if post_text else '')
     paths = _local_path(case['records_path'])
     sides = [side for side in ('published', 'preview') if side in case['images']]
     images = ''.join(_image(case, side, published_version) for side in sides)
@@ -155,7 +159,7 @@ def _case(case, index, published_version):
     <span class="record-count">{_escape(case['record_count'])}電文</span></div>
   <p class="description">{_escape(case['description'])}</p>
   <div class="{grid}">{images}</div>
-  <details class="source-details"><summary>出典・入力データを確認</summary>
+  {post}<details class="source-details"><summary>出典・入力データを確認</summary>
     <div class="details-content"><dl>{metadata}</dl>
     <p class="date-note">基準時刻は電文の日付を復元するために使用します。このギャラリーの公開受信ログには、電文ごとの正確な受信時刻は記録されていません。</p>
     <a class="records-link" href="{paths}" target="_blank" rel="noopener">入力JSONを開く ↗</a>{body}</div>

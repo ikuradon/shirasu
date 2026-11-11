@@ -54,6 +54,7 @@ FILES = (
 )
 
 PREVIEW_FILES = (
+    'dcx_instructions.py',
     'image_service/render_preview.py',
     'image_service/preview_wide_layout.py',
     'image_service/preview_wide_regions.py',

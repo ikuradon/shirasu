@@ -14,6 +14,7 @@ import azarashi
 
 from main import report_message
 from outbox import Outbox
+from test_dcx_instructions import evacuation_report
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,7 +66,7 @@ class PreviewCliTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
         for name in ('main.py', 'outbox.py', 'receiver.py', 'inspection.py', 'preview.py', 'message_format.py',
-                     'image_publication.py', 'image_protocol.py', 'typhoon.py', 'nankai.py'):
+                     'dcx_instructions.py', 'image_publication.py', 'image_protocol.py', 'typhoon.py', 'nankai.py'):
             shutil.copyfile(ROOT / name, self.root / name)
         (self.root / 'config.py').write_text(
             "raise AssertionError('PREVIEW_SIDE_EFFECT: config was imported')\n",
@@ -119,6 +120,18 @@ class PreviewCliTests(unittest.TestCase):
         self.assert_success(result, shown=1)
         self.assertIn(self.expected(DCR_NMEA), result.stdout)
         self.assertNotIn(self.expected(DCR_NMEA), result.stderr)
+
+    def test_c10_evacuation_instruction_uses_the_live_formatter_without_side_effects(self):
+        sentence = evacuation_report().nmea
+        source = self.source('synthetic-evacuation-test.nmea', sentence + '\n')
+        result = self.run_cli('--preview', source, '--received-at', RECEIVED_AT.isoformat(),
+                              absent_state=True)
+        self.assert_success(result, shown=1)
+        expected = self.expected(sentence)
+        self.assertIn(expected, result.stdout)
+        self.assertIn('【訓練・試験】DCX／避難先の指定', result.stdout)
+        self.assertIn('主範囲内の人への既定指示（IC-A-03）', result.stdout)
+        self.assertNotIn(expected, result.stderr)
 
     def test_stdin_renders_each_report_including_duplicates_without_creating_state(self):
         data = ('\n'.join((DCR_NMEA, MARINE_NMEA, DCR_NMEA)) + '\n').encode()

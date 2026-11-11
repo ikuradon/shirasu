@@ -2,6 +2,7 @@
 
 import base64
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import io
@@ -123,6 +124,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         row, = result['cases']
         self.assertEqual(row['slug'], self.case.slug)
         self.assertEqual(row['source_sha256'], self.case.source_sha256)
+        self.assertNotIn('post_text', row)
         records = json.loads((self.output / row['records_path']).read_text(encoding='utf-8'))
         self.assertEqual([(r['nmea'], r['received_ms']) for r in records], list(self.case.records))
         self.assertEqual([(tuple(call.args[0]), call.args[1]) for call in render.call_args_list],
@@ -139,6 +141,39 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         html = (self.output / 'index.html').read_text(encoding='utf-8')
         for path in (row['records_path'], *(item['path'] for item in row['images'].values())):
             self.assertIn(path, html)
+
+    def test_only_single_evacuation_destinations_include_the_actual_post_with_nmea(self):
+        import azarashi
+        from message_format import report_message
+
+        selected = ('dcx-secondary-evacuation', 'dcx-evacuation-overlap',
+                    'dcx-secondary-ellipse', 'typhoon-track', 'marine')
+        cases = {case.slug: case for case in load_cases()}
+        with patch.object(render_gallery, '_preflight'), \
+                patch.object(render_gallery, '_render_with_decision', return_value=(PNG, 'map', None)), \
+                redirect_stdout(io.StringIO()):
+            result = render_gallery.generate(self.output, selected_cases=selected, preview_only=True)
+        eligible = {'dcx-secondary-evacuation', 'dcx-evacuation-overlap'}
+        self.assertEqual({row['slug'] for row in result['cases'] if 'post_text' in row}, eligible)
+        for row in result['cases']:
+            case = cases[row['slug']]
+            self.assertEqual(row['report_text'], render_gallery._decoded_text(case.records))
+            if case.slug in eligible:
+                (nmea, milliseconds), = case.records
+                report = azarashi.decode(nmea, timestamp=datetime.fromtimestamp(
+                    milliseconds / 1000, timezone.utc))
+                self.assertEqual(row['post_text'], report_message(report))
+                self.assertTrue(row['post_text'].endswith('\n---\nNMEA: ' + nmea))
+        saved = json.loads((self.output / 'manifest.json').read_text(encoding='utf-8'))
+        self.assertEqual(saved, result)
+
+    def test_grouped_evacuation_records_are_not_presented_as_a_single_post(self):
+        cases = {case.slug: case for case in load_cases()}
+        grouped = (cases['dcx-secondary-evacuation'].records
+                   + cases['dcx-evacuation-overlap'].records)
+        with patch('azarashi.decode') as decode:
+            self.assertIsNone(render_gallery._post_text(grouped))
+        decode.assert_not_called()
 
     def test_failed_render_keeps_other_output_and_returns_failure_status(self):
         for failed_version, failed_slot, good_slot in (
