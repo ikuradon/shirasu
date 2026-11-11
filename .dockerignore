@@ -74,6 +74,9 @@ tests/test_timeline_publication.py
 tests/test_image_benchmark.py
 tests/test_image_encoding_benchmark.py
 tests/test_webp_encoding_probe.py
+tests/test_webp_renderer.py
+tests/test_webp_http.py
+tests/test_webp_release.py
 tests/test_webp_benchmark.py
 tests/test_benchmark_html.py
 tests/test_release_candidate.py
@@ -91,6 +94,7 @@ scripts/benchmark_images.py
 scripts/image_encoding_benchmark.py
 scripts/webp_encoding_probe.py
 scripts/benchmark_webp.py
+scripts/check_webp_release.py
 scripts/benchmark_html.py
 dist
 .vercel

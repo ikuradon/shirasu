@@ -25,6 +25,14 @@ from image_service.preview_diagnostics import Decision, error_reasons, reason, u
 class RenderedPreview(base.RenderedImage):
     decision: Decision
 
+
+@dataclass(frozen=True)
+class RenderedWebP:
+    data: bytes
+    category: str
+    decision: Decision
+    mime: str = 'image/webp'
+
 DRAWERS = {
     dcr.Weather: regions.draw_weather,
     dcr.EarthquakeEarlyWarning: regions.draw_eew,
@@ -53,18 +61,43 @@ def verify_assets():
     return True
 
 
-def _finish(fig, category, decision):
+def _decorate(fig):
     for label in fig.findobj(Text):
         if label.get_bbox_patch() is None:
             label.set_path_effects([patheffects.withStroke(
                 linewidth=1.1, foreground=layout.SEA)])
+
+
+def _finish(fig, category, decision):
+    _decorate(fig)
     output = io.BytesIO()
     fig.savefig(output, format='png', dpi=layout.DPI, facecolor=layout.SEA,
                 metadata={'Software': 'shirasu-image-preview'})
     return RenderedPreview(output.getvalue(), category, decision)
 
 
+def verify_webp_encoder():
+    from image_service.webp_w1 import verify_encoder
+    return verify_encoder()
+
+
+def _finish_webp(fig, category, decision):
+    from image_service.webp_w1 import encode
+    _decorate(fig)
+    return RenderedWebP(encode(fig, dpi=layout.DPI, facecolor=layout.SEA), category, decision)
+
+
 def render(records, *, cancel_reference=None):
+    return _render(records, cancel_reference=cancel_reference, finish=_finish)
+
+
+def render_webp(records, *, cancel_reference=None):
+    """Encode the same scene using the frozen w1 profile, without a PNG step."""
+    verify_webp_encoder()
+    return _render(records, cancel_reference=cancel_reference, finish=_finish_webp)
+
+
+def _render(records, *, cancel_reference, finish):
     records = tuple(records)
     with base._LOCK:
         verify_assets()
@@ -81,7 +114,7 @@ def render(records, *, cancel_reference=None):
                 nankai.draw_card(fig, header)
                 nankai.validate(fig)
                 decision = Decision('topic', (reason('cancelled'),) if header.information == 2 else ())
-                return _finish(fig, 'NankaiTroughEarthquake', decision)
+                return finish(fig, 'NankaiTroughEarthquake', decision)
             finally:
                 fig.clear()
         base._reset_assembly()
@@ -125,7 +158,7 @@ def render(records, *, cancel_reference=None):
                     layout.summary(fig, reports)
                     decision = Decision('summary', reasons)
                 layout.validate(fig)
-            return _finish(fig, type(first).__name__, decision)
+            return finish(fig, type(first).__name__, decision)
         finally:
             if fig is not None:
                 fig.clear()

@@ -102,6 +102,7 @@ SHIRASU_IMAGE_BASE_URL=https://<本番ドメイン>
 SHIRASU_IMAGE_KEY_ID=k1
 SHIRASU_IMAGE_SIGNING_KEY=<同じ64桁のhex鍵>
 SHIRASU_IMAGE_VERSION=v4
+SHIRASU_IMAGE_ENCODING=png
 SHIRASU_TYPHOON_WAIT_SECONDS=180
 SHIRASU_NANKAI_WAIT_SECONDS=180
 ```
@@ -127,10 +128,25 @@ v3では気象・緊急地震速報・火山の地図、v4では気象の情報�
 
 ## キャッシュと世代管理
 
+WebPへの接続は[隔離した公開候補](docs/webp-integration.md)で実装・検証します。
+候補の受信側と画像側だけで`v5`＋`SHIRASU_IMAGE_ENCODING=w1`を選べます。
+通常配布の対応はv1〜v4のPNGで、形式の既定値も`png`です。形式設定だけでは画像は有効になりません。
+通常配布やv1〜v4で`w1`を指定すると起動時の設定エラーになります。
+WebPへの切替を稼働環境へ反映したわけではありません。
+
 URLは `/v1/<key-id>/<payload>.<signature>.png`、`/v2/...`、`/v3/...`、`/v4/...` です。
 payloadはキー順を固定したJSON、zlib、paddingなしbase64urlの順に変換します。
 元のNMEAと元の受信Unixミリ秒を含め、復号の年月補完も再現します。HMACはバージョン・
 key-id・payloadを対象にします。署名確認後にサイズ上限付きで展開・復号します。
+
+候補のWebPは`/v5/<key-id>/<payload>.<signature>.w1.webp`です。PNGとは別の署名ドメインで
+描画版・key-id・payload・`w1`・`webp`を認証し、形式や設定を書き換えたURLを拒否します。
+`w1`は可逆・quality 100・method 4・exactを固定し、Pillow 13.0.0／libwebp 1.6.0以外では
+生成を拒否します。符号器を変えるときは別プロファイルを追加し、公開済み`w1`は残します。
+新規投稿の`imeta`も`m image/webp`になります。PNGへ切り戻しても、保存済みWebP投稿の
+URL・本文・署名は作り直さず、画像サービスの`w1`経路と検証鍵を維持します。
+PNGへの切り戻しでは`SHIRASU_IMAGE_ENCODING=png`を明示します。描画版もv4へ戻す場合は
+版と形式の両方を変更します。v4と`w1`の組は設定エラーです。
 
 CDNはこのパス全体でキャッシュし、保持されていれば再描画を省きます。保存容量を
 予約する仕組みではないため、消えたキャッシュは同じURLから再生成します。エラーは

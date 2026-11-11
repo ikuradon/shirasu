@@ -254,7 +254,8 @@ PNG圧縮時間、PNG／WebP／JPEG／AVIFの容量・変換時間・画素差�
 Aggの所有参照を外し、気象20回の終了時RSSを554→300 MiBへ減らしています。
 [可逆WebPの採用検証](../docs/webp-adoption.md)では、RGBAからの直接出力とPNG経由を比較し、
 全49画像の画素一致、64.27%の容量削減、生成時間の増加、nostterでの表示を確認しています。
-実験用CLIは`scripts/benchmark_webp.py`です。配信形式・署名URL・投稿設定はPNGのままです。
+実験用CLIは`scripts/benchmark_webp.py`です。続く[配信への接続](../docs/webp-integration.md)で、
+候補内のv5だけに固定プロファイル`w1`を追加します。通常配布と既定設定はPNGのままです。
 
 ```sh
 python -B scripts/benchmark_images.py --list
@@ -660,6 +661,11 @@ Vercel の `api/image.py` から `from image_service.app import app` で WSGI �
 - `If-None-Match` が ETag と一致する場合は `304`。Cookie・認証ヘッダーは不要です。
 - query は拒否します。署名不正は `403`、署名済みでも復号できない通報は `400`、
   レンダラーの不備は `503`。エラーと health は `no-store` です。
+
+隔離候補の`/v5/...w1.webp`は、RGBAから直接生成した可逆WebPを`image/webp`で返し、
+実WebPの長さとSHA-256をContent-LengthとETagに使います。HEAD／304も同じ形式です。
+Acceptで形式を変えず、生成失敗時に同じURLでPNGを返しません。
+候補のhealthは固定したPillow／libwebpも確認します。旧PNG経路はそのまま残します。
 
 HMAC は新しい入力の作成を制限する仕組みです。公開済みの URL は誰でも繰り返し取得でき、
 有効期限はありません。鍵をローテーションするときは新しい key-id を追加し、古い投稿を

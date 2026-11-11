@@ -95,12 +95,15 @@ import image_versions, image_protocol
 from image_service.app import RENDERERS
 print(json.dumps({'versions': image_protocol.SUPPORTED_VERSIONS, 'routes': RENDERERS,
                   'candidate': image_versions.CANDIDATE_VERSION, 'default': image_protocol.VERSION,
+                  'webp': image_versions.WEBP_VERSIONS,
                   'origin': image_versions.__file__}))
 '''
         regular = self.isolated(production, code)
         future = self.isolated(self.output / 'images', code)
         self.assertEqual(regular['versions'], ['v1', 'v2', 'v3', 'v4'])
         self.assertIsNone(regular['candidate'])
+        self.assertEqual(regular['webp'], [])
+        self.assertEqual(future['webp'], ['v5'])
         self.assertEqual(future['versions'], ['v1', 'v2', 'v3', 'v4', 'v5'])
         self.assertEqual(future['routes']['v5'], 'image_service.render_preview')
         for version in regular['versions']:
@@ -116,10 +119,15 @@ key = bytes(range(32))
 publishers = [ImagePublisher('https://images.example.test', 'test', key, version=v)
               for v in ('v1', 'v2', 'v3', 'v4', 'v5')]
 assert all(parse_path(urlsplit(p.url(entries)).path, {'test': key}) == entries for p in publishers)
+webp = ImagePublisher('https://images.example.test', 'test', key, version='v5', encoding='w1')
+assert parse_path(urlsplit(webp.url(entries)).path, {'test': key}) == entries
+assert webp.url(entries).endswith('.w1.webp')
 print(json.dumps({'topics': [p.supports_nankai_topic for p in publishers],
+                  'webp_mime': webp.mime,
                   'v5': urlsplit(publishers[-1].url(entries)).path.split('/')[1]}))
 ''')
-        self.assertEqual(receiver, {'topics': [False, False, False, False, True], 'v5': 'v5'})
+        self.assertEqual(receiver, {'topics': [False, False, False, False, True], 'v5': 'v5',
+                                    'webp_mime': 'image/webp'})
         self.assertEqual((self.source / 'image_versions.py').read_bytes(), (ROOT / 'image_versions.py').read_bytes())
         candidate.verify_bundle(self.output)  # Isolated imports created no bytecode or mutable state.
 

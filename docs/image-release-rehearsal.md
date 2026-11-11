@@ -2,6 +2,8 @@
 
 未公開画像を含む候補を独立した配布物に固定し、受信側の署名イベントから画像サービスのPNG応答までをローカルで確認する。
 この手順は本番のVercel、Compose設定、配送DB、署名鍵を変更しない。
+以下の結果は当時のPNG候補の記録です。後続の[WebP接続検証](webp-integration.md)では
+PNGを維持して`w1`を追加し、HTTP・署名の変更を明示したうえで新しい候補を固定します。
 
 ## 今回の確認結果（2026-11-11）
 
@@ -56,6 +58,7 @@ python3 -B scripts/prepare_release_candidate.py --verify "$release_check_dir/can
 python3 -B scripts/prepare_release_baseline.py "$release_check_dir/legacy" --ref 43e0fa4
 python3 -B scripts/prepare_release_baseline.py "$release_check_dir/legacy" \
   --candidate-images "$release_check_dir/candidate/images" \
+  --allow-routing-changes \
   > "$release_check_dir/source-comparison.json"
 mkdir "$release_check_dir/results"
 ```
@@ -64,8 +67,9 @@ mkdir "$release_check_dir/results"
 必要なファイルだけをGitから取り出す。過去のスクリプトを実行したり、過去の設定ファイルを読み込んだりしない。
 
 `source-comparison.json`では旧版のレンダラー、アセット、依存ロックの一致を確認する。
-プロファイル抽出で変わる`image_protocol.py`と`image_service/app.py`は、版の宣言・参照の移動以外に
-実行ロジックの差がないことをASTで比較する。
+当初の候補では`image_protocol.py`と`image_service/app.py`は版の宣言・参照移動以外にAST差がありませんでした。
+WebP接続後は`--allow-routing-changes`を明示し、この2ファイルを別途実行確認が必要な変更として報告します。
+レンダラー・アセット・依存ロックの一致条件は緩めません。旧URL・PNG・ETagは下記の実応答で比較します。
 
 ## 配布物からDockerイメージを作る
 
@@ -163,6 +167,7 @@ HTTP側では`/healthz`、GET、HEAD、条件付きGETの304、MIME、キャッ�
 公開済みの配布物を保管し、次回の変更は別の候補・世代として準備する。
 
 切り戻しは、受信側で**新しい投稿の版をv4へ戻す**か、画像を無効にする。
+WebPへ切り替えた後は`SHIRASU_IMAGE_ENCODING=png`も指定し、v4と`w1`を組み合わせない。
 保存済みの署名イベントは作り直さず、v5 URLを含んでいても元のJSON・ID・署名で再送する。
 そのため画像サービスにはv5のレンダラーと対応する検証鍵を残す。
 v1〜v4しか持たない旧画像パッケージへ全面的に戻すと、既に投稿・保存されたv5 URLが404になり、この切り戻し条件を満たさない。

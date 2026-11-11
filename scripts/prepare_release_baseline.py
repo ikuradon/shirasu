@@ -12,8 +12,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = 'legacy-manifest.json'
-# Only the registry extraction changes these files; every renderer, asset and
-# dependency lock must remain byte-identical to the committed reference.
+# Routing changes require an explicit opt-in and separate runtime comparisons.
+# Every renderer, asset and dependency lock remains byte-identical.
 PROFILE_FILES = {'image_protocol.py', 'image_service/app.py', 'image_versions.py'}
 
 
@@ -81,7 +81,7 @@ def prepare(destination, *, ref='HEAD'):
     return destination
 
 
-def compare_sources(baseline, candidate_images):
+def compare_sources(baseline, candidate_images, *, allow_routing_changes=False):
     """Verify the reference and all frozen code/assets against the candidate."""
     baseline, candidate_images = Path(baseline), Path(candidate_images)
     manifest = json.loads((baseline / MANIFEST).read_text())
@@ -92,7 +92,7 @@ def compare_sources(baseline, candidate_images):
     actual = {str(path.relative_to(baseline)) for path in baseline.rglob('*') if path.is_file()}
     if actual != set(files) | {MANIFEST} or any(p.is_symlink() for p in baseline.rglob('*')):
         raise ValueError('Legacy reference contents differ from its manifest')
-    unchanged, profile_changes = [], []
+    unchanged, profile_changes, routing_changes = [], [], []
     for name, digest in files.items():
         old = hashlib.sha256((baseline / name).read_bytes()).hexdigest()
         if old != digest:
@@ -104,10 +104,13 @@ def compare_sources(baseline, candidate_images):
             unchanged.append(name)
         elif name in PROFILE_FILES and _same_logic(name, (baseline / name).read_bytes(), current.read_bytes()):
             profile_changes.append(name)
+        elif allow_routing_changes and name in PROFILE_FILES:
+            routing_changes.append(name)
         else:
             raise ValueError('Frozen renderer, asset or dependency changed: ' + name)
     return {'commit': manifest['commit'], 'unchanged_files': sorted(unchanged),
-            'profile_changes_verified': sorted(profile_changes)}
+            'profile_changes_verified': sorted(profile_changes),
+            'routing_changes_require_runtime_checks': sorted(routing_changes)}
 
 
 def main(argv=None):
@@ -116,10 +119,13 @@ def main(argv=None):
     parser.add_argument('--ref', default='HEAD', help='committed reference, never a worktree')
     parser.add_argument('--candidate-images', type=Path,
                         help='compare an existing reference with this candidate image package')
+    parser.add_argument('--allow-routing-changes', action='store_true',
+                        help='report protocol/HTTP changes separately; requires legacy HTTP regression checks')
     args = parser.parse_args(argv)
     try:
         if args.candidate_images:
-            result = compare_sources(args.destination, args.candidate_images)
+            result = compare_sources(args.destination, args.candidate_images,
+                                     allow_routing_changes=args.allow_routing_changes)
         else:
             prepare(args.destination, ref=args.ref)
             result = json.loads((args.destination / MANIFEST).read_text())

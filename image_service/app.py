@@ -1,11 +1,11 @@
-"""WSGI entrypoint for Vercel or a local WSGI server; PNGs are never stored."""
+"""WSGI entrypoint for Vercel or a local WSGI server; images are never stored."""
 
 import hashlib
 from importlib import import_module
 import os
 
-from image_protocol import MAX_PATH_LENGTH, SUPPORTED_VERSIONS, load_keys, parse_path, path_version
-from image_versions import RENDERERS
+from image_protocol import MAX_PATH_LENGTH, SUPPORTED_VERSIONS, load_keys, parse_path, path_encoding, path_version
+from image_versions import RENDERERS, WEBP_VERSIONS
 
 
 def app(environ, start_response):
@@ -34,8 +34,11 @@ def app(environ, start_response):
         return error('503 Service Unavailable', 'image service is not configured')
     if path == '/healthz':
         try:
-            for module in RENDERERS.values():
-                import_module(module).verify_assets()
+            for version, module in RENDERERS.items():
+                renderer = import_module(module)
+                renderer.verify_assets()
+                if version in WEBP_VERSIONS:
+                    renderer.verify_webp_encoder()
         except Exception:
             return error('503 Service Unavailable', 'renderer is unavailable')
         return respond('200 OK', b'ok\n', [('Content-Type', 'text/plain'), ('Cache-Control', 'no-store')])
@@ -45,18 +48,31 @@ def app(environ, start_response):
         return error('403 Forbidden', 'invalid image URL')
     try:
         renderer = import_module(RENDERERS[path_version(path)])
-        image = renderer.render(records)
+        encoding = path_encoding(path)
+        if encoding == 'png':
+            image = renderer.render(records)
+            data, mime = image.png, 'image/png'
+        else:
+            image = renderer.render_webp(records)
+            data, mime = image.data, image.mime
+            # An encoder failure or wrong result must never publish a PNG (or
+            # a truncated/different format) under an immutable WebP URL.
+            if (mime != 'image/webp' or not isinstance(data, bytes) or len(data) < 20
+                    or data[:4] != b'RIFF' or data[8:12] != b'WEBP'
+                    or int.from_bytes(data[4:8], 'little') != len(data) - 8
+                    or data[12:16] not in (b'VP8L', b'VP8X')):
+                raise RuntimeError('Unexpected WebP encoder result')
     except (ValueError, OverflowError):
         return error('400 Bad Request', 'invalid report bundle')
     except Exception:
         # Never reflect signed payloads, NMEA text, key IDs or secrets in errors.
         return error('503 Service Unavailable', 'renderer is unavailable')
-    tag = '"' + hashlib.sha256(image.png).hexdigest() + '"'
-    headers = [('Content-Type', 'image/png'), ('X-Content-Type-Options', 'nosniff'),
+    tag = '"' + hashlib.sha256(data).hexdigest() + '"'
+    headers = [('Content-Type', mime), ('X-Content-Type-Options', 'nosniff'),
                ('Cache-Control', 'public, max-age=31536000, immutable'),
                ('Vercel-CDN-Cache-Control', 'public, max-age=31536000'),
                ('ETag', tag)]
     if environ.get('HTTP_IF_NONE_MATCH') == tag:
         start_response('304 Not Modified', headers)
         return []
-    return respond('200 OK', image.png, headers)
+    return respond('200 OK', data, headers)

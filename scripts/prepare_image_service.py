@@ -58,6 +58,7 @@ PREVIEW_FILES = (
     'dcx_instructions.py',
     'nankai_image.py',
     'image_service/render_preview.py',
+    'image_service/webp_w1.py',
     'image_service/preview_nankai.py',
     'image_service/preview_cancellation.py',
     'image_service/preview_cancel_scope.py',

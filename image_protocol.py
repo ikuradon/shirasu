@@ -1,7 +1,7 @@
 """Versioned, self-contained URLs for the public image renderer.
 
 Only the shared signing key authorizes new inputs. A published URL has no
-expiry: readers can reuse it, and a renderer can recreate its PNG after CDN
+expiry: readers can reuse it, and a renderer can recreate its image after CDN
 eviction. This module deliberately has no third-party dependencies or I/O.
 
 Versioned payload: canonical UTF-8 JSON ``{"r":[[offset_ms,nmea],...],"t":base_ms}``,
@@ -18,7 +18,7 @@ import json
 import re
 import zlib
 
-from image_versions import SUPPORTED_VERSIONS
+from image_versions import SUPPORTED_VERSIONS, WEBP_VERSIONS
 
 
 VERSION = 'v1'
@@ -30,6 +30,7 @@ MAX_SPAN_MS = 24 * 60 * 60 * 1000
 # Leave the final calendar year available for decoded forecast dates.
 MAX_TIMESTAMP_MS = 253370764799999  # 9998-12-31T23:59:59.999Z
 _DOMAIN = b'shirasu-image\x00'
+_ENCODING_DOMAIN = b'shirasu-image-encoding\x00'
 _KEY_ID = re.compile(r'[A-Za-z0-9_-]{1,16}', re.ASCII)
 _BASE64URL = re.compile(r'[A-Za-z0-9_-]+', re.ASCII)
 _NMEA = re.compile(r'\$QZQSM,[0-9]{2},[0-9A-Fa-f]{63}\*[0-9A-Fa-f]{2}', re.ASCII)
@@ -46,6 +47,18 @@ def validate_version(value):
     return value
 
 
+def validate_encoding(encoding, version):
+    """Allow only the fixed codec profiles registered for this renderer build."""
+    version = validate_version(version)
+    if not isinstance(encoding, str):
+        raise ProtocolError('Unsupported image encoding profile')
+    if encoding == 'png':
+        return encoding
+    if encoding == 'w1' and version in WEBP_VERSIONS:
+        return encoding
+    raise ProtocolError('Unsupported image encoding profile')
+
+
 def path_version(path):
     """Read a supported generation; this does not authenticate the URL.
 
@@ -57,6 +70,17 @@ def path_version(path):
     if len(parts) != 4 or parts[0]:
         raise ProtocolError('Unsupported image URL path or version')
     return validate_version(parts[1])
+
+
+def path_encoding(path):
+    """Read the fixed encoding profile; call parse_path before trusting it."""
+    version = path_version(path)
+    filename = path.rsplit('/', 1)[1].split('.')
+    if len(filename) == 3 and filename[2] == 'png':
+        return validate_encoding('png', version)
+    if len(filename) == 4 and filename[2:] == ['w1', 'webp']:
+        return validate_encoding('w1', version)
+    raise ProtocolError('Invalid image URL filename')
 
 
 def _key_id(value):
@@ -135,8 +159,15 @@ def _decode64(value, maximum):
     return decoded
 
 
-def _signature(key_id, payload, secret, version):
-    message = _DOMAIN + version.encode('ascii') + b'\x00' + key_id.encode('ascii') + b'\x00' + payload.encode('ascii')
+def _signature(key_id, payload, secret, version, encoding='png'):
+    if encoding == 'png':
+        # Preserve every already-issued PNG signature byte for byte.
+        message = _DOMAIN + version.encode('ascii') + b'\x00' + key_id.encode('ascii') + b'\x00' + payload.encode('ascii')
+    elif encoding == 'w1':
+        message = _ENCODING_DOMAIN + b'\x00'.join(
+            value.encode('ascii') for value in (version, key_id, payload, 'w1', 'webp'))
+    else:
+        raise ProtocolError('Unsupported image encoding profile')
     return hmac.new(secret, message, hashlib.sha256).digest()
 
 
@@ -181,13 +212,14 @@ def load_keys(value):
     return keys
 
 
-def make_path(reports, key_id, secret, *, version=VERSION):
+def make_path(reports, key_id, secret, *, version=VERSION, encoding='png'):
     """Return a signed absolute URL path without performing any network I/O.
 
     ``reports`` contains ``(nmea, received_at_ms)`` pairs. Receipt timestamps
     must come from the saved inputs, not from the time a reader opens the URL.
     """
     version = validate_version(version)
+    encoding = validate_encoding(encoding, version)
     key_id, secret = _key_id(key_id), _secret(secret)
     raw = _json(_records(reports))
     if len(raw) > MAX_EXPANDED_BYTES:
@@ -196,8 +228,9 @@ def make_path(reports, key_id, secret, *, version=VERSION):
     if len(compressed) > MAX_COMPRESSED_BYTES:
         raise ProtocolError('Compressed image input exceeds the size limit')
     payload = _encode64(compressed)
-    signature = _encode64(_signature(key_id, payload, secret, version))
-    path = f'/{version}/{key_id}/{payload}.{signature}.png'
+    signature = _encode64(_signature(key_id, payload, secret, version, encoding))
+    suffix = 'png' if encoding == 'png' else 'w1.webp'
+    path = f'/{version}/{key_id}/{payload}.{signature}.{suffix}'
     if len(path) > MAX_PATH_LENGTH:
         raise ProtocolError('Image URL exceeds the size limit')
     return path
@@ -211,18 +244,17 @@ def parse_path(path, keys):
     URLs remain valid while their verification key and renderer are retained.
     """
     version = path_version(path)
+    encoding = path_encoding(path)
     parts = path.split('/')
     key_id = _key_id(parts[2])
     filename = parts[3].split('.')
-    if len(filename) != 3 or filename[2] != 'png':
-        raise ProtocolError('Invalid image URL filename')
-    payload, signature, _ = filename
+    payload, signature = filename[:2]
     compressed = _decode64(payload, MAX_COMPRESSED_BYTES)
     signed = _decode64(signature, hashlib.sha256().digest_size)
     if not isinstance(keys, Mapping) or key_id not in keys:
         raise ProtocolError('Unknown image signing key')
     secret = _secret(keys[key_id])
-    if len(signed) != 32 or not hmac.compare_digest(signed, _signature(key_id, payload, secret, version)):
+    if len(signed) != 32 or not hmac.compare_digest(signed, _signature(key_id, payload, secret, version, encoding)):
         raise ProtocolError('Invalid image URL signature')
     try:
         decompressor = zlib.decompressobj()

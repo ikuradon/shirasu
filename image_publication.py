@@ -1,4 +1,4 @@
-"""Lightweight image URL creation; the receiver never renders or fetches PNGs."""
+"""Lightweight image URL creation; the receiver never renders or fetches images."""
 
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -8,7 +8,7 @@ import math
 import re
 from urllib.parse import urlsplit
 
-from image_protocol import VERSION, load_keys, make_path, validate_version
+from image_protocol import VERSION, load_keys, make_path, validate_encoding
 from image_versions import NANKAI_TOPIC_VERSIONS
 
 
@@ -18,6 +18,7 @@ class ImagePublisher:
     key_id: str
     secret: bytes = field(repr=False)
     version: str = VERSION
+    encoding: str = 'png'
 
     def __post_init__(self):
         error = 'SHIRASU_IMAGE_BASE_URL must be an HTTPS origin without credentials, path or query'
@@ -50,7 +51,7 @@ class ImagePublisher:
         if not isinstance(self.secret, bytes):
             raise ValueError('Image signing key must be bytes')
         load_keys(json.dumps({self.key_id: self.secret.hex()}))
-        validate_version(self.version)
+        validate_encoding(self.encoding, self.version)
         object.__setattr__(self, 'base_url', self.base_url.rstrip('/'))
 
     @classmethod
@@ -65,10 +66,16 @@ class ImagePublisher:
         base, key_id, key_hex = values
         keys = load_keys(json.dumps({key_id: key_hex}))
         return cls(base, key_id, keys[key_id],
-                   version=environment.get('SHIRASU_IMAGE_VERSION', VERSION))
+                   version=environment.get('SHIRASU_IMAGE_VERSION', VERSION),
+                   encoding=environment.get('SHIRASU_IMAGE_ENCODING', 'png'))
 
     def url(self, entries):
-        return self.base_url + make_path(entries, self.key_id, self.secret, version=self.version)
+        return self.base_url + make_path(entries, self.key_id, self.secret,
+                                        version=self.version, encoding=self.encoding)
+
+    @property
+    def mime(self):
+        return 'image/webp' if self.encoding == 'w1' else 'image/png'
 
     @property
     def supports_nankai_topic(self):

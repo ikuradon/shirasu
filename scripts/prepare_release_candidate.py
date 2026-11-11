@@ -47,6 +47,7 @@ RENDERERS = {'v1': 'image_service.render', 'v2': 'image_service.render_v2',
              'v5': 'image_service.render_preview'}
 SUPPORTED_VERSIONS = tuple(RENDERERS)
 NANKAI_TOPIC_VERSIONS = ('v5',)
+WEBP_VERSIONS = ('v5',)
 CANDIDATE_VERSION = 'v5'
 '''
 

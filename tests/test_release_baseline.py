@@ -54,6 +54,20 @@ class ReleaseBaselineTests(unittest.TestCase):
             (candidate / 'image_protocol.py').write_bytes(new.replace(b'return 1', b'return 2'))
             with self.assertRaisesRegex(ValueError, 'changed'):
                 baseline.compare_sources(legacy, candidate)
+            result = baseline.compare_sources(legacy, candidate, allow_routing_changes=True)
+            self.assertEqual(result['routing_changes_require_runtime_checks'], ['image_protocol.py'])
+            self.assertEqual(result['profile_changes_verified'], [])
+            # The opt-in never relaxes renderer or asset byte checks.
+            renderer = 'image_service/render.py'
+            for folder, content in ((legacy, b'original'), (candidate, b'changed')):
+                (folder / 'image_service').mkdir()
+                (folder / renderer).write_bytes(content)
+            manifest = json.loads((legacy / baseline.MANIFEST).read_text())
+            manifest['files'][renderer] = hashlib.sha256(b'original').hexdigest()
+            (legacy / baseline.MANIFEST).write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(ValueError, 'Frozen renderer'):
+                baseline.compare_sources(legacy, candidate, allow_routing_changes=True)
+            (candidate / renderer).write_bytes(b'original')
             (candidate / 'image_protocol.py').write_bytes(new)
             (legacy / 'image_protocol.py').write_bytes(b'changed reference')
             with self.assertRaisesRegex(ValueError, 'modified'):

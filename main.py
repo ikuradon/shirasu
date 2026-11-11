@@ -113,12 +113,14 @@ class Nostr:
     def identity(self):
         return self.keys.public_key().to_hex()
 
-    def build_event(self, message, image_url=None, image_alt=None):
+    def build_event(self, message, image_url=None, image_alt=None, image_mime='image/png'):
         builder = EventBuilder(Kind(1), message)
         if image_url is not None:
+            if image_mime not in ('image/png', 'image/webp'):
+                raise ValueError('Unsupported image MIME type')
             alt = image_alt if isinstance(image_alt, str) and image_alt.strip() else DEFAULT_IMAGE_ALT
             builder = builder.tags([Tag.parse(['imeta', f'url {image_url}',
-                                             'm image/png', 'alt ' + alt])])
+                                             'm ' + image_mime, 'alt ' + alt])])
         return builder.finalize(self.keys)
 
     async def connect(self):
@@ -198,8 +200,13 @@ class Service:
                     # the readable report; retries reuse the signed fallback.
                     logger.warning('Image description unavailable: %s; using default', type(error).__name__)
                     alt = DEFAULT_IMAGE_ALT
-                return self.nostr.build_event(with_image(message, image_url),
-                                              image_url=image_url, image_alt=alt)
+                # Keep the existing PNG call contract, while signing the MIME
+                # selected by the WebP URL profile for newly created events.
+                image_options = {'image_url': image_url, 'image_alt': alt}
+                image_mime = getattr(self.images, 'mime', 'image/png')
+                if image_mime != 'image/png':
+                    image_options['image_mime'] = image_mime
+                return self.nostr.build_event(with_image(message, image_url), **image_options)
         return self.nostr.build_event(message)
 
     def _full(self):
