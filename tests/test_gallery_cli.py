@@ -125,6 +125,10 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         self.assertEqual(row['slug'], self.case.slug)
         self.assertEqual(row['source_sha256'], self.case.source_sha256)
         self.assertNotIn('post_text', row)
+        post, = row['posts']
+        self.assertEqual(post['record_indexes'], [0])
+        self.assertEqual(post['kind'], 'single')
+        self.assertEqual(post['images'], row['images'])
         records = json.loads((self.output / row['records_path']).read_text(encoding='utf-8'))
         self.assertEqual([(r['nmea'], r['received_ms']) for r in records], list(self.case.records))
         self.assertEqual([(tuple(call.args[0]), call.args[1]) for call in render.call_args_list],
@@ -148,10 +152,14 @@ runpy.run_path(sys.argv[0], run_name='__main__')
                 patch.object(render_gallery, '_render_with_decision', return_value=(PNG, 'map', None)) as render, \
                 redirect_stdout(io.StringIO()):
             result = render_gallery.generate(self.output, selected_cases=(case.slug,))
-        old, preview = render.call_args_list
+        old, preview, posted = render.call_args_list
         self.assertEqual(old.kwargs, {})
         self.assertEqual(preview.kwargs, {'cancel_reference': case.cancel_reference})
+        self.assertEqual(posted.args, (case.records, 'preview'))
+        self.assertEqual(posted.kwargs, {})
         row, = result['cases']
+        self.assertNotEqual(row['images']['preview']['path'], row['posts'][0]['images']['preview']['path'])
+        self.assertEqual(row['images']['published'], row['posts'][0]['images']['published'])
         self.assertNotIn('cancel_reference', row)
         records = json.loads((self.output / row['cancel_reference_path']).read_text())
         self.assertEqual(tuple((r['nmea'], r['received_ms']) for r in records), case.cancel_reference)
@@ -193,6 +201,80 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         with patch('azarashi.decode') as decode:
             self.assertIsNone(render_gallery._post_text(grouped))
         decode.assert_not_called()
+
+    def test_weather_bundle_has_separate_posts_and_images_for_each_original_frame(self):
+        import azarashi
+        from message_format import report_message
+
+        case = next(c for c in load_cases() if c.slug == 'weather-many')
+        with patch.object(render_gallery, '_preflight'), \
+                patch.object(render_gallery, '_render_with_decision', return_value=(PNG, 'map', None)) as render, \
+                redirect_stdout(io.StringIO()):
+            result = render_gallery.generate(self.output, selected_cases=(case.slug,), preview_only=True)
+        row, = result['cases']
+        self.assertEqual(len(row['posts']), 3)
+        self.assertEqual(render.call_count, 4)
+        for index, post in enumerate(row['posts']):
+            nmea, ms = case.records[index]
+            report = azarashi.decode(nmea, timestamp=datetime.fromtimestamp(ms / 1000, timezone.utc))
+            self.assertEqual(post['text'], report_message(report))
+            self.assertEqual(post['record_indexes'], [index])
+            self.assertEqual(post['record_count'], 1)
+            self.assertTrue(post['image_enabled'])
+            self.assertEqual(render.call_args_list[index + 1].args, ((case.records[index],), 'preview'))
+            image = post['images']['preview']
+            self.assertNotEqual(image['path'], row['images']['preview']['path'])
+            self.assertEqual((self.output / image['path']).read_bytes(), PNG)
+        self.assertEqual(result['error_count'], 0)
+
+    def test_typhoon_post_uses_collector_text_and_corresponding_all_point_image(self):
+        import azarashi
+        from typhoon import typhoon_summary
+
+        case = next(c for c in load_cases() if c.slug == 'typhoon-track')
+        with patch.object(render_gallery, '_preflight'), \
+                patch.object(render_gallery, '_render_with_decision', return_value=(PNG, 'map', None)) as render, \
+                redirect_stdout(io.StringIO()):
+            result = render_gallery.generate(self.output, selected_cases=(case.slug,), preview_only=True)
+        row, = result['cases']
+        post, = row['posts']
+        records = tuple(case.records[i] for i in post['record_indexes'])
+        reports = tuple(azarashi.decode(nmea, timestamp=datetime.fromtimestamp(ms / 1000, timezone.utc))
+                        for nmea, ms in records)
+        self.assertEqual(post['kind'], 'typhoon')
+        self.assertEqual(post['text'], typhoon_summary(reports))
+        self.assertEqual(set(post['record_indexes']), set(range(len(case.records))))
+        self.assertTrue(any(call.args == (records, 'preview') for call in render.call_args_list))
+        self.assertEqual(len(case.records), 7)
+        self.assertIn('受信した7時点', post['text'])
+
+    def test_failed_post_attachment_remains_visible_without_replacing_other_post_images(self):
+        case = next(c for c in load_cases() if c.slug == 'weather-many')
+        def render(records, version):
+            if records == (case.records[1],):
+                raise ValueError('single frame attachment failed')
+            return PNG, 'map', None
+        with patch.object(render_gallery, '_preflight'), \
+                patch.object(render_gallery, '_render_with_decision', side_effect=render), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            status = render_gallery.main(['--output', str(self.output), '--preview-only', '--case', case.slug])
+        self.assertEqual(status, 1)
+        result = json.loads((self.output / 'manifest.json').read_text())
+        row, = result['cases']
+        self.assertEqual(result['error_count'], 1)
+        self.assertIn('path', row['images']['preview'])
+        self.assertIn('path', row['posts'][0]['images']['preview'])
+        self.assertIn('single frame attachment failed', row['posts'][1]['images']['preview']['error'])
+        self.assertIn('path', row['posts'][2]['images']['preview'])
+
+    def test_post_planning_failure_prevents_any_partial_output(self):
+        with patch.object(render_gallery, '_preflight'), \
+                patch('scripts.gallery_posts.plan_posts', side_effect=ValueError('cannot plan posts')), \
+                patch.object(render_gallery, '_render_with_decision') as render:
+            with self.assertRaisesRegex(ValueError, 'cannot plan posts'):
+                render_gallery.generate(self.output, selected_cases=('marine',), preview_only=True)
+        render.assert_not_called()
+        self.assertFalse(self.output.exists())
 
     def test_failed_render_keeps_other_output_and_returns_failure_status(self):
         for failed_version, failed_slot, good_slot in (

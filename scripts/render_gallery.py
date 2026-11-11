@@ -105,6 +105,29 @@ def _write_json(path, value):
         destination.write('\n')
 
 
+def _save_image(output, name, records, version, *, cancel_reference=None):
+    """Save one rendered input and retain failures for both gallery views."""
+    try:
+        options = {'cancel_reference': cancel_reference} if version == 'preview' and cancel_reference else {}
+        png, kind, decision = _render_with_decision(records, version, **options)
+        if len(png) < 24 or png[:8] != b'\x89PNG\r\n\x1a\n' or kind not in ('map', 'summary', 'topic'):
+            raise ValueError('不正な描画結果です')
+        width, height = struct.unpack('>II', png[16:24])
+        if not width or not height:
+            raise ValueError('PNGの寸法が不正です')
+        relative = f'images/{name}.png'
+        with (output / relative).open('xb') as destination:
+            destination.write(png)
+        image = {'path': relative, 'version': version, 'kind': kind,
+                 'sha256': hashlib.sha256(png).hexdigest(), 'width': width, 'height': height}
+        if version == 'preview' and decision is not None:
+            image['decision'] = decision
+        return image
+    except Exception as error:
+        message = ' '.join(str(error).split())[:400]
+        return {'version': version, 'error': f'{type(error).__name__}: {message}'}
+
+
 def _select_cases(selected_cases):
     cases = load_cases()
     slugs = [case.slug for case in cases]
@@ -138,19 +161,25 @@ def generate(output, *, published_version='v4', selected_cases=None, preview_onl
     license_text = (ROOT / 'tests/fixtures/qzqsm/LICENSE.azarashi').read_text(encoding='utf-8')
     texts = {case.slug: _decoded_text(case.records) for case in cases}
     posts = {case.slug: _post_text(case.records) for case in cases}
+    from scripts.gallery_posts import plan_posts
+    planned_posts = {case.slug: plan_posts(case.records) for case in cases}
     output.mkdir(parents=True, exist_ok=False)
     (output / 'images').mkdir()
     (output / 'records').mkdir()
     with (output / 'LICENSE.azarashi').open('x', encoding='utf-8') as destination:
         destination.write(license_text)
     manifest = {'schema_version': 1, 'source_license_path': 'LICENSE.azarashi',
-                'error_count': 0, 'cases': []}
+                'error_count': 0, 'cases': [],
+                'post_preview': {'images_enabled': True, 'history': 'empty',
+                                 'input_timing': 'same_virtual_time_in_input_order',
+                                 'collection_wait_seconds': 180}}
     if preview_only:
         manifest['renderer'] = 'preview'
     else:
         manifest['published_version'] = published_version
     slots = (('preview', 'preview'),) if preview_only else (
         ('published', published_version), ('preview', 'preview'))
+    saved_images = {}
     for index, case in enumerate(cases, 1):
         row = asdict(case)
         del row['records']
@@ -173,30 +202,34 @@ def generate(output, *, published_version='v4', selected_cases=None, preview_onl
                          for nmea, milliseconds in case.cancel_reference])
         for slot, version in slots:
             print(f'[{index}/{len(cases)}] {case.slug} / {version}', flush=True)
-            try:
-                options = {'cancel_reference': case.cancel_reference} if version == 'preview' and case.cancel_reference else {}
-                png, kind, decision = _render_with_decision(case.records, version, **options)
-                if len(png) < 24 or png[:8] != b'\x89PNG\r\n\x1a\n' or kind not in ('map', 'summary', 'topic'):
-                    raise ValueError('不正な描画結果です')
-                width, height = struct.unpack('>II', png[16:24])
-                if not width or not height:
-                    raise ValueError('PNGの寸法が不正です')
-                name = case.slug if preview_only else f'{case.slug}-{version}'
-                relative = f'images/{name}.png'
-                with (output / relative).open('xb') as destination:
-                    destination.write(png)
-                row['images'][slot] = {'path': relative, 'version': version, 'kind': kind,
-                                       'sha256': hashlib.sha256(png).hexdigest(),
-                                       'width': width, 'height': height}
-                if version == 'preview' and decision is not None:
-                    row['images'][slot]['decision'] = decision
-            except Exception as error:
-                # A failed cell remains visible; the command's exit status also
-                # fails. Never relabel a failure as a successful summary card.
-                message = ' '.join(str(error).split())[:400]
-                row['images'][slot] = {'version': version,
-                                       'error': f'{type(error).__name__}: {message}'}
-                manifest['error_count'] += 1
+            reference = case.cancel_reference if version == 'preview' else ()
+            name = case.slug if preview_only else f'{case.slug}-{version}'
+            image = _save_image(output, name, case.records, version, cancel_reference=reference)
+            row['images'][slot] = image
+            saved_images[(version, case.records, reference)] = image
+            manifest['error_count'] += int('error' in image)
+        row['posts'] = []
+        for number, post in enumerate(planned_posts[case.slug], 1):
+            item = asdict(post)
+            item['record_indexes'] = list(post.record_indexes)
+            item['record_count'] = len(post.record_indexes)
+            item['images'] = {}
+            if post.image_enabled:
+                entries = tuple(case.records[i] for i in post.record_indexes)
+                for slot, version in slots:
+                    # Offline confirmed originals are not accepted by the live
+                    # image URL API; never sneak one into a posting example.
+                    key = (version, entries, ())
+                    if key not in saved_images:
+                        name = f'{case.slug}-post-{number:02d}'
+                        if not preview_only:
+                            name += f'-{version}'
+                        print(f'  投稿 {number} / {version}', flush=True)
+                        image = _save_image(output, name, entries, version)
+                        saved_images[key] = image
+                        manifest['error_count'] += int('error' in image)
+                    item['images'][slot] = saved_images[key]
+            row['posts'].append(item)
         manifest['cases'].append(row)
     _write_json(output / 'manifest.json', manifest)
     with (output / 'index.html').open('x', encoding='utf-8') as destination:

@@ -5,7 +5,8 @@ from html.parser import HTMLParser
 import json
 import unittest
 
-from scripts.gallery_html import render_html
+from image_publication import with_image
+from scripts.gallery_html import _post_content, render_html
 
 
 def sample():
@@ -29,6 +30,21 @@ def sample():
     }
 
 
+def posting_sample(*, multiple=False):
+    manifest = sample()
+    case = manifest['cases'][0]
+    case['posts'] = []
+    for index in range(5 if multiple else 1):
+        case['posts'].append({
+            'kind': 'single', 'text': f'【訓練・試験】降灰予報 {index + 1}\n本文をそのまま表示。'
+            f'\n---\nNMEA: $QZQSM,55,{index}*AB', 'record_indexes': [index],
+            'record_count': 1, 'image_enabled': True,
+            'images': {side: {**image, 'path': f'images/post-{index + 1}-{side}.png'}
+                       for side, image in case['images'].items()},
+        })
+    return manifest
+
+
 class Document(HTMLParser):
     def __init__(self, source):
         super().__init__()
@@ -40,6 +56,47 @@ class Document(HTMLParser):
 
     def attrs(self, tag):
         return [attrs for actual, attrs in self.elements if actual == tag]
+
+
+class PostContents(HTMLParser):
+    """Read ordinary post text, replacing each local media node with its URL slot."""
+
+    MEDIA = '[local PNG]'
+
+    def __init__(self, source):
+        super().__init__()
+        self.bodies = []
+        self.parts = []
+        self.body_depth = 0
+        self.media_depth = 0
+        self.feed(source)
+
+    def handle_starttag(self, tag, attributes):
+        classes = dict(attributes).get('class', '').split()
+        if not self.body_depth:
+            if 'post-body' in classes:
+                self.body_depth = 1
+                self.parts = []
+        elif self.media_depth:
+            if tag != 'img':
+                self.media_depth += 1
+        elif {'post-attachment', 'post-attachment-error'}.intersection(classes):
+            self.parts.append(self.MEDIA)
+            self.media_depth = 1
+        elif tag != 'img':
+            self.body_depth += 1
+
+    def handle_endtag(self, tag):
+        if self.media_depth:
+            self.media_depth -= 1
+        elif self.body_depth:
+            self.body_depth -= 1
+            if not self.body_depth:
+                self.bodies.append(''.join(self.parts))
+
+    def handle_data(self, data):
+        if self.body_depth and not self.media_depth:
+            self.parts.append(data)
 
 
 class GalleryHtmlTests(unittest.TestCase):
@@ -102,7 +159,7 @@ class GalleryHtmlTests(unittest.TestCase):
         content = render_html(sample())
         document = Document(content)
         self.assertEqual({select['id'] for select in document.attrs('select')},
-                         {'category', 'source-kind', 'classification', 'state', 'reason', 'image-width'})
+                         {'category', 'source-kind', 'classification', 'state', 'reason', 'image-width', 'view-mode'})
         self.assertEqual(document.attrs('script'), [{}])
         self.assertEqual(document.attrs('link'), [])
         self.assertNotIn('fetch(', content)
@@ -277,6 +334,214 @@ class GalleryHtmlTests(unittest.TestCase):
             manifest['cases'][0]['slug'] = slug
             with self.subTest(slug=slug), self.assertRaises(ValueError):
                 render_html(manifest)
+
+    def test_new_posts_default_to_whole_post_and_legacy_manifest_defaults_to_images(self):
+        legacy = Document(render_html(sample()))
+        self.assertEqual(legacy.attrs('body'), [{'data-view-mode': 'images'}])
+        legacy_option, = [option for option in legacy.attrs('option') if option.get('value') == 'posts']
+        self.assertIn('disabled', legacy_option)
+        manifest = posting_sample()
+        content = render_html(manifest)
+        document = Document(content)
+        self.assertEqual(document.attrs('body'), [{'data-view-mode': 'posts'}])
+        option, = [option for option in document.attrs('option') if option.get('value') == 'posts']
+        self.assertIn('selected', option)
+        self.assertNotIn('disabled', option)
+        self.assertIn('画像有効・履歴なしで、入力が待機時間内に揃った場合', content)
+        self.assertIn('添付画像はローカルPNGで表示', content)
+        self.assertIn('<p class="intro">投稿本文と添付画像を、投稿単位で確認できます。', content)
+        self.assertIn('「画像のみ」に切り替えると画像と表示理由を確認できます。', content)
+        self.assertEqual(len(document.attrs('script')), 1)
+        self.assertNotIn('fetch(', content)
+        self.assertNotIn('XMLHttpRequest', content)
+        self.assertEqual(document.attrs('link'), [])
+
+    def test_reference_background_note_explains_why_the_post_attachment_can_differ(self):
+        manifest = posting_sample()
+        note = ('元情報を指定した背景は「画像のみ」で確認できます。'
+                '投稿全体は元情報の指定なしで表示しています。')
+        self.assertNotIn(note, render_html(manifest))
+        case = manifest['cases'][0]
+        case['cancel_reference_path'] = 'records/confirmed-reference.json'
+        case['cancel_reference_note'] = '合成訓練例で明示した参照です。'
+        content = render_html(manifest)
+        self.assertIn('<div class="post-view"><p class="post-note">' + note + '</p>', content)
+        self.assertIn('href="records/confirmed-reference.json"', content)
+        self.assertEqual(PostContents(content).bodies,
+                         [with_image(case['posts'][0]['text'], PostContents.MEDIA)] * 2)
+
+    def test_multiple_post_units_keep_separate_bodies_images_and_input_indexes(self):
+        manifest = posting_sample(multiple=True)
+        content = render_html(manifest)
+        document = Document(content)
+        units = [item for item in document.attrs('section') if item.get('class') == 'post-unit']
+        self.assertEqual(len(units), 5)
+        self.assertEqual([json.loads(item['data-record-indexes']) for item in units], [[i] for i in range(5)])
+        self.assertEqual({item['data-post-kind'] for item in units}, {'single'})
+        for index in range(1, 6):
+            self.assertIn(f'<h3>投稿 {index} / 5</h3>', content)
+            self.assertIn(f'入力 {index} · 1電文', content)
+            # Two renderer versions each get the unchanged text and their own
+            # local attachment. The original grouped image view also remains.
+            self.assertEqual(sum(body.startswith(f'【訓練・試験】降灰予報 {index}\n')
+                                 for body in PostContents(content).bodies), 2)
+        sources = [image['src'] for image in document.attrs('img')]
+        self.assertEqual(len(sources), 12)
+        self.assertIn('images/ash-received-preview.png', sources)
+        self.assertEqual(sources[2:], [f'images/post-{i}-{side}.png' for i in range(1, 6)
+                                      for side in ('published', 'preview')])
+        self.assertIn('<div class="post-frame"><div class="post-fold">', content)
+        self.assertEqual(PostContents(content).bodies,
+                         [with_image(post['text'], PostContents.MEDIA)
+                          for post in manifest['cases'][0]['posts'] for _ in range(2)])
+        self.assertNotIn('<summary>投稿本文を全文で確認</summary>', content)
+
+    def test_collector_order_and_cancellation_or_release_text_are_not_rewritten(self):
+        for text in ('\n【取消】気象情報\nこの情報は取り消されました。\n',
+                     '【解除】洪水情報\n警報解除の受信値。',
+                     '【訓練・試験】台風情報\n全時点をまとめた投稿。'):
+            with self.subTest(text=text):
+                manifest = posting_sample()
+                post = manifest['cases'][0]['posts'][0]
+                post.update(kind='typhoon', text=text, record_indexes=[4, 2, 0], record_count=3)
+                content = render_html(manifest)
+                self.assertEqual(PostContents(content).bodies, [with_image(text, PostContents.MEDIA)] * 2)
+                self.assertIn('入力 5・3・1 · 3電文', content)
+                self.assertNotIn('<summary>末尾のNMEAを表示</summary>', content)
+
+    def test_nmea_stays_in_the_normal_body_and_media_uses_the_live_formatter_position(self):
+        for text in ('本文\n---\nNMEA: $QZQSM,55,123*AB\nNMEA: $QZQSM,55,456*CD\n',
+                     '本文\n---\n本文の中の区切り\n---\nNMEA: $QZQSM,55,123*AB\n',
+                     '本文\n---\n注記を含む本文', '本文\n---\nNMEA: example',
+                     '本文\n---\nNMEA: $QZQSM,55,123*AB\n後続の本文',
+                     '本文\n---\nNMEA: $QZQSM,55,123*AB\n\n', '区切りのない本文\n',
+                     '__SHIRASU_LOCAL_ATTACHMENT__\n__SHIRASU_LOCAL_ATTACHMENT___\n---\nNMEA: 例',
+                     '\n<本文 & 引用>\n\n---\nNMEA: $QZQSM,55,123*AB\n'):
+            with self.subTest(text=text):
+                manifest = posting_sample()
+                manifest['cases'][0]['posts'][0]['text'] = text
+                content = render_html(manifest)
+                self.assertEqual(PostContents(content).bodies, [with_image(text, PostContents.MEDIA)] * 2)
+                self.assertNotIn('class="post-nmea"', content)
+                self.assertNotIn('class="post-full"', content)
+                self.assertNotIn('class="post-raw"', content)
+                self.assertNotIn('末尾のNMEAを表示', content)
+                self.assertIn('<summary>出典・入力データを確認</summary>', content)
+        self.assertEqual(_post_content('本文\n---\nNMEA: 例', '<media>'), '本文\n\n<media>\n---\nNMEA: 例')
+        self.assertEqual(_post_content('本文\n', '<media>'), '本文\n\n\n<media>')
+
+    def test_whole_posts_offer_accessible_folding_and_remain_readable_without_javascript(self):
+        manifest = posting_sample(multiple=True)
+        content = render_html(manifest)
+        document = Document(content)
+        bodies = [attrs for attrs in document.attrs('div') if attrs.get('class') == 'post-body']
+        controls = [attrs for attrs in document.attrs('button') if attrs.get('class') == 'post-toggle']
+        folds = [attrs for attrs in document.attrs('div') if attrs.get('class') == 'post-fold']
+        self.assertEqual(len(folds), 10)
+        self.assertEqual(len({body['id'] for body in bodies}), 10)
+        self.assertEqual([button['aria-controls'] for button in controls], [body['id'] for body in bodies])
+        for button in controls:
+            self.assertEqual(button['type'], 'button')
+            self.assertEqual(button['aria-expanded'], 'true')
+            self.assertIn('hidden', button)
+        for attrs in bodies + folds:
+            self.assertNotIn('hidden', attrs)
+            self.assertNotIn('data-folded', attrs, 'Only working JavaScript may enable clipping')
+            self.assertNotIn('style', attrs)
+        self.assertIn('.post-fold[data-folded="true"] .post-clip{max-height:30rem;overflow:hidden}', content)
+        self.assertIn('nostterの通常TL相当', content)
+        self.assertIn('もっと見る', content)
+        self.assertIn('元に戻す', content)
+        self.assertIn('max-width:calc(100% - 1.5em);max-height:20em;margin:.5em;', content)
+
+    def test_text_only_and_no_post_are_distinct_from_legacy_unrecorded_posts(self):
+        manifest = posting_sample()
+        case = manifest['cases'][0]
+        post = case['posts'][0]
+        post.update(kind='nankai', image_enabled=False, images={},
+                    text='南海トラフの投稿本文\n\n---\nNMEA: $QZQSM,55,123*AB\n')
+        content = render_html(manifest)
+        document = Document(content)
+        self.assertEqual(len(document.attrs('img')), 2, 'Only the legacy image view keeps its images')
+        self.assertIn('<h4>本文のみ', content)
+        self.assertIn('南海トラフの投稿本文', content)
+        self.assertEqual(PostContents(content).bodies, [post['text']])
+        self.assertEqual(json.loads(document.attrs('article')[0]['data-post-reason-codes']), ['__text_only__'])
+        self.assertIn('data-reason-count="__text_only__">1</strong>', content)
+        case['posts'] = []
+        content = render_html(manifest)
+        self.assertIn('この入力からの投稿はありません。', content)
+        self.assertNotIn('このサンプルには投稿全体の記録がありません。', content)
+        self.assertEqual(json.loads(Document(content).attrs('article')[0]['data-post-reason-codes']), ['__no_post__'])
+        self.assertIn('data-reason-count="__no_post__">1</strong>', content)
+        del case['posts']
+        content = render_html(manifest)
+        self.assertIn('このサンプルには投稿全体の記録がありません。', content)
+        self.assertNotIn('この入力からの投稿はありません。', content)
+
+    def test_post_reasons_are_union_per_case_and_switch_separately_from_image_only_reasons(self):
+        manifest = posting_sample(multiple=True)
+        case = manifest['cases'][0]
+        case['images']['preview']['decision'] = {'mode': 'map', 'reasons': []}
+        why = {'code': 'cancel_scope_unavailable', 'stage': 'area', 'message': '取消区域が不明', 'detail': ''}
+        for post in case['posts']:
+            post['images']['preview']['decision'] = {'mode': 'summary', 'reasons': [why]}
+        content = render_html(manifest)
+        article, = Document(content).attrs('article')
+        self.assertEqual(json.loads(article['data-reason-codes']), ['__unchanged__'])
+        self.assertEqual(json.loads(article['data-post-reason-codes']), ['cancel_scope_unavailable'])
+        self.assertIn('data-reason-count="cancel_scope_unavailable">1</strong>', content)
+        self.assertIn('data-reason-count="__unchanged__">0</strong>', content)
+        # View controls live outside the filter form, so filter reset keeps
+        # both the chosen presentation mode and the chosen SNS width.
+        self.assertLess(content.index('id="view-mode"'), content.index('<form id="filters"'))
+        self.assertLess(content.index('id="image-width"'), content.index('<form id="filters"'))
+
+    def test_post_errors_and_hostile_text_are_escaped_and_local_attachments_are_checked(self):
+        manifest = posting_sample()
+        attack = '</script><script>alert("x")</script><img src=x onerror=alert(1)>'
+        post = manifest['cases'][0]['posts'][0]
+        post['text'] = attack + '\n---\nNMEA: $QZQSM,55,123*AB'
+        post['images']['preview'] = {'error': attack}
+        content = render_html(manifest)
+        document = Document(content)
+        self.assertEqual(len(document.attrs('script')), 1)
+        self.assertEqual(len(document.attrs('img')), 3)
+        self.assertNotIn(attack, content)
+        self.assertIn('&lt;/script&gt;', content)
+        self.assertIn('添付画像を描画できませんでした', content)
+        self.assertEqual(PostContents(content).bodies, [with_image(post['text'], PostContents.MEDIA)] * 2)
+        self.assertEqual(json.loads(document.attrs('article')[0]['data-post-reason-codes']), ['__error__'])
+        for _, attrs in document.elements:
+            self.assertNotIn('onerror', attrs)
+        for path in ('../post.png', '/tmp/post.png', 'https://example.com/post.png', '//example.com/post.png',
+                     'images/%2e%2e/post.png', 'images/./post.png', 'images\\post.png', 'images//post.png'):
+            with self.subTest(path=path):
+                bad = posting_sample()
+                bad['cases'][0]['posts'][0]['images']['preview']['path'] = path
+                with self.assertRaises(ValueError):
+                    render_html(bad)
+
+    def test_invalid_post_units_and_attachment_dimensions_are_rejected(self):
+        for field, value in (('kind', 'invented'), ('text', None), ('record_indexes', []),
+                             ('record_indexes', [True]), ('record_indexes', [-1]), ('record_indexes', [5]),
+                             ('record_indexes', [0, 0]), ('record_count', 2), ('record_count', True),
+                             ('image_enabled', 1), ('images', [])):
+            with self.subTest(field=field, value=value):
+                manifest = posting_sample()
+                manifest['cases'][0]['posts'][0][field] = value
+                with self.assertRaises(ValueError):
+                    render_html(manifest)
+        for width in (0, -1, True, '360'):
+            with self.subTest(width=width):
+                manifest = posting_sample()
+                manifest['cases'][0]['posts'][0]['images']['preview']['width'] = width
+                with self.assertRaises(ValueError):
+                    render_html(manifest)
+        manifest = posting_sample()
+        manifest['cases'][0]['posts'][0]['image_enabled'] = False
+        with self.assertRaises(ValueError):
+            render_html(manifest)
 
 
 if __name__ == '__main__':

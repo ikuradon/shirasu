@@ -6,6 +6,8 @@ from pathlib import PurePosixPath
 import re
 from urllib.parse import urlsplit
 
+from image_publication import with_image
+
 
 CATEGORIES = {
     'Typhoon': '台風', 'Hypocenter': '震源情報', 'Weather': '気象',
@@ -70,6 +72,110 @@ def _reason_items(image):
     return [(str(item['code']), str(item.get('message') or item['code'])) for item in reasons]
 
 
+def _post_reason_items(case):
+    if 'posts' not in case:
+        return _reason_items(case['images'].get('preview', {}))
+    if not case['posts']:
+        return [('__no_post__', '投稿対象なし')]
+    items = []
+    for post in case['posts']:
+        items.extend(_reason_items(post['images'].get('preview', {})) if post['image_enabled']
+                     else [('__text_only__', '本文のみ（画像を添付しない投稿）')])
+    return list(dict(items).items())
+
+
+def _post_content(text, attachment=None):
+    """Replace only the live formatter's image URL position with local media."""
+    if attachment is None:
+        return _escape(text)
+    marker = '__SHIRASU_LOCAL_ATTACHMENT__'
+    while marker in text:
+        marker += '_'
+    before, _, after = with_image(text, marker).partition(marker)
+    return _escape(before) + attachment + _escape(after)
+
+
+def _post_attachment(case, value, heading):
+    if value.get('error'):
+        return ('<span class="post-attachment-error"><strong>添付画像を描画できませんでした</strong>'
+                f'<span class="post-attachment-error-detail">{_escape(value["error"])}</span></span>')
+    if 'path' not in value:
+        return '<span class="post-attachment-error">添付画像の記録がありません。</span>'
+    path = _local_path(value['path'])
+    width, height = value.get('width'), value.get('height')
+    if type(width) is not int or type(height) is not int or width <= 0 or height <= 0:
+        raise ValueError('Post attachment dimensions must be positive integers')
+    label = _escape(f'{case["title"]} / {heading}の添付画像')
+    return (f'<a class="post-attachment" href="{path}" target="_blank" rel="noopener" '
+            f'aria-label="{label}を原寸で開く"><img src="{path}" width="{width}" height="{height}" '
+            f'alt="{label}" loading="lazy" decoding="async"></a>')
+
+
+def _posts(case, published_version):
+    """Preserve real posting units, with local attachments inside each frame."""
+    if 'posts' not in case:
+        return ('<p class="post-unavailable">このサンプルには投稿全体の記録がありません。'
+                '画像のみ表示しています。</p>')
+    posts = case['posts']
+    if not isinstance(posts, list):
+        raise ValueError('Gallery posts must be a list')
+    reference_note = (
+        '<p class="post-note">元情報を指定した背景は「画像のみ」で確認できます。'
+        '投稿全体は元情報の指定なしで表示しています。</p>'
+        if case.get('cancel_reference_path') else '')
+    if not posts:
+        return ('<div class="post-view">' + reference_note
+                + '<p class="post-empty">この入力からの投稿はありません。</p></div>')
+    units = []
+    for index, post in enumerate(posts, 1):
+        indexes = post.get('record_indexes')
+        if (post.get('kind') not in ('single', 'typhoon', 'nankai')
+                or not isinstance(post.get('text'), str)
+                or not isinstance(indexes, list) or not indexes
+                or any(type(number) is not int or not 0 <= number < case['record_count'] for number in indexes)
+                or len(set(indexes)) != len(indexes)
+                or type(post.get('record_count')) is not int or post['record_count'] != len(indexes)
+                or type(post.get('image_enabled')) is not bool
+                or not isinstance(post.get('images'), dict)):
+            raise ValueError('Invalid gallery post unit')
+        record_labels = '・'.join(str(number + 1) for number in indexes)
+        if post['image_enabled']:
+            sides = [side for side in ('published', 'preview') if side in post['images']]
+            if not sides:
+                sides = ['preview']
+        else:
+            if post['images']:
+                raise ValueError('A text-only post must not carry an attachment')
+            sides = ['text']
+        comparisons = []
+        for side in sides:
+            value = post['images'].get(side, {})
+            heading = {'published': '公開版', 'preview': '作業版', 'text': '本文のみ'}[side]
+            version = (value.get('version', published_version if side == 'published' else 'preview')
+                       if side != 'text' else '')
+            attachment = _post_attachment(case, value, heading) if post['image_enabled'] else None
+            content = _post_content(post['text'], attachment)
+            content_id = _escape(f'{case["slug"]}-post-{index}-{side}')
+            diagnostic = _decision(value) if post['image_enabled'] and not value.get('error') else ''
+            comparisons.append(
+                f'<section class="post-comparison {side}"><div class="image-heading">'
+                f'<h4>{heading}<span class="version">{_escape(version)}</span></h4></div>'
+                '<div class="post-viewport" role="group" aria-label="投稿本文と添付画像の表示領域">'
+                '<div class="post-frame"><div class="post-fold"><div class="post-clip">'
+                f'<div class="post-body" id="{content_id}">{content}</div></div>'
+                f'<button class="post-toggle" type="button" aria-controls="{content_id}" '
+                'aria-expanded="true" hidden>元に戻す</button></div></div></div>'
+                f'{diagnostic}</section>')
+        grid = 'post-grid single' if len(sides) == 1 else 'post-grid'
+        units.append(
+            f'<section class="post-unit" data-post-kind="{post["kind"]}" '
+            f'data-record-indexes="{_escape(json.dumps(indexes))}">'
+            f'<div class="post-unit-heading"><h3>投稿 {index} / {len(posts)}</h3>'
+            f'<p>入力 {record_labels} · {post["record_count"]}電文</p></div>'
+            f'<div class="{grid}">{"".join(comparisons)}</div></section>')
+    return '<div class="post-view">' + reference_note + ''.join(units) + '</div>'
+
+
 def _decision(image):
     value = image.get('decision')
     if not isinstance(value, dict):
@@ -128,6 +234,10 @@ def _case(case, index, published_version):
                           for key in ('category', 'source_kind', 'classification', 'state'))
     reason_codes = list(dict.fromkeys(code for code, _ in _reason_items(case['images'].get('preview', {}))))
     attributes += f' data-reason-codes="{_escape(json.dumps(reason_codes, ensure_ascii=False))}"'
+    posts = _posts(case, published_version)
+    post_reason_codes = [code for code, _ in _post_reason_items(case)]
+    attributes += f' data-post-reason-codes="{_escape(json.dumps(post_reason_codes, ensure_ascii=False))}"'
+    attributes += f' data-has-posts="{"true" if "posts" in case else "false"}"'
     source_label = case.get('source_label', case.get('source_file', '出典情報なし'))
     source_url = _source_url(case.get('source_url'))
     source_link = (f'<a href="{_escape(source_url)}" target="_blank" rel="noopener noreferrer">'
@@ -164,7 +274,8 @@ def _case(case, index, published_version):
     <span class="state {_escape(case['state'])}">{_escape(state)}</span>{tags}
     <span class="record-count">{_escape(case['record_count'])}電文</span></div>
   <p class="description">{_escape(case['description'])}</p>
-  <div class="{grid}">{images}</div>
+  <div class="image-only"><div class="{grid}">{images}</div></div>
+  {posts}
   {post}<details class="source-details"><summary>出典・入力データを確認</summary>
     <div class="details-content"><dl>{metadata}</dl>
     <p class="date-note">基準時刻は電文の日付を復元するために使用します。このギャラリーの公開受信ログには、電文ごとの正確な受信時刻は記録されていません。</p>
@@ -190,6 +301,16 @@ main{padding-top:24px;padding-bottom:50px}.toolbar{padding:20px;background:var(-
 '''
 
 
+_CSS += '''
+body[data-view-mode="posts"] .case[data-has-posts="true"] .image-only,body[data-view-mode="images"] .post-view,body[data-view-mode="images"] .post-unavailable{display:none}
+.post-view{padding:0 24px 24px}.post-unavailable,.post-empty{margin:0 24px 20px;color:var(--muted);font-size:13px}.post-empty{margin:0;padding:24px;border:1px dashed var(--line);border-radius:8px;text-align:center}.post-unit+.post-unit{border-top:1px solid var(--line);padding-top:22px;margin-top:26px}.post-unit-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px}.post-unit-heading h3{font-size:15px;margin:0}.post-unit-heading p{margin:0;color:var(--muted);font-size:12px;overflow-wrap:anywhere}.post-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}.post-grid.single{grid-template-columns:minmax(0,1fr)}.post-comparison{min-width:0}.post-comparison h4{margin:0;font-size:13px}.post-viewport{min-width:0}.post-viewport:focus-visible{outline:3px solid #3c87bd;outline-offset:2px}.post-frame{width:100%;padding:16px;border:1px solid #cbd5df;border-radius:10px;background:#fff;overflow:hidden}.post-body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.7}.post-attachment{display:inline-grid;max-width:100%;place-items:center;vertical-align:middle;line-height:0}.post-attachment img{display:block;width:auto;height:auto;max-width:calc(100% - 1.5em);max-height:20em;margin:.5em;border:1px solid lightgray;border-radius:5px}.post-attachment-error{display:inline-block;width:100%;vertical-align:top;white-space:normal;margin:0;padding:20px;background:#fff7f8;border-top:1px dashed #d0a7ae;color:#873b49;font-size:13px;overflow-wrap:anywhere}.post-attachment-error-detail{display:block;margin-top:8px}.post-note{font-size:12px;color:var(--muted);margin:0 0 16px}.reason-scope{font-size:12px;color:var(--muted);margin:12px 0 0}
+.post-fold{position:relative}.post-fold[data-folded="true"] .post-clip{max-height:30rem;overflow:hidden}.post-toggle{display:block;width:100%;padding:.5rem;border:0;background:#fff;color:var(--blue)}.post-fold[data-folded="true"] .post-toggle{position:absolute;bottom:0;left:0;padding:2.2rem .5rem .5rem;background:linear-gradient(transparent,#fff 55%)}
+body[data-image-width] .post-viewport{overflow-x:auto;overscroll-behavior-x:contain;padding-bottom:6px}body[data-image-width] .post-frame{width:var(--image-width);margin-inline:auto}
+@media(max-width:1000px){.post-view{padding-left:20px;padding-right:20px}.post-grid{gap:14px}}
+@media(max-width:680px){.post-view{padding:0 16px 18px}.post-grid{grid-template-columns:minmax(0,1fr);gap:20px}.post-unit-heading{align-items:flex-start;flex-direction:column;gap:3px}.post-note{font-size:11px}.post-unavailable{margin-left:16px;margin-right:16px}}
+'''
+
+
 _JS = '''
 (() => {
   const form = document.getElementById('filters');
@@ -197,11 +318,55 @@ _JS = '''
   const query = document.getElementById('search');
   const reason = document.getElementById('reason');
   const imageWidth = document.getElementById('image-width');
-  const viewports = Array.from(document.querySelectorAll('.image-viewport'));
+  const viewMode = document.getElementById('view-mode');
+  const viewports = Array.from(document.querySelectorAll('.image-viewport, .post-viewport'));
   const selectors = ['category', 'source-kind', 'classification', 'state'];
   const normalize = text => text.normalize('NFKC').toLocaleLowerCase('ja');
   const searchable = cards.map(card => normalize(card.textContent));
-  const reasonCodes = cards.map(card => JSON.parse(card.dataset.reasonCodes));
+  const postFolds = Array.from(document.querySelectorAll('.post-fold')).map(element => ({
+    element, content: element.querySelector('.post-body'),
+    button: element.querySelector('.post-toggle'), folded: true
+  }));
+  let layoutFrame = null;
+  function updatePostFolds() {
+    // Match the CSS 30rem limit, including a browser's root font-size setting.
+    const maxHeight = 30 * parseFloat(getComputedStyle(document.documentElement).fontSize);
+    postFolds.forEach(fold => {
+      if (!fold.content.getClientRects().length) return;
+      const overflowing = fold.content.getBoundingClientRect().height > maxHeight + 1;
+      fold.element.dataset.folded = String(overflowing && fold.folded);
+      fold.button.hidden = !overflowing;
+      fold.button.setAttribute('aria-expanded', String(!overflowing || !fold.folded));
+      fold.button.textContent = fold.folded ? 'もっと見る' : '元に戻す';
+    });
+  }
+  function scheduleLayout() {
+    if (layoutFrame !== null) return;
+    layoutFrame = requestAnimationFrame(() => {
+      layoutFrame = null;
+      updatePostFolds();
+      updateScrollFocus();
+    });
+  }
+  postFolds.forEach(fold => {
+    fold.button.addEventListener('click', () => {
+      fold.folded = !fold.folded;
+      updatePostFolds();
+      if (fold.folded) fold.element.scrollIntoView({
+        block: 'nearest',
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+      });
+    });
+    fold.content.querySelectorAll('img').forEach(image => {
+      image.addEventListener('load', scheduleLayout);
+      image.addEventListener('error', scheduleLayout);
+    });
+  });
+  if ('ResizeObserver' in window) {
+    const observer = new ResizeObserver(scheduleLayout);
+    postFolds.forEach(fold => observer.observe(fold.content));
+  }
+  if (document.fonts) document.fonts.ready.then(scheduleLayout);
   function updateScrollFocus() {
     viewports.forEach(viewport => {
       if (viewport.clientWidth && viewport.scrollWidth > viewport.clientWidth + 1) {
@@ -221,12 +386,14 @@ _JS = '''
       document.body.style.removeProperty('--image-width');
     }
     document.getElementById('image-size-note').textContent = width
-      ? '画像幅 ' + width + 'pxで表示。画面に収まらない画像は横にスクロールできます。'
-      : '通常表示：画像を欄の幅に合わせます。画像を選ぶと原寸で開きます。';
+      ? '画像・投稿枠を幅 ' + width + 'pxで表示。画面に収まらない部分は横にスクロールできます。'
+      : '通常表示：画像・投稿枠を欄の幅に合わせます。画像を選ぶと原寸で開きます。';
     viewports.forEach(viewport => { viewport.scrollLeft = 0; });
-    requestAnimationFrame(updateScrollFocus);
+    scheduleLayout();
   }
   function update() {
+    const postMode = document.body.dataset.viewMode === 'posts';
+    const reasonCodes = cards.map(card => JSON.parse(postMode ? card.dataset.postReasonCodes : card.dataset.reasonCodes));
     const terms = normalize(query.value).trim().split(/\\s+/).filter(Boolean);
     const counts = new Map();
     let shown = 0;
@@ -249,24 +416,33 @@ _JS = '''
     document.querySelectorAll('[data-reason-count]').forEach(item => {
       item.textContent = String(counts.get(item.dataset.reasonCount) || 0);
     });
-    requestAnimationFrame(updateScrollFocus);
+    scheduleLayout();
   }
   function reset() {
     form.reset();
     update();
     query.focus();
   }
+  function updateViewMode() {
+    const postMode = viewMode.value === 'posts';
+    document.body.dataset.viewMode = postMode ? 'posts' : 'images';
+    document.getElementById('reason-scope').textContent = postMode
+      ? '集計対象：投稿全体の添付画像（作業版）。同じケースの複数投稿は、理由ごとに1件として数えます。未記録のケースは画像のみの理由を表示します。'
+      : '集計対象：画像のみの表示（作業版）。投稿全体の添付画像とは異なる場合があります。';
+    update();
+  }
   form.addEventListener('input', update);
   form.addEventListener('change', update);
   form.addEventListener('submit', event => event.preventDefault());
   document.querySelectorAll('[data-reset]').forEach(button => button.addEventListener('click', reset));
   imageWidth.addEventListener('change', updateImageWidth);
-  window.addEventListener('resize', () => requestAnimationFrame(updateScrollFocus));
+  viewMode.addEventListener('change', updateViewMode);
+  window.addEventListener('resize', scheduleLayout);
   document.getElementById('view-controls').hidden = false;
   form.hidden = false;
   document.getElementById('reset').hidden = false;
   updateImageWidth();
-  update();
+  updateViewMode();
 })();
 '''
 
@@ -274,10 +450,17 @@ _JS = '''
 def render_html(manifest):
     """Render complete escaped HTML; the browser never fetches its manifest."""
     cases = manifest['cases']
+    has_post_data = any('posts' in case for case in cases)
+    default_mode = 'posts' if has_post_data else 'images'
     published_version = manifest.get('published_version', '公開済み版')
     comparison = any('published' in case['images'] for case in cases)
     intro = (f'同じ入力データで、公開済み {_escape(published_version)} と作業版を比較できます。'
              if comparison else '作業版の画像と、受信内容に応じた表示理由を確認できます。')
+    if has_post_data:
+        intro = ('投稿本文と添付画像を、投稿単位で確認できます。'
+                 '「画像のみ」に切り替えると画像と表示理由を確認できます。')
+        if comparison:
+            intro += f' 公開済み {_escape(published_version)} と作業版も比較できます。'
     build_info = ''
     if manifest.get('commit'):
         working_tree = (' · 未コミットの変更を含む' if manifest.get('working_tree') is True
@@ -298,10 +481,14 @@ def render_html(manifest):
             ('state', 'state', '状態', STATES)))
     reason_labels, reason_counts = {}, {}
     for case in cases:
-        items = dict(_reason_items(case['images'].get('preview', {})))
-        for code, label in items.items():
-            reason_labels.setdefault(code, label)
-            reason_counts[code] = reason_counts.get(code, 0) + 1
+        image_items = dict(_reason_items(case['images'].get('preview', {})))
+        post_items = dict(_post_reason_items(case))
+        for items in (image_items, post_items):
+            for code, label in items.items():
+                reason_labels.setdefault(code, label)
+                reason_counts.setdefault(code, 0)
+        for code in (post_items if has_post_data else image_items):
+            reason_counts[code] += 1
     reason_options = ''.join(
         f'<option value="{_escape(code)}" data-label="{_escape(label)}">'
         f'{_escape(label)}（{reason_counts[code]}件）</option>'
@@ -316,6 +503,16 @@ def render_html(manifest):
                       '<p>理由以外の検索条件を適用した件数です。複数の理由を持つ画像は各理由に数えます。'
                       '描画エラーは表示の切替と分けて集計します。</p>'
                       f'<ul>{reason_totals}</ul></details>')
+    mode_options = ('<label for="view-mode">表示内容<select id="view-mode">'
+                    f'<option value="images"{" selected" if not has_post_data else ""}>画像のみ</option>'
+                    f'<option value="posts"{" selected" if has_post_data else " disabled"}>投稿全体</option>'
+                    '</select></label>')
+    post_note = ('<p class="post-note">画像有効・履歴なしで、入力が待機時間内に揃った場合の'
+                 'オフライン投稿例です。添付画像はローカルPNGで表示しています。'
+                 '本文と画像はnostterの通常TL相当で表示し、長い投稿は「もっと見る」で全体を開けます。</p>'
+                 if has_post_data else '')
+    scope = ('投稿全体の添付画像（作業版）' if has_post_data else '画像のみの表示（作業版）')
+    scope_note = f'<p id="reason-scope" class="reason-scope">集計対象：{scope}</p>'
     categories = len({case['category'] for case in cases})
     license_link = (f'<br><a href="{_local_path(manifest["source_license_path"])}" '
                     'target="_blank" rel="noopener">受信ログのライセンス</a>'
@@ -323,7 +520,7 @@ def render_html(manifest):
     return f'''<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>画像ギャラリー | Shirasu</title>
-<style>{_CSS}</style></head><body>
+<style>{_CSS}</style></head><body data-view-mode="{default_mode}">
 <header class="page-header"><div class="header-inner"><div class="heading-line"><h1>画像ギャラリー</h1>
 <a href="manifest.json" target="_blank" rel="noopener">一覧データ JSON ↗</a></div>
 <p class="intro">{intro}</p>{build_info}
@@ -331,17 +528,17 @@ def render_html(manifest):
 <main><section class="toolbar" aria-label="表示するサンプルを選択"><div class="toolbar-top">
 <p role="status" aria-live="polite" aria-atomic="true"><strong id="shown-count">{len(cases)}</strong> / {len(cases)} 件を表示 <span>· {categories} 種類</span></p>
 <button id="reset" type="button" class="reset" data-reset hidden>条件をリセット</button></div>
-<div id="view-controls" class="view-controls" hidden><label for="image-width">画像の表示サイズ
+<div id="view-controls" class="view-controls" hidden>{mode_options}<label for="image-width">表示サイズ
 <select id="image-width" aria-describedby="image-size-note">
 <option value="normal">通常（欄に合わせる）</option>
 <option value="320">SNS · 320px</option>
 <option value="360" selected>SNS · 360px（基準）</option>
 <option value="430">SNS · 430px</option>
-</select></label><p id="image-size-note" class="view-note" role="status" aria-live="polite"></p></div>
-<form id="filters" class="filters" hidden><label class="search">キーワード検索<input id="search" name="search" type="search" placeholder="例：台風、阿蘇山、解除" autocomplete="off"></label>{filters}</form>{reason_summary}
+</select></label><p id="image-size-note" class="view-note" role="status" aria-live="polite"></p></div>{post_note}
+<form id="filters" class="filters" hidden><label class="search">キーワード検索<input id="search" name="search" type="search" placeholder="例：台風、阿蘇山、解除" autocomplete="off"></label>{filters}</form>{scope_note}{reason_summary}
 </section><noscript><p class="no-script">すべてのサンプルを表示しています。絞り込みにはJavaScriptが必要です。</p></noscript>
 <div id="cases">{rows}</div>
 <section id="empty" class="empty" hidden><h2>該当するサンプルがありません</h2><p>検索語や絞り込み条件を変更してください。</p><button type="button" class="reset" data-reset>条件をリセット</button></section>
-</main><footer class="page-footer"><p>Shirasu · オフライン画像レビュー<br>南海トラフはテキストのみのため、この一覧には含みません。</p><p>画像を選ぶと原寸で開きます。出典と入力電文は各サンプルから確認できます。{license_link}</p></footer>
+</main><footer class="page-footer"><p>Shirasu · オフライン画像レビュー<br>南海トラフは画像を添付しない投稿です。</p><p>画像を選ぶと原寸で開きます。出典と入力電文は各サンプルから確認できます。{license_link}</p></footer>
 <script>{_JS}</script></body></html>
 '''
