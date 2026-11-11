@@ -26,6 +26,11 @@ MODES = {'map': '地図', 'geometry': '地点・範囲', 'area': '対象区域',
          'summary': '要旨', 'topic': 'トピック'}
 STAGES = {'selection': '表示の選択', 'geometry': '地点・範囲', 'area': '対象区域',
           'layout': '配置', 'render': '描画'}
+COMPARISON_STATUSES = {'changed': '変更あり', 'unchanged': '変更なし',
+                       'input_changed': '入力が異なる', 'added': '今回追加',
+                       'unavailable': '比較できない'}
+COMPARISON_CHANGES = {'image': '画像', 'mode': '表示方法', 'reasons': '表示理由',
+                      'text': '投稿本文', 'structure': '投稿構成', 'conditions': '投稿プレビューの前提'}
 
 
 def _escape(value):
@@ -111,9 +116,11 @@ def _post_attachment(case, value, heading):
             f'alt="{label}" loading="lazy" decoding="async"></a>')
 
 
-def _posts(case, published_version):
+def _posts(case, published_version, *, preview_only=False, id_prefix='', embedded=False):
     """Preserve real posting units, with local attachments inside each frame."""
     if 'posts' not in case:
+        if embedded:
+            return '<p class="baseline-unavailable">この作業版には投稿全体の記録がありません。</p>'
         return ('<p class="post-unavailable">このサンプルには投稿全体の記録がありません。'
                 '画像のみ表示しています。</p>')
     posts = case['posts']
@@ -123,8 +130,9 @@ def _posts(case, published_version):
         '<p class="post-note">元情報を指定した背景は「画像のみ」で確認できます。'
         '投稿全体は元情報の指定なしで表示しています。</p>'
         if case.get('cancel_reference_path') else '')
+    wrapper = 'post-sequence' if embedded else 'post-view'
     if not posts:
-        return ('<div class="post-view">' + reference_note
+        return (f'<div class="{wrapper}">' + reference_note
                 + '<p class="post-empty">この入力からの投稿はありません。</p></div>')
     units = []
     for index, post in enumerate(posts, 1):
@@ -140,7 +148,8 @@ def _posts(case, published_version):
             raise ValueError('Invalid gallery post unit')
         record_labels = '・'.join(str(number + 1) for number in indexes)
         if post['image_enabled']:
-            sides = [side for side in ('published', 'preview') if side in post['images']]
+            sides = ['preview'] if preview_only else [side for side in ('published', 'preview')
+                                                      if side in post['images']]
             if not sides:
                 sides = ['preview']
         else:
@@ -151,11 +160,13 @@ def _posts(case, published_version):
         for side in sides:
             value = post['images'].get(side, {})
             heading = {'published': '公開版', 'preview': '作業版', 'text': '本文のみ'}[side]
+            if embedded and side != 'text':
+                heading = '添付画像'
             version = (value.get('version', published_version if side == 'published' else 'preview')
                        if side != 'text' else '')
             attachment = _post_attachment(case, value, heading) if post['image_enabled'] else None
             content = _post_content(post['text'], attachment)
-            content_id = _escape(f'{case["slug"]}-post-{index}-{side}')
+            content_id = _escape(f'{id_prefix}{case["slug"]}-post-{index}-{side}')
             diagnostic = _decision(value) if post['image_enabled'] and not value.get('error') else ''
             comparisons.append(
                 f'<section class="post-comparison {side}"><div class="image-heading">'
@@ -173,7 +184,7 @@ def _posts(case, published_version):
             f'<div class="post-unit-heading"><h3>投稿 {index} / {len(posts)}</h3>'
             f'<p>入力 {record_labels} · {post["record_count"]}電文</p></div>'
             f'<div class="{grid}">{"".join(comparisons)}</div></section>')
-    return '<div class="post-view">' + reference_note + ''.join(units) + '</div>'
+    return f'<div class="{wrapper}">' + reference_note + ''.join(units) + '</div>'
 
 
 def _decision(image):
@@ -194,9 +205,10 @@ def _decision(image):
     return f'<div class="display-decision">{heading}{content}</div>'
 
 
-def _image(case, side, published_version):
+def _image(case, side, published_version, *, heading=None, column=None):
     value = case['images'][side]
-    heading = '公開版' if side == 'published' else '作業版'
+    heading = heading or ('公開版' if side == 'published' else '作業版')
+    column = column or side
     version = value.get('version', published_version if side == 'published' else 'preview')
     kind = KINDS.get(value.get('kind'), '描画')
     top = (f'<div class="image-heading"><h3>{heading} '
@@ -205,7 +217,7 @@ def _image(case, side, published_version):
     if value.get('error'):
         content = ('<div class="render-error"><strong>描画できませんでした</strong>'
                    f'<p>{_escape(value["error"])}</p></div>')
-        return f'<section class="comparison {side}">{top}{content}</section>'
+        return f'<section class="comparison {column}">{top}{content}</section>'
     path = _local_path(value['path'])
     width, height = value.get('width', 1440), value.get('height', 1200)
     if type(width) is not int or type(height) is not int or width <= 0 or height <= 0:
@@ -218,13 +230,96 @@ def _image(case, side, published_version):
                f'alt="{label}" loading="lazy" decoding="async"></a></div>'
                f'<div class="image-footer"><span>元画像 {width} × {height}</span>'
                f'<a href="{path}" target="_blank" rel="noopener">PNGを原寸で開く ↗</a></div>')
-    return f'<section class="comparison {side}">{top}{content}{_decision(value)}</section>'
+    return f'<section class="comparison {column}">{top}{content}{_decision(value)}</section>'
 
 
-def _case(case, index, published_version):
+def _comparison_result(case, mode):
+    comparison = case.get('comparison', {})
+    if not isinstance(comparison, dict):
+        raise ValueError('Gallery comparison must be an object')
+    value = comparison.get(mode)
+    if value is None:
+        return {'status': 'unavailable', 'changes': [], 'note': '比較情報が記録されていません。'}
+    if (not isinstance(value, dict) or value.get('status') not in COMPARISON_STATUSES
+            or not isinstance(value.get('changes'), list)
+            or any(not isinstance(change, str) for change in value['changes'])
+            or not isinstance(value.get('note'), str)):
+        raise ValueError('Invalid gallery comparison result')
+    return value
+
+
+def _comparison_notice(case, mode):
+    value = _comparison_result(case, mode)
+    status = value['status']
+    changes = ''.join(f'<span class="comparison-change">{_escape(COMPARISON_CHANGES.get(change, change))}</span>'
+                      for change in value['changes'])
+    note = f'<p>{_escape(value["note"])}</p>' if value['note'] else ''
+    return (f'<div class="comparison-notice" data-comparison-mode="{mode}">'
+            f'<div><span class="comparison-status {status}">{COMPARISON_STATUSES[status]}</span>'
+            f'{changes}</div>{note}</div>')
+
+
+def _baseline_views(case, published_version):
+    previous = case.get('comparison', {}).get('previous')
+    if previous is not None and not isinstance(previous, dict):
+        raise ValueError('Previous gallery case must be an object or null')
+    images, posts = [], []
+    for column, heading, version_case in (('previous', '前回の作業版', previous),
+                                          ('current', '今回の作業版', case)):
+        if version_case is not None and 'preview' in version_case.get('images', {}):
+            images.append(_image(version_case, 'preview', published_version, heading=heading, column=column))
+        else:
+            message = '前回の対応ケースがありません。' if version_case is None else '作業版の画像が記録されていません。'
+            images.append(f'<section class="comparison {column}"><div class="image-heading"><h3>{heading}</h3>'
+                          f'</div><p class="baseline-unavailable">{message}</p></section>')
+        body = ('<p class="baseline-unavailable">前回の対応ケースがありません。</p>' if version_case is None
+                else _posts(version_case, published_version, preview_only=True,
+                            id_prefix=f'{column}_{case["slug"]}_', embedded=True))
+        posts.append(f'<section class="baseline-column {column}"><h3 class="baseline-column-heading">'
+                     f'{heading}</h3>{body}</section>')
+    image_view = ('<div class="image-only">' + _comparison_notice(case, 'images')
+                  + '<div class="comparison-grid baseline-images">' + ''.join(images) + '</div></div>')
+    post_view = ('<div class="post-view baseline-post-view">' + _comparison_notice(case, 'posts')
+                 + '<p class="post-note">左右それぞれの投稿単位で表示しています。投稿番号は対応関係を示しません。</p>'
+                 + '<div class="baseline-post-grid">' + ''.join(posts) + '</div></div>')
+    return image_view + post_view
+
+
+def _previous_source(case):
+    previous = case.get('comparison', {}).get('previous')
+    if previous is None:
+        return ''
+    paths = _local_path(previous['records_path'])
+    reference = ''
+    if previous.get('cancel_reference_path'):
+        path = _local_path(previous['cancel_reference_path'])
+        reference = (f'<p>{_escape(previous.get("cancel_reference_note", ""))}</p>'
+                     f'<a class="records-link" href="{path}" target="_blank" rel="noopener">'
+                     '前回の確認済み参照入力JSONを開く ↗</a>')
+    text = ''.join(f'<h4>{label}</h4><pre>{_escape(previous[field])}</pre>'
+                   for field, label in (('report_text', '前回の電文のテキスト'), ('post_text', '前回の投稿本文'))
+                   if previous.get(field))
+    return ('<details class="source-details baseline-source-details"><summary>前回の出典・入力データを確認</summary>'
+            '<div class="details-content"><dl>'
+            f'<div><dt>前回のケース</dt><dd>{_escape(previous["title"])}</dd></div>'
+            f'<div><dt>元ファイル</dt><dd>{_escape(previous.get("source_file", ""))}</dd></div>'
+            f'<div><dt>出典のSHA-256</dt><dd><code>{_escape(previous.get("source_sha256", ""))}</code></dd></div>'
+            f'<div><dt>電文数</dt><dd>{_escape(previous["record_count"])}</dd></div></dl>'
+            f'<a class="records-link" href="{paths}" target="_blank" rel="noopener">前回の入力JSONを開く ↗</a>'
+            f'{reference}{text}</div></details>')
+
+
+def _case(case, index, published_version, *, baseline=False):
     slug = case['slug']
     if not isinstance(slug, str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]*', slug):
         raise ValueError('Gallery case IDs must be lowercase slug names')
+    if baseline:
+        views = _baseline_views(case, published_version)
+    else:
+        sides = [side for side in ('published', 'preview') if side in case['images']]
+        images = ''.join(_image(case, side, published_version) for side in sides)
+        grid = 'comparison-grid single' if len(sides) == 1 else 'comparison-grid'
+        views = f'<div class="image-only"><div class="{grid}">{images}</div></div>' + _posts(case, published_version)
     category = CATEGORIES.get(case['category'], case['category'])
     source = SOURCES.get(case['source_kind'], case['source_kind'])
     classification = CLASSIFICATIONS.get(case['classification'], case['classification'])
@@ -234,10 +329,12 @@ def _case(case, index, published_version):
                           for key in ('category', 'source_kind', 'classification', 'state'))
     reason_codes = list(dict.fromkeys(code for code, _ in _reason_items(case['images'].get('preview', {}))))
     attributes += f' data-reason-codes="{_escape(json.dumps(reason_codes, ensure_ascii=False))}"'
-    posts = _posts(case, published_version)
     post_reason_codes = [code for code, _ in _post_reason_items(case)]
     attributes += f' data-post-reason-codes="{_escape(json.dumps(post_reason_codes, ensure_ascii=False))}"'
-    attributes += f' data-has-posts="{"true" if "posts" in case else "false"}"'
+    attributes += f' data-has-posts="{"true" if baseline or "posts" in case else "false"}"'
+    if baseline:
+        attributes += f' data-comparison-status="{_comparison_result(case, "images")["status"]}"'
+        attributes += f' data-post-comparison-status="{_comparison_result(case, "posts")["status"]}"'
     source_label = case.get('source_label', case.get('source_file', '出典情報なし'))
     source_url = _source_url(case.get('source_url'))
     source_link = (f'<a href="{_escape(source_url)}" target="_blank" rel="noopener noreferrer">'
@@ -260,9 +357,7 @@ def _case(case, index, published_version):
         reference = (f'<p class="date-note">{_escape(case.get("cancel_reference_note", ""))}</p>'
                      f'<a class="records-link" href="{reference_path}" target="_blank" rel="noopener">'
                      '確認済み参照入力JSONを開く ↗</a>')
-    sides = [side for side in ('published', 'preview') if side in case['images']]
-    images = ''.join(_image(case, side, published_version) for side in sides)
-    grid = 'comparison-grid single' if len(sides) == 1 else 'comparison-grid'
+    previous_source = _previous_source(case) if baseline else ''
     return f'''<article class="case" id="{slug}" {attributes}>
   <header class="case-heading">
     <div><p class="category"><span class="case-number">{index:02d}</span> {_escape(category)}</p>
@@ -274,13 +369,12 @@ def _case(case, index, published_version):
     <span class="state {_escape(case['state'])}">{_escape(state)}</span>{tags}
     <span class="record-count">{_escape(case['record_count'])}電文</span></div>
   <p class="description">{_escape(case['description'])}</p>
-  <div class="image-only"><div class="{grid}">{images}</div></div>
-  {posts}
+  {views}
   {post}<details class="source-details"><summary>出典・入力データを確認</summary>
     <div class="details-content"><dl>{metadata}</dl>
     <p class="date-note">基準時刻は電文の日付を復元するために使用します。このギャラリーの公開受信ログには、電文ごとの正確な受信時刻は記録されていません。</p>
     <a class="records-link" href="{paths}" target="_blank" rel="noopener">入力JSONを開く ↗</a>{reference}{body}</div>
-  </details>
+  </details>{previous_source}
 </article>'''
 
 
@@ -311,12 +405,20 @@ body[data-image-width] .post-viewport{overflow-x:auto;overscroll-behavior-x:cont
 '''
 
 
+_CSS += '''
+.baseline-info{padding:12px 14px;background:#f3f6f9;border:1px solid var(--line);border-radius:6px;margin-top:14px;font-size:12px;color:var(--muted)}.baseline-info p{margin:0}.baseline-info p+p{margin-top:5px}.baseline-info a{margin-left:10px}.baseline-unmatched{margin-top:8px}.baseline-unmatched summary{cursor:pointer}.baseline-unmatched ul{margin:7px 0 0;padding-left:20px}.baseline-unmatched code{font-size:11px;margin-left:6px}.comparison-notice{margin:0 24px 18px;padding:12px 14px;background:#f5f7f9;border:1px solid var(--line);border-radius:6px;font-size:13px}.comparison-notice>div{display:flex;align-items:center;flex-wrap:wrap;gap:6px}.comparison-notice p{margin:7px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);font-size:12px}.comparison-status{font-weight:650;padding:2px 8px;border-radius:4px;border:1px solid #d0dbe4;background:#edf2f6;color:#415568}.comparison-status.changed{background:#fff6e8;color:#80581e;border-color:#e9d5b5}.comparison-status.input_changed{background:#f3eefb;color:#665085;border-color:#ded4ec}.comparison-status.added{background:#edf6f1;color:#276857;border-color:#d0e4d9}.comparison-change{padding:1px 7px;border:1px solid var(--line);border-radius:4px;background:#fff;font-size:11px}.baseline-post-view>.comparison-notice{margin-left:0;margin-right:0}.baseline-post-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}.baseline-column{min-width:0}.baseline-column-heading{font-size:15px;margin:0 0 16px;padding-bottom:9px;border-bottom:2px solid var(--line)}.previous>.baseline-column-heading,.previous .image-heading h3{color:var(--blue)}.current>.baseline-column-heading,.current .image-heading h3{color:var(--preview)}.baseline-unavailable{padding:24px;margin:0;border:1px dashed var(--line);border-radius:6px;color:var(--muted);font-size:13px}.filters .comparison-filter{grid-column:1/-1}.comparison-counts{margin-top:14px;font-size:12px;color:var(--muted)}.comparison-counts p{margin:0 0 6px}.comparison-counts ul{display:flex;gap:6px 18px;flex-wrap:wrap;list-style:none;padding:0;margin:0}.comparison-counts strong{color:var(--ink)}
+@media(max-width:1000px){.comparison-notice{margin-left:20px;margin-right:20px}.baseline-post-grid{gap:14px}}
+@media(max-width:680px){.comparison-notice{margin-left:16px;margin-right:16px}.baseline-post-grid{grid-template-columns:minmax(0,1fr);gap:24px}.baseline-info a{display:block;margin:4px 0 0}}
+'''
+
+
 _JS = '''
 (() => {
   const form = document.getElementById('filters');
   const cards = Array.from(document.querySelectorAll('.case'));
   const query = document.getElementById('search');
   const reason = document.getElementById('reason');
+  const comparisonStatus = document.getElementById('comparison-status');
   const imageWidth = document.getElementById('image-width');
   const viewMode = document.getElementById('view-mode');
   const viewports = Array.from(document.querySelectorAll('.image-viewport, .post-viewport'));
@@ -394,8 +496,10 @@ _JS = '''
   function update() {
     const postMode = document.body.dataset.viewMode === 'posts';
     const reasonCodes = cards.map(card => JSON.parse(postMode ? card.dataset.postReasonCodes : card.dataset.reasonCodes));
+    const comparisonCodes = cards.map(card => postMode ? card.dataset.postComparisonStatus : card.dataset.comparisonStatus);
     const terms = normalize(query.value).trim().split(/\\s+/).filter(Boolean);
     const counts = new Map();
+    const comparisonCounts = new Map();
     let shown = 0;
     cards.forEach((card, index) => {
       const selected = selectors.every(key => {
@@ -403,8 +507,14 @@ _JS = '''
         return !value || card.getAttribute('data-' + key) === value;
       });
       const matches = selected && terms.every(term => searchable[index].includes(term));
-      if (matches) reasonCodes[index].forEach(code => counts.set(code, (counts.get(code) || 0) + 1));
-      const visible = matches && (!reason.value || reasonCodes[index].includes(reason.value));
+      const matchesReason = !reason.value || reasonCodes[index].includes(reason.value);
+      const matchesComparison = !comparisonStatus || !comparisonStatus.value || comparisonStatus.value === comparisonCodes[index];
+      if (matches && matchesComparison) reasonCodes[index].forEach(code => counts.set(code, (counts.get(code) || 0) + 1));
+      if (matches && matchesReason && comparisonStatus) {
+        const code = comparisonCodes[index];
+        comparisonCounts.set(code, (comparisonCounts.get(code) || 0) + 1);
+      }
+      const visible = matches && matchesReason && matchesComparison;
       card.hidden = !visible;
       if (visible) shown++;
     });
@@ -416,6 +526,12 @@ _JS = '''
     document.querySelectorAll('[data-reason-count]').forEach(item => {
       item.textContent = String(counts.get(item.dataset.reasonCount) || 0);
     });
+    if (comparisonStatus) Array.from(comparisonStatus.options).filter(option => option.value).forEach(option => {
+      option.textContent = option.dataset.label + '（' + (comparisonCounts.get(option.value) || 0) + '件）';
+    });
+    document.querySelectorAll('[data-comparison-count]').forEach(item => {
+      item.textContent = String(comparisonCounts.get(item.dataset.comparisonCount) || 0);
+    });
     scheduleLayout();
   }
   function reset() {
@@ -426,9 +542,12 @@ _JS = '''
   function updateViewMode() {
     const postMode = viewMode.value === 'posts';
     document.body.dataset.viewMode = postMode ? 'posts' : 'images';
+    const versionLabel = document.body.dataset.baseline ? '今回の作業版' : '作業版';
     document.getElementById('reason-scope').textContent = postMode
-      ? '集計対象：投稿全体の添付画像（作業版）。同じケースの複数投稿は、理由ごとに1件として数えます。未記録のケースは画像のみの理由を表示します。'
-      : '集計対象：画像のみの表示（作業版）。投稿全体の添付画像とは異なる場合があります。';
+      ? '集計対象：投稿全体の添付画像（' + versionLabel + '）。同じケースの複数投稿は、理由ごとに1件として数えます。未記録のケースは画像のみの理由を表示します。'
+      : '集計対象：画像のみの表示（' + versionLabel + '）。投稿全体の添付画像とは異なる場合があります。';
+    if (comparisonStatus) document.getElementById('comparison-scope').textContent =
+      '前回との比較：' + (postMode ? '投稿全体' : '画像のみ') + '。比較状態以外の検索条件を適用した件数です。';
     update();
   }
   form.addEventListener('input', update);
@@ -450,7 +569,19 @@ _JS = '''
 def render_html(manifest):
     """Render complete escaped HTML; the browser never fetches its manifest."""
     cases = manifest['cases']
-    has_post_data = any('posts' in case for case in cases)
+    baseline = manifest.get('baseline')
+    if baseline is not None and not isinstance(baseline, dict):
+        raise ValueError('Gallery baseline must be an object')
+    has_baseline = baseline is not None
+    if has_baseline:
+        for case in cases:
+            for mode in ('images', 'posts'):
+                _comparison_result(case, mode)
+            previous = case.get('comparison', {}).get('previous')
+            if previous is not None and not isinstance(previous, dict):
+                raise ValueError('Previous gallery case must be an object or null')
+    has_post_data = any('posts' in case or (has_baseline and
+                        'posts' in (case.get('comparison', {}).get('previous') or {})) for case in cases)
     default_mode = 'posts' if has_post_data else 'images'
     published_version = manifest.get('published_version', '公開済み版')
     comparison = any('published' in case['images'] for case in cases)
@@ -461,16 +592,40 @@ def render_html(manifest):
                  '「画像のみ」に切り替えると画像と表示理由を確認できます。')
         if comparison:
             intro += f' 公開済み {_escape(published_version)} と作業版も比較できます。'
+    if has_baseline:
+        intro = ('前回の作業版と今回の作業版を比較できます。'
+                 '「画像のみ」と「投稿全体」で、比較する内容を切り替えられます。'
+                 if has_post_data else '前回の作業版と今回の作業版の画像を比較できます。')
+    baseline_info = ''
+    if has_baseline:
+        path = _local_path(baseline['manifest_path'])
+        working_tree = (' · 未コミットの変更を含む' if baseline.get('working_tree') is True
+                        else ' · 未コミットの変更なし' if baseline.get('working_tree') is False else '')
+        baseline_info = ('<div class="baseline-info"><p>前回のコード：'
+                         f'<code>{_escape(baseline.get("commit") or "記録なし")}</code>{working_tree}'
+                         f'<a href="{path}" target="_blank" rel="noopener">前回の一覧データ JSON ↗</a></p>'
+                         '<p>同じ入力での変化を「変更あり」として表示します。入力が異なるケースは別に示します。</p>')
+        unmatched = baseline.get('unmatched_cases', [])
+        if unmatched:
+            entries = ''.join(f'<li>{_escape(case["title"])}<code>{_escape(case["slug"])}</code></li>'
+                              for case in unmatched)
+            baseline_info += ('<details class="baseline-unmatched"><summary>'
+                              f'今回の比較対象にない前回ケース（{len(unmatched)}件）</summary>'
+                              '<p>今回の選択範囲に含まれない前回ケースです。</p>'
+                              f'<ul>{entries}</ul></details>')
+        baseline_info += '</div>'
     build_info = ''
     if manifest.get('commit'):
         working_tree = (' · 未コミットの変更を含む' if manifest.get('working_tree') is True
                         else ' · 未コミットの変更なし' if manifest.get('working_tree') is False else '')
-        build_info = (f'<p class="build-info">コード：<code>{_escape(manifest["commit"])}</code>'
+        build_info = (f'<p class="build-info">{"今回のコード" if has_baseline else "コード"}：'
+                      f'<code>{_escape(manifest["commit"])}</code>'
                       f'{working_tree}</p>')
     slugs = [case['slug'] for case in cases]
     if len(set(slugs)) != len(slugs):
         raise ValueError('Gallery case IDs must be unique')
-    rows = '\n'.join(_case(case, index, published_version) for index, case in enumerate(cases, 1))
+    rows = '\n'.join(_case(case, index, published_version, baseline=has_baseline)
+                     for index, case in enumerate(cases, 1))
     filters = ''.join(
         f'<label>{label}<select id="{element}" name="{element}"><option value="">すべて</option>'
         f'{_options((case[key] for case in cases), labels)}</select></label>'
@@ -493,16 +648,34 @@ def render_html(manifest):
         f'<option value="{_escape(code)}" data-label="{_escape(label)}">'
         f'{_escape(label)}（{reason_counts[code]}件）</option>'
         for code, label in reason_labels.items())
-    filters += ('<label class="reason-filter">表示理由・記録状態（作業版）'
+    version_label = '今回の作業版' if has_baseline else '作業版'
+    filters += (f'<label class="reason-filter">表示理由・記録状態（{version_label}）'
                 '<select id="reason" name="reason"><option value="">すべて</option>'
                 f'{reason_options}</select></label>')
     reason_totals = ''.join(
         f'<li>{_escape(label)}：<strong data-reason-count="{_escape(code)}">'
         f'{reason_counts[code]}</strong> 件</li>' for code, label in reason_labels.items())
-    reason_summary = ('<details class="reason-summary"><summary>作業版の理由別件数</summary>'
+    reason_summary = (f'<details class="reason-summary"><summary>{version_label}の理由別件数</summary>'
                       '<p>理由以外の検索条件を適用した件数です。複数の理由を持つ画像は各理由に数えます。'
                       '描画エラーは表示の切替と分けて集計します。</p>'
                       f'<ul>{reason_totals}</ul></details>')
+    comparison_summary = ''
+    if has_baseline:
+        mode = 'posts' if has_post_data else 'images'
+        comparison_counts = {status: sum(_comparison_result(case, mode)['status'] == status for case in cases)
+                             for status in COMPARISON_STATUSES}
+        options = ''.join(f'<option value="{status}" data-label="{label}">'
+                          f'{label}（{comparison_counts[status]}件）</option>'
+                          for status, label in COMPARISON_STATUSES.items())
+        filters += ('<label class="comparison-filter">前回との比較'
+                    '<select id="comparison-status" name="comparison-status"><option value="">すべて</option>'
+                    f'{options}</select></label>')
+        totals = ''.join(f'<li>{label}：<strong data-comparison-count="{status}">'
+                         f'{comparison_counts[status]}</strong> 件</li>'
+                         for status, label in COMPARISON_STATUSES.items())
+        comparison_summary = ('<div class="comparison-counts"><p id="comparison-scope">前回との比較：'
+                              f'{"投稿全体" if has_post_data else "画像のみ"}。比較状態以外の検索条件を適用した件数です。'
+                              f'</p><ul>{totals}</ul></div>')
     mode_options = ('<label for="view-mode">表示内容<select id="view-mode">'
                     f'<option value="images"{" selected" if not has_post_data else ""}>画像のみ</option>'
                     f'<option value="posts"{" selected" if has_post_data else " disabled"}>投稿全体</option>'
@@ -511,7 +684,7 @@ def render_html(manifest):
                  'オフライン投稿例です。添付画像はローカルPNGで表示しています。'
                  '本文と画像はnostterの通常TL相当で表示し、長い投稿は「もっと見る」で全体を開けます。</p>'
                  if has_post_data else '')
-    scope = ('投稿全体の添付画像（作業版）' if has_post_data else '画像のみの表示（作業版）')
+    scope = f'{"投稿全体の添付画像" if has_post_data else "画像のみの表示"}（{version_label}）'
     scope_note = f'<p id="reason-scope" class="reason-scope">集計対象：{scope}</p>'
     categories = len({case['category'] for case in cases})
     license_link = (f'<br><a href="{_local_path(manifest["source_license_path"])}" '
@@ -520,10 +693,10 @@ def render_html(manifest):
     return f'''<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>画像ギャラリー | Shirasu</title>
-<style>{_CSS}</style></head><body data-view-mode="{default_mode}">
+<style>{_CSS}</style></head><body data-view-mode="{default_mode}"{' data-baseline="true"' if has_baseline else ''}>
 <header class="page-header"><div class="header-inner"><div class="heading-line"><h1>画像ギャラリー</h1>
 <a href="manifest.json" target="_blank" rel="noopener">一覧データ JSON ↗</a></div>
-<p class="intro">{intro}</p>{build_info}
+<p class="intro">{intro}</p>{build_info}{baseline_info}
 <p class="notice">過去の受信・訓練・合成サンプル / 現在の災害情報ではありません</p></div></header>
 <main><section class="toolbar" aria-label="表示するサンプルを選択"><div class="toolbar-top">
 <p role="status" aria-live="polite" aria-atomic="true"><strong id="shown-count">{len(cases)}</strong> / {len(cases)} 件を表示 <span>· {categories} 種類</span></p>
@@ -535,7 +708,7 @@ def render_html(manifest):
 <option value="360" selected>SNS · 360px（基準）</option>
 <option value="430">SNS · 430px</option>
 </select></label><p id="image-size-note" class="view-note" role="status" aria-live="polite"></p></div>{post_note}
-<form id="filters" class="filters" hidden><label class="search">キーワード検索<input id="search" name="search" type="search" placeholder="例：台風、阿蘇山、解除" autocomplete="off"></label>{filters}</form>{scope_note}{reason_summary}
+<form id="filters" class="filters" hidden><label class="search">キーワード検索<input id="search" name="search" type="search" placeholder="例：台風、阿蘇山、解除" autocomplete="off"></label>{filters}</form>{scope_note}{reason_summary}{comparison_summary}
 </section><noscript><p class="no-script">すべてのサンプルを表示しています。絞り込みにはJavaScriptが必要です。</p></noscript>
 <div id="cases">{rows}</div>
 <section id="empty" class="empty" hidden><h2>該当するサンプルがありません</h2><p>検索語や絞り込み条件を変更してください。</p><button type="button" class="reset" data-reset>条件をリセット</button></section>

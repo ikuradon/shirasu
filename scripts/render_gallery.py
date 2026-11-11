@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import re
 import struct
+import subprocess
 import sys
 
 # Support both `python scripts/render_gallery.py` and module imports in tests.
@@ -105,6 +106,21 @@ def _write_json(path, value):
         destination.write('\n')
 
 
+def _source_info():
+    """Record optional checkout provenance without requiring Git at runtime."""
+    try:
+        commit = subprocess.run(['git', '-C', str(ROOT), 'rev-parse', '--short', 'HEAD'],
+                                capture_output=True, text=True, check=True, timeout=5).stdout.strip()
+        status = subprocess.run(['git', '--no-optional-locks', '-C', str(ROOT), 'status',
+                                 '--porcelain', '--untracked-files=normal'],
+                                capture_output=True, text=True, check=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    if not re.fullmatch(r'[0-9a-f]{7,40}', commit):
+        return {}
+    return {'commit': commit, 'working_tree': bool(status.strip())}
+
+
 def _save_image(output, name, records, version, *, cancel_reference=None):
     """Save one rendered input and retain failures for both gallery views."""
     try:
@@ -145,24 +161,34 @@ def _select_cases(selected_cases):
     return tuple(case for case in cases if case.slug in requested)
 
 
-def generate(output, *, published_version='v4', selected_cases=None, preview_only=False):
+def generate(output, *, published_version='v4', selected_cases=None, preview_only=False, baseline=None):
     """Write a fresh gallery; retain and report individual rendering failures.
 
     No current date, live receiver, private configuration, signing or network is
-    used. The same inputs and dependencies produce the same manifest and HTML.
+    used. Checkout provenance is recorded when Git is available.
     """
     if published_version not in VERSIONS:
         raise ValueError('公開済み版は v1 / v2 / v3 / v4 から選んでください')
+    if baseline is not None and published_version != 'v4':
+        raise ValueError('前回の作業版との比較に公開済み版は指定できません')
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
         raise FileExistsError(f'既存の出力は上書きしません: {output}')
+    if baseline is not None and output.resolve().is_relative_to(Path(baseline).resolve()):
+        raise ValueError('比較元ギャラリーの中には出力できません')
     cases = _select_cases(selected_cases)
+    previous = None
+    if baseline is not None:
+        from scripts.gallery_compare import load_baseline
+        previous = load_baseline(baseline)
+        preview_only = True
     _preflight(published_version, preview_only=preview_only)
     license_text = (ROOT / 'tests/fixtures/qzqsm/LICENSE.azarashi').read_text(encoding='utf-8')
     texts = {case.slug: _decoded_text(case.records) for case in cases}
     posts = {case.slug: _post_text(case.records) for case in cases}
     from scripts.gallery_posts import plan_posts
     planned_posts = {case.slug: plan_posts(case.records) for case in cases}
+    source_info = _source_info()
     output.mkdir(parents=True, exist_ok=False)
     (output / 'images').mkdir()
     (output / 'records').mkdir()
@@ -173,6 +199,7 @@ def generate(output, *, published_version='v4', selected_cases=None, preview_onl
                 'post_preview': {'images_enabled': True, 'history': 'empty',
                                  'input_timing': 'same_virtual_time_in_input_order',
                                  'collection_wait_seconds': 180}}
+    manifest.update(source_info)
     if preview_only:
         manifest['renderer'] = 'preview'
     else:
@@ -231,6 +258,9 @@ def generate(output, *, published_version='v4', selected_cases=None, preview_onl
                     item['images'][slot] = saved_images[key]
             row['posts'].append(item)
         manifest['cases'].append(row)
+    if previous is not None:
+        from scripts.gallery_compare import attach_comparison
+        attach_comparison(manifest, previous, output)
     _write_json(output / 'manifest.json', manifest)
     with (output / 'index.html').open('x', encoding='utf-8') as destination:
         destination.write(render_html(manifest))
@@ -240,16 +270,19 @@ def generate(output, *, published_version='v4', selected_cases=None, preview_onl
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, help='新しく作成するギャラリーのディレクトリ')
-    parser.add_argument('--published-version', choices=VERSIONS, default='v4',
-                        help='比較する公開済み版（既定: v4。稼働中の設定とは独立）')
+    comparison = parser.add_mutually_exclusive_group()
+    comparison.add_argument('--published-version', choices=VERSIONS, default='v4',
+                            help='比較する公開済み版（既定: v4。稼働中の設定とは独立）')
+    comparison.add_argument('--baseline', type=Path, metavar='DIRECTORY',
+                            help='保存済みギャラリーの作業版と比較する（今回も作業版のみ生成）')
     parser.add_argument('--preview-only', action='store_true',
                         help='作業版のみを生成し、公開済み版との比較を省く')
     parser.add_argument('--case', action='append', dest='cases', metavar='SLUG',
                         help='生成するサンプルID。繰り返し指定可。省略時は全件')
     parser.add_argument('--list', action='store_true', help='描画せずサンプルIDを一覧表示')
     args = parser.parse_args(argv)
-    if args.list and (args.output is not None or args.cases is not None or args.preview_only):
-        parser.error('--list と --output / --case / --preview-only は同時に指定できません')
+    if args.list and (args.output is not None or args.cases is not None or args.preview_only or args.baseline):
+        parser.error('--list と --output / --case / --preview-only / --baseline は同時に指定できません')
     if not args.list and args.output is None:
         parser.error('--output が必要です')
     try:
@@ -259,7 +292,7 @@ def main(argv=None):
             return 0
         result = generate(args.output, published_version=args.published_version,
                           selected_cases=None if args.cases is None else tuple(args.cases),
-                          preview_only=args.preview_only)
+                          preview_only=args.preview_only, baseline=args.baseline)
     except (OSError, ValueError, ImportError) as error:
         print(f'ギャラリーを作成できません: {error}', file=sys.stderr)
         return 1

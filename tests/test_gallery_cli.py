@@ -9,11 +9,13 @@ import io
 import json
 from pathlib import Path
 import subprocess
+import struct
 import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+import zlib
 
 from scripts import render_gallery
 from scripts.gallery_catalog import load_cases
@@ -24,6 +26,15 @@ PNG = base64.b64decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
     '+A8AAQUBAScY42YAAAAASUVORK5CYII=')
 HAS_RENDERER = all(importlib.util.find_spec(name) for name in ('matplotlib', 'numpy'))
+
+
+def alternate_png():
+    def chunk(name, data):
+        return struct.pack('>I', len(data)) + name + data + struct.pack('>I', zlib.crc32(name + data))
+    return (b'\x89PNG\r\n\x1a\n'
+            + chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 6, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(b'\x00\xff\x00\x00\xff'))
+            + chunk(b'IEND', b''))
 
 
 class GalleryCliTests(unittest.TestCase):
@@ -370,6 +381,96 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         self.assertEqual(row['images']['preview']['decision'], decision)
         self.assertEqual(len(list((self.output / 'images').iterdir())), 1)
         self.assertNotIn('公開版', (self.output / 'index.html').read_text())
+
+    def make_baseline(self):
+        baseline = self.root / 'previous'
+        with patch.object(render_gallery, '_preflight'), \
+                patch.object(render_gallery, '_render_with_decision',
+                             return_value=(PNG, 'map', {'mode': 'map', 'reasons': []})), \
+                redirect_stdout(io.StringIO()):
+            render_gallery.generate(baseline, selected_cases=('marine',), preview_only=True)
+        return baseline
+
+    def test_baseline_cli_compares_saved_preview_without_rendering_a_published_version(self):
+        baseline = self.make_baseline()
+        before = {p.relative_to(baseline): p.read_bytes() for p in baseline.rglob('*') if p.is_file()}
+        decision = {'mode': 'summary', 'reasons': [
+            {'code': 'layout_overflow', 'stage': 'layout', 'message': '配置を切り替え', 'detail': ''}]}
+        with patch.object(render_gallery, '_preflight') as preflight, \
+                patch.object(render_gallery, '_render_with_decision',
+                             return_value=(alternate_png(), 'summary', decision)) as render, \
+                redirect_stdout(io.StringIO()):
+            status = render_gallery.main(['--baseline', str(baseline), '--output', str(self.output),
+                                          '--case', 'marine'])
+        self.assertEqual(status, 0)
+        preflight.assert_called_once_with('v4', preview_only=True)
+        render.assert_called_once_with(self.case.records, 'preview')
+        result = json.loads((self.output / 'manifest.json').read_text())
+        self.assertEqual(result['renderer'], 'preview')
+        self.assertNotIn('published_version', result)
+        row, = result['cases']
+        for view in ('images', 'posts'):
+            comparison = row['comparison'][view]
+            self.assertEqual(comparison['status'], 'changed')
+            self.assertTrue({'image', 'mode', 'reasons'} <= set(comparison['changes']))
+            self.assertEqual(result['baseline']['counts'][view]['changed'], 1)
+        previous = row['comparison']['previous']
+        self.assertTrue(previous['images']['preview']['path'].startswith('baseline/'))
+        self.assertEqual((self.output / previous['images']['preview']['path']).read_bytes(), PNG)
+        self.assertEqual((self.output / row['images']['preview']['path']).read_bytes(), alternate_png())
+        copied = json.loads((self.output / result['baseline']['manifest_path']).read_text())
+        self.assertEqual(len(copied['cases']), 1)
+        self.assertEqual(before, {p.relative_to(baseline): p.read_bytes()
+                                 for p in baseline.rglob('*') if p.is_file()})
+
+    def test_old_gallery_without_posts_still_compares_images_without_inventing_posts(self):
+        baseline = self.make_baseline()
+        path = baseline / 'manifest.json'
+        old = json.loads(path.read_text())
+        old.pop('post_preview')
+        old['cases'][0].pop('posts')
+        path.write_text(json.dumps(old))
+        with patch.object(render_gallery, '_preflight'), \
+                patch.object(render_gallery, '_render_with_decision',
+                             return_value=(PNG, 'map', {'mode': 'map', 'reasons': []})), \
+                redirect_stdout(io.StringIO()):
+            result = render_gallery.generate(self.output, baseline=baseline, selected_cases=('marine',))
+        comparison = result['cases'][0]['comparison']
+        self.assertEqual(comparison['images']['status'], 'unchanged')
+        self.assertEqual(comparison['posts']['status'], 'unavailable')
+        self.assertNotIn('posts', comparison['previous'])
+
+    def test_corrupt_baseline_and_nested_output_fail_before_rendering_or_writing(self):
+        baseline = self.make_baseline()
+        image = next((baseline / 'images').iterdir())
+        image.write_bytes(b'broken')
+        with patch.object(render_gallery, '_preflight') as preflight, \
+                patch.object(render_gallery, '_render_with_decision') as render:
+            with self.assertRaises(ValueError):
+                render_gallery.generate(self.output, baseline=baseline, selected_cases=('marine',))
+            self.assertFalse(self.output.exists())
+            with self.assertRaisesRegex(ValueError, '比較元ギャラリーの中'):
+                render_gallery.generate(baseline / 'next', baseline=baseline)
+            self.assertFalse((baseline / 'next').exists())
+        preflight.assert_not_called()
+        render.assert_not_called()
+
+    def test_baseline_cannot_be_mixed_with_published_version_or_listing(self):
+        for options in (['--baseline', '/unused', '--published-version', 'v4'],
+                        ['--baseline', '/unused', '--list']):
+            with self.subTest(options=options), redirect_stderr(io.StringIO()), \
+                    patch.object(render_gallery, 'generate') as generate:
+                with self.assertRaises(SystemExit) as error:
+                    render_gallery.main(options)
+                self.assertEqual(error.exception.code, 2)
+                generate.assert_not_called()
+
+    def test_optional_git_provenance_does_not_make_archived_source_depend_on_git(self):
+        with patch.object(render_gallery.subprocess, 'run', side_effect=FileNotFoundError):
+            self.assertEqual(render_gallery._source_info(), {})
+        with patch.object(render_gallery.subprocess, 'run', side_effect=[
+                SimpleNamespace(stdout='abc1234\n'), SimpleNamespace(stdout=' M scripts/render_gallery.py\n')]):
+            self.assertEqual(render_gallery._source_info(), {'commit': 'abc1234', 'working_tree': True})
 
 
 @unittest.skipUnless(HAS_RENDERER, 'Install image_service/requirements.txt for actual gallery rendering')

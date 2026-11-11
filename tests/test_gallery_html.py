@@ -45,6 +45,28 @@ def posting_sample(*, multiple=False):
     return manifest
 
 
+def baseline_sample(*, multiple=False):
+    manifest = posting_sample(multiple=multiple)
+    case = manifest['cases'][0]
+    previous = copy.deepcopy(case)
+    previous['records_path'] = 'baseline/records/ash-received.json'
+    previous['images']['preview']['path'] = 'baseline/images/ash-received-preview.png'
+    for index, post in enumerate(previous['posts'], 1):
+        post['images']['preview']['path'] = f'baseline/images/post-{index}-preview.png'
+    case['comparison'] = {
+        'images': {'status': 'changed', 'changes': ['image', 'mode', 'reasons'],
+                   'note': '同じ入力の画像と表示理由が変わりました。'},
+        'posts': {'status': 'unchanged', 'changes': [], 'note': '投稿は同じです。'},
+        'previous': previous,
+    }
+    manifest.update(commit='current123', working_tree=True, baseline={
+        'commit': 'previous456', 'working_tree': False, 'manifest_path': 'baseline/manifest.json',
+        'counts': {'images': {'changed': 1}, 'posts': {'unchanged': 1}},
+        'unmatched_cases': [{'slug': 'other-previous', 'title': '今回選択していない前回の例'}],
+    })
+    return manifest
+
+
 class Document(HTMLParser):
     def __init__(self, source):
         super().__init__()
@@ -542,6 +564,191 @@ class GalleryHtmlTests(unittest.TestCase):
         manifest['cases'][0]['posts'][0]['image_enabled'] = False
         with self.assertRaises(ValueError):
             render_html(manifest)
+
+    def test_baseline_compares_preview_snapshots_without_inserting_the_published_version(self):
+        manifest = baseline_sample()
+        content = render_html(manifest)
+        document = Document(content)
+        self.assertEqual(document.attrs('body'), [{'data-view-mode': 'posts', 'data-baseline': 'true'}])
+        self.assertIn('前回の作業版と今回の作業版を比較できます。', content)
+        self.assertIn('前回のコード：<code>previous456</code> · 未コミットの変更なし', content)
+        self.assertIn('今回のコード：<code>current123</code> · 未コミットの変更を含む', content)
+        self.assertIn('href="baseline/manifest.json"', content)
+        self.assertNotIn('公開済み v4', content)
+        self.assertNotIn('<h3>公開版', content)
+        self.assertEqual([image['src'] for image in document.attrs('img')], [
+            'baseline/images/ash-received-preview.png', 'images/ash-received-preview.png',
+            'baseline/images/post-1-preview.png', 'images/post-1-preview.png',
+        ])
+        self.assertIn('<section class="comparison previous">', content)
+        self.assertIn('<section class="comparison current">', content)
+        self.assertIn('<h3>前回の作業版 ', content)
+        self.assertIn('<h3>今回の作業版 ', content)
+        self.assertEqual(content.count('class="baseline-column-heading"'), 2)
+        self.assertIn('<details class="source-details baseline-source-details">', content)
+        self.assertIn('href="baseline/records/ash-received.json"', content)
+
+    def test_baseline_posts_preserve_each_sides_units_text_and_distinct_expansion_ids(self):
+        manifest = baseline_sample(multiple=True)
+        case = manifest['cases'][0]
+        previous = case['comparison']['previous']
+        previous['posts'][0]['text'] = '前回の本文\n---\nNMEA: 前回\n'
+        case['posts'] = case['posts'][:2]
+        case['posts'][0]['text'] = '今回の本文\n\n---\nNMEA: 今回\n'
+        case['comparison']['posts'].update(status='changed', changes=['structure', 'text'],
+                                          note='投稿数と本文が変わりました。')
+        content = render_html(manifest)
+        document = Document(content)
+        expected_posts = previous['posts'] + case['posts']
+        self.assertEqual(PostContents(content).bodies,
+                         [with_image(post['text'], PostContents.MEDIA) for post in expected_posts])
+        self.assertIn('<h3>投稿 1 / 5</h3>', content)
+        self.assertIn('<h3>投稿 1 / 2</h3>', content)
+        self.assertIn('投稿番号は対応関係を示しません。', content)
+        self.assertIn('<span class="comparison-change">投稿構成</span>', content)
+        self.assertIn('<span class="comparison-change">投稿本文</span>', content)
+        bodies = [attrs for attrs in document.attrs('div') if attrs.get('class') == 'post-body']
+        controls = [attrs for attrs in document.attrs('button') if attrs.get('class') == 'post-toggle']
+        self.assertEqual(len(bodies), 7)
+        self.assertTrue(all(body['id'].startswith('previous_') for body in bodies[:5]))
+        self.assertTrue(all(body['id'].startswith('current_') for body in bodies[5:]))
+        ids = [attrs['id'] for _, attrs in document.elements if 'id' in attrs]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual([button['aria-controls'] for button in controls], [body['id'] for body in bodies])
+        self.assertNotIn('class="post-nmea"', content)
+
+    def test_baseline_comparison_status_and_current_reasons_are_separate_and_mode_specific(self):
+        manifest = baseline_sample()
+        case = manifest['cases'][0]
+        previous = case['comparison']['previous']
+        case['images']['preview']['decision'] = {'mode': 'map', 'reasons': []}
+        case['posts'][0]['images']['preview']['decision'] = {'mode': 'map', 'reasons': []}
+        previous_reason = {'code': 'previous_only', 'message': '前回だけの表示理由', 'stage': 'area', 'detail': ''}
+        previous['images']['preview']['decision'] = {'mode': 'summary', 'reasons': [previous_reason]}
+        previous['posts'][0]['images']['preview']['decision'] = {'mode': 'summary', 'reasons': [previous_reason]}
+        content = render_html(manifest)
+        document = Document(content)
+        article, = document.attrs('article')
+        self.assertEqual(article['data-comparison-status'], 'changed')
+        self.assertEqual(article['data-post-comparison-status'], 'unchanged')
+        self.assertEqual(json.loads(article['data-reason-codes']), ['__unchanged__'])
+        self.assertEqual(json.loads(article['data-post-reason-codes']), ['__unchanged__'])
+        self.assertIn('前回だけの表示理由', content)
+        self.assertNotIn('value="previous_only"', content)
+        self.assertNotIn('data-reason-count="previous_only"', content)
+        self.assertIn('表示理由・記録状態（今回の作業版）', content)
+        self.assertIn('集計対象：投稿全体の添付画像（今回の作業版）', content)
+        self.assertIn('data-comparison-count="unchanged">1</strong>', content)
+        self.assertIn('data-comparison-count="changed">0</strong>', content)
+        compare_options = content.split('<select id="comparison-status"', 1)[1].split('</select>', 1)[0]
+        self.assertIn('<option value="">すべて</option>', compare_options)
+        self.assertNotIn(' selected', compare_options)
+        for status in ('changed', 'unchanged', 'input_changed', 'added', 'unavailable'):
+            self.assertIn(f'<option value="{status}"', compare_options)
+        self.assertIn('data-comparison-mode="images"', content)
+        self.assertIn('data-comparison-mode="posts"', content)
+
+    def test_baseline_different_input_is_explicit_and_unmatched_cases_are_outside_current_cards(self):
+        manifest = baseline_sample()
+        result = manifest['cases'][0]['comparison']['images']
+        result.update(status='input_changed', changes=[], note='入力電文または基準時刻が前回と異なります。')
+        content = render_html(manifest)
+        document = Document(content)
+        self.assertIn('<span class="comparison-status input_changed">入力が異なる</span>', content)
+        self.assertIn('入力電文または基準時刻が前回と異なります。', content)
+        self.assertIn('今回の比較対象にない前回ケース（1件）', content)
+        self.assertIn('今回選択していない前回の例', content)
+        self.assertNotIn('削除された', content)
+        self.assertEqual(len(document.attrs('article')), 1)
+        self.assertNotIn('id="other-previous"', content)
+
+    def test_missing_previous_case_and_legacy_post_data_are_not_fabricated(self):
+        manifest = baseline_sample()
+        case = manifest['cases'][0]
+        previous = case['comparison']['previous']
+        del previous['posts']
+        previous['post_text'] = '古い単独本文の記録'
+        case['comparison']['posts'].update(status='unavailable', changes=[], note='前回の投稿記録がありません。')
+        content = render_html(manifest)
+        self.assertIn('この作業版には投稿全体の記録がありません。', content)
+        self.assertIn('前回の投稿記録がありません。', content)
+        self.assertEqual(PostContents(content).bodies,
+                         [with_image(case['posts'][0]['text'], PostContents.MEDIA)])
+        self.assertIn('<h4>前回の投稿本文</h4><pre>古い単独本文の記録</pre>', content)
+        case['comparison']['previous'] = None
+        for mode in ('images', 'posts'):
+            case['comparison'][mode].update(status='added', changes=[], note='今回初めて選択したケースです。')
+        content = render_html(manifest)
+        self.assertIn('前回の対応ケースがありません。', content)
+        self.assertNotIn('baseline/images/', content)
+        self.assertNotIn('<details class="source-details baseline-source-details">', content)
+        self.assertIn('<span class="comparison-status added">今回追加</span>', content)
+
+    def test_baseline_can_show_previous_posts_when_current_has_no_post_or_no_post_data(self):
+        manifest = baseline_sample()
+        case = manifest['cases'][0]
+        previous = case['comparison']['previous']
+        case['posts'] = []
+        content = render_html(manifest)
+        self.assertIn('この入力からの投稿はありません。', content)
+        self.assertEqual(PostContents(content).bodies,
+                         [with_image(previous['posts'][0]['text'], PostContents.MEDIA)])
+        del case['posts']
+        content = render_html(manifest)
+        self.assertEqual(Document(content).attrs('body')[0]['data-view-mode'], 'posts')
+        self.assertIn('この作業版には投稿全体の記録がありません。', content)
+        self.assertEqual(Document(content).attrs('article')[0]['data-has-posts'], 'true')
+        self.assertEqual(PostContents(content).bodies,
+                         [with_image(previous['posts'][0]['text'], PostContents.MEDIA)])
+        del previous['posts']
+        content = render_html(manifest)
+        self.assertEqual(Document(content).attrs('body')[0]['data-view-mode'], 'images')
+        self.assertIn('前回の作業版と今回の作業版の画像を比較できます。', content)
+        self.assertEqual(PostContents(content).bodies, [])
+
+    def test_baseline_text_and_metadata_are_escaped_and_only_local_assets_can_be_linked(self):
+        attack = '</script><script>alert("x")</script><img src=x onerror=alert(1)>'
+        manifest = baseline_sample()
+        case = manifest['cases'][0]
+        previous = case['comparison']['previous']
+        previous.update(title=attack, source_file=attack, report_text=attack,
+                        cancel_reference_path='baseline/records/reference.json', cancel_reference_note=attack)
+        previous['posts'][0]['text'] = attack + '\n---\nNMEA: 例'
+        case['comparison']['images'].update(note=attack, changes=[attack])
+        manifest['baseline'].update(commit=attack, unmatched_cases=[{'slug': attack, 'title': attack}])
+        content = render_html(manifest)
+        document = Document(content)
+        self.assertNotIn(attack, content)
+        self.assertEqual(len(document.attrs('script')), 1)
+        self.assertEqual(len(document.attrs('img')), 4)
+        self.assertTrue(all('onerror' not in attrs for _, attrs in document.elements))
+        self.assertIn('href="baseline/records/reference.json"', content)
+        self.assertEqual(PostContents(content).bodies[0], with_image(previous['posts'][0]['text'], PostContents.MEDIA))
+        for field in ('manifest', 'image', 'post_image', 'records', 'reference'):
+            for path in ('../baseline.json', '/tmp/baseline.json', 'https://example.com/asset', 'baseline/%2e%2e/image.png'):
+                with self.subTest(field=field, path=path):
+                    bad = baseline_sample()
+                    old = bad['cases'][0]['comparison']['previous']
+                    if field == 'manifest':
+                        bad['baseline']['manifest_path'] = path
+                    elif field == 'image':
+                        old['images']['preview']['path'] = path
+                    elif field == 'post_image':
+                        old['posts'][0]['images']['preview']['path'] = path
+                    elif field == 'records':
+                        old['records_path'] = path
+                    else:
+                        old['cancel_reference_path'] = path
+                    with self.assertRaises(ValueError):
+                        render_html(bad)
+
+    def test_invalid_comparison_metadata_is_rejected(self):
+        for field, value in (('status', 'invented'), ('changes', 'image'), ('changes', [None]), ('note', None)):
+            with self.subTest(field=field, value=value):
+                manifest = baseline_sample()
+                manifest['cases'][0]['comparison']['images'][field] = value
+                with self.assertRaises(ValueError):
+                    render_html(manifest)
 
 
 if __name__ == '__main__':
