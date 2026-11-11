@@ -252,6 +252,9 @@ PNG圧縮時間、PNG／WebP／JPEG／AVIFの容量・変換時間・画素差�
 保持量と件数に上限のある未公開専用キャッシュの効果とメモリ量を確認します。
 [描画バッファの解放](../docs/render-buffer-release.md)では、完全GCを毎回呼ばずに
 Aggの所有参照を外し、気象20回の終了時RSSを554→300 MiBへ減らしています。
+[可逆WebPの採用検証](../docs/webp-adoption.md)では、RGBAからの直接出力とPNG経由を比較し、
+全49画像の画素一致、64.27%の容量削減、生成時間の増加、nostterでの表示を確認しています。
+実験用CLIは`scripts/benchmark_webp.py`です。配信形式・署名URL・投稿設定はPNGのままです。
 
 ```sh
 python -B scripts/benchmark_images.py --list

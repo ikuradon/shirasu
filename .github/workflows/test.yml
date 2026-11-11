@@ -64,6 +64,7 @@ jobs:
           preview_scale preview_place_labels preview_dcx_geometry preview_dcx_reports preview_diagnostic_errors dcx_ward_assets
           nankai_image image_alt gallery_catalog gallery_posts gallery_compare gallery_cli gallery_html
           gallery_timeline timeline_catalog timeline_cli image_benchmark image_encoding_benchmark benchmark_html
+          webp_encoding_probe webp_benchmark
           release_candidate release_images; do
           python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
       - name: Prepare immutable release rehearsal packages

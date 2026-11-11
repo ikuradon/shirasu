@@ -73,6 +73,8 @@ tests/test_timeline_cli.py
 tests/test_timeline_publication.py
 tests/test_image_benchmark.py
 tests/test_image_encoding_benchmark.py
+tests/test_webp_encoding_probe.py
+tests/test_webp_benchmark.py
 tests/test_benchmark_html.py
 tests/test_release_candidate.py
 tests/test_release_receiver.py
@@ -87,6 +89,8 @@ scripts/render_timeline.py
 scripts/timeline_html.py
 scripts/benchmark_images.py
 scripts/image_encoding_benchmark.py
+scripts/webp_encoding_probe.py
+scripts/benchmark_webp.py
 scripts/benchmark_html.py
 dist
 .vercel
