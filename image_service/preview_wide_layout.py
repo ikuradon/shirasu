@@ -14,6 +14,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.patches import PathPatch, Rectangle
 from matplotlib.path import Path
+from matplotlib.text import Text
 
 from image_service import render as base
 from image_service import map_base_v3 as terrain
@@ -60,8 +61,27 @@ class MapView:
     places: tuple = ()
 
 
+class _PreviewFigure(Figure):
+    """Release owned Agg buffers when clearing, without waiting for cyclic GC.
+
+    Text caches the renderer as well as the canvas. Remove those references
+    before clear discards the artist tree, including on fallback/error paths.
+    Keep the canvas attached so clear and redraw retain their usual meaning.
+    The private cache fields are covered by tests against our pinned Matplotlib.
+    """
+
+    def clear(self, keep_observers=False):
+        canvas = getattr(self, 'canvas', None)
+        if isinstance(canvas, FigureCanvasAgg):
+            for label in self.findobj(Text):
+                label._renderer = None
+            canvas.__dict__.pop('renderer', None)
+            canvas._lastKey = None
+        super().clear(keep_observers=keep_observers)
+
+
 def figure():
-    fig = Figure(figsize=(WIDTH / DPI, HEIGHT / DPI), dpi=DPI, facecolor=SEA)
+    fig = _PreviewFigure(figsize=(WIDTH / DPI, HEIGHT / DPI), dpi=DPI, facecolor=SEA)
     FigureCanvasAgg(fig)
     return fig
 

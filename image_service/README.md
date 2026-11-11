@@ -250,6 +250,8 @@ PNG圧縮時間、PNG／WebP／JPEG／AVIFの容量・変換時間・画素差�
 [地図の高速化と比較結果](../docs/map-bounds-performance.md)に記録しています。
 続く[地域投影・Path生成の再利用](../docs/geometry-reuse-performance.md)では、
 保持量と件数に上限のある未公開専用キャッシュの効果とメモリ量を確認します。
+[描画バッファの解放](../docs/render-buffer-release.md)では、完全GCを毎回呼ばずに
+Aggの所有参照を外し、気象20回の終了時RSSを554→300 MiBへ減らしています。
 
 ```sh
 python -B scripts/benchmark_images.py --list
