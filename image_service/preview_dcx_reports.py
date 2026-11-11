@@ -20,7 +20,7 @@ from azarashi.definitions.qzss.dcx.ex1_target_area_code import ex1_target_area_c
 from azarashi.definitions.qzss.dcx.ex9_target_area_code import ex9_target_area_code_ja
 from azarashi.reports import dcx
 
-from dcx_instructions import is_evacuation_destination
+from dcx_instructions import MtInfoEvacuationError, is_evacuation_destination, mtinfo_evacuation
 from image_service.preview_diagnostics import PreviewFallback, Reason, error_reason, unique_reasons
 
 
@@ -71,6 +71,9 @@ class DcxPlan:
     details: tuple[str, ...]
     note: str
     reasons: tuple[Reason, ...] = ()
+    # Unlike B3, an MTInfo additional ellipse has its own centre and applies
+    # alongside either primary geometry or a complete administrative area.
+    additional_ellipse: Ellipse | None = None
 
 
 # These are hazard names, not Japanese warning levels. Other defined hazards
@@ -100,7 +103,6 @@ _SCALAR_B4 = frozenset((4, 5, 6, 9, 10, 11, 15, 16, 18, 19, 21, 23, 27, 30,
                          63, 64, 65, 68, 69, 70, 71, 72, 74, 75, 76, 77, 79,
                          80, 81, 82, 103))
 _MAIN_WIDTHS = (('a12', 16), ('a13', 17), ('a14', 5), ('a15', 5), ('a16', 6))
-_EX_WIDTHS = (('ex2', 1), ('ex3', 17), ('ex4', 17), ('ex5', 5), ('ex6', 5), ('ex7', 7))
 
 
 def _raw(camf, field, width, *, stage='selection'):
@@ -202,6 +204,26 @@ def _earthquake_fallback(report):
                           detail='B4地震: 震央方位D3の基準方向・地点変換が未確認')
 
 
+def _additional_ellipse(report):
+    if type(report) is not dcx.MTInfo:
+        return None
+    setting = _raw(report.camf, 'a17', 2, stage='geometry')
+    if setting != 0:
+        raise PreviewFallback('unsupported_geometry', stage='geometry',
+                              detail=f'B{setting + 1}: 国内通報はB1固定')
+    try:
+        instruction = mtinfo_evacuation(report)
+    except MtInfoEvacuationError as error:
+        raise PreviewFallback('unsupported_geometry' if error.unsupported else 'invalid_fields',
+                              stage='geometry', detail=f'EX2-EX7: {error.field}',
+                              technical='Invalid or unsupported MTInfo evacuation range') from error
+    if instruction is None:
+        return None
+    return Ellipse(instruction.lon, instruction.lat, instruction.semi_major_km,
+                   instruction.semi_minor_km, instruction.azimuth,
+                   role='evacuate_from' if instruction.direction == 0 else 'evacuate_to')
+
+
 def _geometries(report):
     camf = report.camf
     if report.ignore_a12_to_a16 is not False or type(report) is dcx.JAlert:
@@ -223,16 +245,6 @@ def _geometries(report):
     if setting == 3 and camf.a4 not in _SCALAR_B4:
         # Never draw just the main ellipse of a multiple-geometry message.
         raise PreviewFallback('unsupported_geometry', stage='geometry', detail='B4: 未対応の追加位置・詳細設定')
-    if type(report) is dcx.MTInfo:
-        # DCX-004 requires EX2 *and* EX3..EX7 to be zero for no additional
-        # instruction. The decoder's ignore flag alone does not check EX2.
-        if any(_raw(camf, field, width, stage='geometry') for field, width in _EX_WIDTHS):
-            raise PreviewFallback('unsupported_geometry', stage='geometry',
-                                  detail='EX2-EX7: 追加範囲に関する避難指示')
-        if report.ignore_ex2_to_ex7 is not True:
-            raise PreviewFallback('invalid_fields', stage='geometry',
-                                  detail='EX2-EX7: 全ゼロと無視指定が不一致')
-
     if setting == 0:
         # Raw axis zero is 216.2 metres, with finer C3/C4 adjustments; it does
         # not mean a missing range or a point at the ellipse centre.
@@ -329,6 +341,7 @@ def dcx_plan(reports):
     status = _STATUS.get(getattr(camf, 'a1', None), '状態不明')
     details = (_SOURCES[type(report)],)
     geometries, areas = (), ()
+    additional_ellipse = None
     reasons = []
     try:
         _raw(camf, 'a1', 2)
@@ -350,16 +363,24 @@ def dcx_plan(reports):
     except ValueError as error:
         reasons.append(error_reason(error, stage='selection'))
     else:
-        # These must remain separate: failure of one does not invalidate an
-        # independently transmitted candidate at the next fallback tier.
+        # MTInfo's extra instruction is shared by both possible primary
+        # scopes. Invalid extra data must not leave an EX1-only partial map.
         try:
-            geometries = _geometries(report)
+            additional_ellipse = _additional_ellipse(report)
         except ValueError as error:
             reasons.append(error_reason(error, stage='geometry'))
-        try:
-            areas = _areas(report)
-        except ValueError as error:
-            reasons.append(error_reason(error, stage='area'))
+        else:
+            # Primary geometry and EX1 are independent candidates, but each
+            # successful candidate must include the additional ellipse too.
+            try:
+                geometries = _geometries(report)
+            except ValueError as error:
+                reasons.append(error_reason(error, stage='geometry'))
+            try:
+                areas = _areas(report)
+            except ValueError as error:
+                reasons.append(error_reason(error, stage='area'))
     kind = 'geometry' if geometries else 'area' if areas else 'topic'
     return DcxPlan(topic, headline, status, kind, geometries, areas,
-                   details, '詳しい情報は投稿本文へ', unique_reasons(reasons))
+                   details, '詳しい情報は投稿本文へ', unique_reasons(reasons),
+                   additional_ellipse=additional_ellipse)

@@ -73,6 +73,11 @@ class DcxGeometryTests(unittest.TestCase):
     def test_refined_hakodate_ellipse_matches_independent_forward_enu(self):
         self.assert_transmitted_ellipse(ellipse())
 
+    def test_mtinfo_official_additional_ellipse_uses_its_own_enu_frame(self):
+        # DCX-004 EX3-EX7 example, independent of any primary ellipse/B1
+        # refinement. Verify the boundary with the forward WGS84 equations.
+        self.assert_transmitted_ellipse(ellipse(139.689138, 35.687299, 10.933, 5.979, 45.))
+
     def test_overseas_165km_ellipse_is_not_replaced_by_geodesic_radii(self):
         self.assert_transmitted_ellipse(ellipse(95.769926, 5.11284, 165.324, 90.407, -45))
 

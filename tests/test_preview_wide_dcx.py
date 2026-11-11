@@ -248,6 +248,100 @@ class DcxRenderingTests(unittest.TestCase):
             _, fallback = self.capture(records)
         self.assert_topic(fallback)
 
+    def test_mtinfo_keeps_complete_notification_and_additional_ranges_with_direction_labels(self):
+        for slug, role, colour, instruction, mode in (
+                ('dcx-mtinfo-leave', 'evacuate_from', '#f5a66b', '範囲から離れる指示', 'geometry'),
+                ('dcx-mtinfo-head', 'evacuate_to', '#ffd166', '範囲へ向かう指示', 'geometry'),
+                ('dcx-mtinfo-area', 'evacuate_to', '#ffd166', '範囲へ向かう指示', 'area')):
+            with self.subTest(slug=slug):
+                records = self.cases[slug].records
+                report, = base._decode(records)
+                before = str(report), deepcopy(report.camf.get_params()), report.nmea
+                plan = dcx_plan((report,))
+                self.assertEqual(plan.additional_ellipse.role, role)
+                image, fig = self.capture(records)
+                self.assertEqual(image.decision.mode, mode)
+                extra, = [p for p in fig.axes[0].patches if p.get_gid() == 'dcx-additional-ellipse']
+                reference = plan.geometries[0].lon if mode == 'geometry' else 139.
+                np.testing.assert_allclose(extra.get_xy(),
+                                           dcx_images.ellipse_ring(plan.additional_ellipse, reference=reference))
+                self.assertEqual(extra.get_edgecolor(), to_rgba(colour))
+                self.assertEqual(extra.get_facecolor()[3], 0)
+                self.assertEqual(extra.get_linestyle(), '--')
+                self.assert_visible(fig, extra.get_xy())
+                if mode == 'geometry':
+                    primary, = [p for p in fig.axes[0].patches if p.get_gid() == 'dcx-target-ellipse-0']
+                    np.testing.assert_allclose(primary.get_xy(),
+                                               dcx_images.ellipse_ring(plan.geometries[0], reference=reference))
+                    self.assert_visible(fig, primary.get_xy())
+                    self.assertEqual(primary.get_linestyle(), '-')
+                    self.assertEqual(plan.areas, (), 'A received EX1 must not enlarge a primary ellipse')
+                else:
+                    primary, = [p for p in fig.axes[0].patches if p.get_gid() == 'region-area-dcx-120200']
+                    feature = dcx_areas.municipality(120200)
+                    paths = [geometry for part in region_map._geometry(feature, 'prefectures', 139.)
+                             for geometry in part]
+                    self.assertEqual(np.count_nonzero(primary.get_path().codes == Path.MOVETO), len(paths))
+                    self.assert_visible(fig, primary.get_path().vertices)
+                    self.assertEqual(plan.geometries, (), 'A missing main ellipse is not a pole-centred target')
+                labels = self.text(fig).replace('\n', '')
+                for label in ('通知対象・追加の避難指示範囲', '通知対象（実線）', '追加範囲（破線）', instruction):
+                    self.assertIn(label, labels)
+                for invented in ('主範囲の指示を優先', '安全区域', '安全な場所', 'IC-A-03'):
+                    self.assertNotIn(invented, labels)
+                self.assertFalse(any((artist.get_gid() or '').startswith('dcx-hazard-point-')
+                                     for artist in fig.axes[0].collections))
+                self.assert_plain_locator(fig)
+                self.assertEqual((str(report), report.camf.get_params(), report.nmea), before)
+                self.assertTrue(report_message(report).endswith(f'{report}\n---\nNMEA: {report.nmea}'))
+
+    def test_mtinfo_invalid_and_polar_additional_ranges_never_leave_a_primary_only_map(self):
+        for slug in ('dcx-mtinfo-leave', 'dcx-mtinfo-area'):
+            sentence, at = self.cases[slug].records[0]
+            for fields, reason in (
+                    (((197, 5, 0), (202, 5, 31)), 'invalid_fields'),
+                    (((162, 52, 1 << 51),), 'projection_unavailable')):
+                with self.subTest(slug=slug, reason=reason):
+                    records = ((change_fields(sentence, fields), at),)
+                    report, = base._decode(records)
+                    if reason == 'projection_unavailable':
+                        # The pinned decoder ignores EX2 when detecting an
+                        # absent extension. EX2 alone still specifies a real
+                        # south-pole ellipse and a "head to" instruction.
+                        self.assertTrue(report.ignore_ex2_to_ex7)
+                        extra = dcx_plan((report,)).additional_ellipse
+                        self.assertIsNotNone(extra)
+                        self.assertEqual((extra.lat, extra.lon, extra.role), (-90., 45., 'evacuate_to'))
+                        self.assertIn('向かう', report_message(report))
+                    image, fig = self.capture(records)
+                    self.assert_topic(fig)
+                    self.assertEqual(image.decision.mode, 'topic')
+                    self.assertTrue(any(item.code == reason and item.stage == 'geometry'
+                                        for item in image.decision.reasons))
+                    self.assertTrue(report_message(report).endswith(f'{report}\n---\nNMEA: {report.nmea}'))
+
+    def test_mtinfo_missing_primary_area_does_not_leave_an_additional_only_map(self):
+        records = self.cases['dcx-mtinfo-area'].records
+        self.assertIsNotNone(dcx_plan(base._decode(records)).additional_ellipse)
+        with patch.object(dcx_areas, 'municipality', return_value=None):
+            image, fig = self.capture(records)
+        self.assert_topic(fig)
+        self.assertEqual(image.decision.mode, 'topic')
+        self.assertTrue(any(item.code == 'missing_boundary' for item in image.decision.reasons))
+
+    def test_mtinfo_release_keeps_direction_and_both_boundary_styles_distinct(self):
+        sentence, at = self.cases['dcx-mtinfo-leave'].records[0]
+        records = ((change_fields(sentence, ((24, 2, 3),)), at),)
+        image, fig = self.capture(records)
+        self.assertEqual(image.decision.mode, 'geometry')
+        self.assertIn('【解除】', self.text(fig))
+        self.assertIn('範囲から離れる指示', self.text(fig).replace('\n', ''))
+        self.assertNotIn('主範囲の指示を優先', self.text(fig))
+        shapes = {p.get_gid(): p for p in fig.axes[0].patches if (p.get_gid() or '').startswith('dcx-')}
+        self.assertEqual(shapes['dcx-target-ellipse-0'].get_linestyle(), '-')
+        self.assertEqual(shapes['dcx-additional-ellipse'].get_linestyle(), '--')
+        self.assert_plain_locator(fig)
+
     def test_missing_ward_boundary_is_not_replaced_with_whole_sapporo(self):
         records = self.cases['dcx-ward'].records
         report, = base._decode(records)

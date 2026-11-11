@@ -29,7 +29,7 @@ class GalleryCatalogTests(unittest.TestCase):
         self.cases = {case.slug: case for case in load_cases()}
 
     def test_catalog_covers_image_categories_with_stable_unique_output_names(self):
-        self.assertEqual(len(self.cases), 30)
+        self.assertEqual(len(self.cases), 33)
         self.assertEqual({case.category for case in self.cases.values()}, {
             'Typhoon', 'Hypocenter', 'Weather', 'EarthquakeEarlyWarning', 'SeismicIntensity',
             'Tsunami', 'Volcano', 'AshFall', 'Flood', 'NorthwestPacificTsunami', 'Marine',
@@ -216,6 +216,56 @@ class GalleryCatalogTests(unittest.TestCase):
         self.assertIn('0.25倍', overlap.description)
         self.assertIn('同心', overlap.description)
         self.assertIn('主範囲の指示が優先', overlap.description)
+
+    def test_mtinfo_additional_area_samples_preserve_received_geometry_and_provenance(self):
+        original = self.cases['dcx-mtinfo']
+        source_report = decoded(original)[0]
+        variants = (
+            ('dcx-mtinfo-leave', 0, ()),
+            ('dcx-mtinfo-head', 1, ((162, 1),)),
+            ('dcx-mtinfo-area', 1, ((80, 49), (131, 15), (162, 1))),
+        )
+        for slug, direction, changes in variants:
+            with self.subTest(case=slug):
+                case = self.cases[slug]
+                self.assertEqual((case.source_kind, case.classification, case.state, case.category),
+                                 ('synthetic', 'training', 'issue', 'MTInfo'))
+                self.assertEqual((case.source_file, case.source_sha256),
+                                 (original.source_file, original.source_sha256))
+                self.assertIsNone(case.source_url)
+                for text in (case.title, case.source_label, case.description):
+                    self.assertIn('合成訓練例', text)
+                for text in ('フレーム163', 'A1=0', 'Vn=1', '214〜219', 'EX1=1202', 'CRC', 'NMEA'):
+                    self.assertIn(text, case.description)
+                self.assertEqual(case.records[0][1], original.records[0][1])
+                self.assertNotEqual(case.records[0][0], original.records[0][0])
+                # Decode separately to verify the altered raw frame and checksums.
+                report = decoded(case)[0]
+                self.assertEqual((report.camf.a1, report.camf.a2, report.camf.a3,
+                                  report.camf.a9, report.camf.a10, report.camf.a17,
+                                  report.camf.ex1, report.camf.ex2, report.camf.vn),
+                                 (0, 111, 4, 1, 0, 0, 1202, direction, 1))
+                self.assertFalse(report.ignore_ex2_to_ex7)
+                expected_direction = ('Leave the additional target area range.' if direction == 0
+                                      else 'Head to the additional target area range.')
+                self.assertEqual(report.ex2_evacuate_direction_type, expected_direction)
+                for field in ('a4', 'a5', 'a6', 'a7', 'a8', 'a11', 'ex3', 'ex4', 'ex5', 'ex6', 'ex7'):
+                    self.assertEqual(getattr(report.camf, field), getattr(source_report.camf, field))
+                main_fields = ('a12', 'a13', 'a14', 'a15', 'a16', 'a18')
+                if slug == 'dcx-mtinfo-area':
+                    self.assertEqual(tuple(getattr(report.camf, name) for name in main_fields), (0,) * 6)
+                    self.assertIn('80〜128', case.description)
+                    self.assertIn('131〜145', case.description)
+                else:
+                    self.assertEqual(tuple(getattr(report.camf, name) for name in main_fields),
+                                     tuple(getattr(source_report.camf, name) for name in main_fields))
+                payloads = [int(item.records[0][0].split('*')[0].split(',')[2] + '0', 16)
+                            for item in (case, original)]
+                allowed = 0
+                for offset, width in (*changes, (24, 2), (214, 6), (226, 24)):
+                    allowed |= ((1 << width) - 1) << (256 - offset - width)
+                self.assertEqual((payloads[0] ^ payloads[1]) & ~allowed, 0,
+                                 'Only declared fields, the training flag and CRC may change')
 
     def test_earthquake_vector_sample_preserves_source_geometry_and_original_post_text(self):
         case = self.cases['dcx-earthquake-vector']

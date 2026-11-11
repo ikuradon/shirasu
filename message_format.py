@@ -4,7 +4,7 @@ from datetime import timedelta, timezone
 
 from azarashi.reports import dcr
 
-from dcx_instructions import is_evacuation_destination
+from dcx_instructions import MtInfoEvacuationError, is_evacuation_destination, mtinfo_evacuation
 
 
 JST = timezone(timedelta(hours=9), 'JST')
@@ -89,6 +89,33 @@ def _dcx_evacuation_text(report):
     return '\n'.join(lines)
 
 
+def _mtinfo_evacuation_text(report, evacuation):
+    """Retain both MTInfo instructions without importing B3 default guidance."""
+    state = report.camf.a1
+    marker = {0: '【訓練・試験】', 1: '【発表】', 2: '【更新】', 3: '【解除】'}[state]
+    action = '追加楕円の範囲から離れる' if evacuation.direction == 0 else '追加楕円の範囲へ向かう'
+    lines = [marker + 'DCX／自治体の追加避難指示']
+    if state == 0:
+        lines.append('以下は訓練電文に含まれる指示の説明です。')
+    if state == 3:
+        lines.append(f'この解除通報には「{action}」という追加指示の設定が含まれています。'
+                     '解除の通知であり、新たな避難行動を促すものとして扱いません。')
+    else:
+        lines.append(f'通報対象者への追加指示：{action}、という内容です。')
+    latitude = f'{"北緯" if evacuation.lat >= 0 else "南緯"}{abs(evacuation.lat):.6f}°'
+    longitude = f'{"東経" if evacuation.lon >= 0 else "西経"}{abs(evacuation.lon):.6f}°'
+    major = f'{evacuation.semi_major_km:.3f}'.rstrip('0').rstrip('.')
+    minor = f'{evacuation.semi_minor_km:.3f}'.rstrip('0').rstrip('.')
+    azimuth = f'{evacuation.azimuth:.5f}'.rstrip('0').rstrip('.')
+    lines.extend((
+        f'追加楕円（受信値）：中心 {latitude}・{longitude}、'
+        f'半長軸{major}km・半短軸{minor}km、方位{azimuth}°（東0°・北向き正）。',
+        'A11の指示も送られている場合は、追加指示と併せて参照します。',
+        '', '受信値の復号テキスト（追加指示の補足は上記）：', str(report),
+    ))
+    return '\n'.join(lines)
+
+
 def report_message(report):
     if isinstance(report, dcr.Marine):
         text = _marine_text(report)
@@ -97,5 +124,9 @@ def report_message(report):
     elif is_evacuation_destination(report):
         text = _dcx_evacuation_text(report)
     else:
-        text = str(report)
+        try:
+            evacuation = mtinfo_evacuation(report)
+        except MtInfoEvacuationError:
+            evacuation = None  # Preserve received text even when image interpretation is unavailable.
+        text = _mtinfo_evacuation_text(report, evacuation) if evacuation is not None else str(report)
     return f'{text}\n---\nNMEA: {report.nmea}'

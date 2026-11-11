@@ -13,7 +13,7 @@ from azarashi.reports import dcr
 
 from message_format import report_message
 from qzqsm_samples import decode_reports, manifest
-from test_dcx_instructions import evacuation_report
+from test_dcx_instructions import evacuation_report, mtinfo_report
 
 
 MARINE = '$QZQSM,58,53ADF5A111800283FC5083541042820D5047EA17994309A8622000113240198*7B'
@@ -234,6 +234,73 @@ class DcxEvacuationMessageTests(unittest.TestCase):
                     self.assertEqual(report_message(report), f'{report}\n---\nNMEA: {report.nmea}')
                     checked += 1
         self.assertGreater(checked, 200)
+
+
+class MtInfoEvacuationMessageTests(unittest.TestCase):
+    def test_both_directions_include_the_received_range_without_assuming_an_image(self):
+        for direction, action in ((0, '追加楕円の範囲から離れる'), (1, '追加楕円の範囲へ向かう')):
+            for state, marker in ((1, '【発表】'), (2, '【更新】')):
+                with self.subTest(direction=direction, state=state):
+                    report = mtinfo_report((162, 1, direction), (24, 2, state))
+                    text = report_message(report)
+                    self.assertTrue(text.startswith(marker + 'DCX／自治体の追加避難指示\n'))
+                    self.assertIn(f'通報対象者への追加指示：{action}、という内容です。', text)
+                    self.assertIn('中心 北緯41.757292°・東経140.701261°', text)
+                    self.assertIn('半長軸0.535km・半短軸0.535km、方位-37.96875°（東0°・北向き正）', text)
+                    self.assertIn('A11の指示も送られている場合は、追加指示と併せて参照します。', text)
+                    supplement = text.split('受信値の復号テキスト', 1)[0]
+                    for invented in ('IC-A-03', '優先', '画像', '添付', '安全区域', '安全な場所', '経路', 'あなた'):
+                        self.assertNotIn(invented, supplement)
+
+    def test_training_and_release_are_explained_before_any_received_instruction(self):
+        training = report_message(mtinfo_report())
+        self.assertTrue(training.startswith('【訓練・試験】DCX／自治体の追加避難指示\n'
+                                            '以下は訓練電文に含まれる指示の説明です。\n'))
+        for direction in (0, 1):
+            with self.subTest(direction=direction):
+                text = report_message(mtinfo_report((24, 2, 3), (162, 1, direction)))
+                self.assertTrue(text.startswith('【解除】DCX／自治体の追加避難指示\n'))
+                supplement = text.split('受信値の復号テキスト', 1)[0]
+                self.assertIn('追加指示の設定が含まれています。', supplement)
+                self.assertIn('解除の通知であり、新たな避難行動を促すものとして扱いません。', supplement)
+                self.assertNotIn('通報対象者への追加指示：', supplement)
+
+    def test_a11_original_text_frame_and_report_are_preserved(self):
+        report = mtinfo_report((70, 10, (2 << 8) | 4))
+        original_text = str(report)
+        before = copy.deepcopy({k: v for k, v in report.get_params().items() if k != 'camf'})
+        before_camf = copy.deepcopy(report.camf.get_params())
+        text = report_message(report)
+        self.assertTrue(text.endswith(f'{original_text}\n---\nNMEA: {report.nmea}'))
+        self.assertTrue(report.a11_japanese_library)
+        self.assertIn(report.a11_japanese_library, text)
+        self.assertEqual({k: v for k, v in report.get_params().items() if k != 'camf'}, before)
+        self.assertEqual(report.camf.get_params(), before_camf)
+        self.assertEqual(str(report), original_text)
+
+    def test_decoder_zero_exception_and_unprojectable_ranges_retain_instruction_and_parameters(self):
+        report = mtinfo_report((162, 52, 1 << 51))
+        self.assertTrue(report.ignore_ex2_to_ex7)
+        self.assertNotIn('EX2 -', str(report))
+        text = report_message(report)
+        self.assertIn('追加楕円の範囲へ向かう', text)
+        self.assertIn('中心 南緯90.000000°・東経45.000000°', text)
+        self.assertIn('半長軸0.216km・半短軸0.216km、方位-90°', text)
+        self.assertTrue(text.endswith(f'{report}\n---\nNMEA: {report.nmea}'))
+        extreme = report_message(mtinfo_report((163, 17, 131071), (180, 17, 131071),
+                                               (197, 5, 31), (202, 5, 31), (207, 7, 127)))
+        self.assertIn('中心 北緯90.000000°・西経135.000000°', extreme)
+        self.assertIn('半長軸2500km・半短軸2500km、方位88.59375°', extreme)
+
+    def test_no_additional_instruction_or_unreviewed_fields_keep_existing_text(self):
+        for fields in (((162, 52, 0),), ((214, 6, 0),), ((66, 1, 0),), ((67, 3, 1),),
+                       ((129, 2, 2),), ((197, 5, 0), (202, 5, 1))):
+            with self.subTest(fields=fields):
+                report = mtinfo_report(*fields)
+                self.assertEqual(report_message(report), f'{report}\n---\nNMEA: {report.nmea}')
+        report = mtinfo_report()
+        report.ex3_additional_ellipse_centre_latitude = float('nan')
+        self.assertEqual(report_message(report), f'{report}\n---\nNMEA: {report.nmea}')
 
 
 if __name__ == '__main__':

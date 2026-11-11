@@ -14,7 +14,7 @@ import azarashi
 
 from main import report_message
 from outbox import Outbox
-from test_dcx_instructions import evacuation_report
+from test_dcx_instructions import evacuation_report, mtinfo_report
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -131,6 +131,18 @@ class PreviewCliTests(unittest.TestCase):
         self.assertIn(expected, result.stdout)
         self.assertIn('【訓練・試験】DCX／避難先の指定', result.stdout)
         self.assertIn('主範囲内の人への既定指示（IC-A-03）', result.stdout)
+        self.assertNotIn(expected, result.stderr)
+
+    def test_mtinfo_additional_instruction_uses_the_live_formatter_without_side_effects(self):
+        sentence = mtinfo_report((162, 1, 1)).nmea
+        source = self.source('synthetic-mtinfo-test.nmea', sentence + '\n')
+        result = self.run_cli('--preview', source, '--received-at', RECEIVED_AT.isoformat(),
+                              absent_state=True)
+        self.assert_success(result, shown=1)
+        expected = self.expected(sentence)
+        self.assertIn(expected, result.stdout)
+        self.assertIn('【訓練・試験】DCX／自治体の追加避難指示', result.stdout)
+        self.assertIn('追加楕円の範囲へ向かう', result.stdout)
         self.assertNotIn(expected, result.stderr)
 
     def test_stdin_renders_each_report_including_duplicates_without_creating_state(self):

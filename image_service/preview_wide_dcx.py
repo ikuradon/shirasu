@@ -23,6 +23,7 @@ MAP_CREDIT = '情報：みちびき DCX / 地形：Natural Earth'
 AREA_CREDIT = '情報：みちびき DCX / 区域：気象庁（加工） / 地形：Natural Earth'
 SECONDARY_COLOUR = '#d1b6f6'
 EVACUATION_COLOUR = '#ffd166'
+LEAVE_COLOUR = '#f5a66b'
 CHANNELS = {dcx.LAlert: 'Lアラート', dcx.JAlert: 'Jアラート',
             dcx.MTInfo: '自治体からの情報', dcx.OutsideJapan: '海外の災害情報'}
 
@@ -49,7 +50,8 @@ def _sidebar(fig, report, plan, *, mode):
             names = tuple(area.name for area in areas)
         else:
             names = (f'{len(areas)}区域', '区域名の一覧は投稿本文を参照')
-        rows.append(wide.Row('受信した対象区域', names))
+        rows.append(wide.Row('通知対象（実線）', names, color=_colour(report))
+                    if plan.additional_ellipse else wide.Row('受信した対象区域', names))
     if mode == 'geometry':
         if any(isinstance(item, SecondaryEllipse) for item in plan.geometries):
             evacuation = any(isinstance(item, SecondaryEllipse) and item.role == 'evacuation_destination'
@@ -59,9 +61,16 @@ def _sidebar(fig, report, plan, *, mode):
                          if evacuation else
                          wide.Row('第2範囲（破線）', ('個別指示は投稿本文へ',), color=SECONDARY_COLOUR)))
         elif any(isinstance(item, Ellipse) for item in plan.geometries):
-            rows.append(wide.Row('地図の表示', ('通報の対象範囲',)))
+            rows.append(wide.Row('通知対象（実線）', color=_colour(report))
+                        if plan.additional_ellipse else
+                        wide.Row('地図の表示', ('通報の対象範囲',)))
         if any(isinstance(item, Point) for item in plan.geometries):
             rows.append(wide.Row('受信した地点', ('災害中心位置',)))
+    if mode != 'topic' and plan.additional_ellipse:
+        leave = plan.additional_ellipse.role == 'evacuate_from'
+        rows.append(wide.Row('追加範囲（破線）',
+                             ('範囲から離れる指示' if leave else '範囲へ向かう指示',),
+                             color=LEAVE_COLOUR if leave else EVACUATION_COLOUR))
     footnote = None if mode == 'topic' else '詳細・指示内容は投稿本文を参照'
     if mode == 'geometry' and any(isinstance(item, SecondaryEllipse) for item in plan.geometries):
         footnote = '重なる区域は主範囲の指示を優先\n詳細・指示内容は投稿本文を参照'
@@ -73,6 +82,41 @@ def _nearby_locator(items):
     lon, lat = items[0].lon, items[0].lat
     return (np.asarray(((lon - 25, float(base._my(max(-84., lat - 20)))),
                         (lon + 25, float(base._my(min(84., lat + 20)))))),)
+
+
+def _additional_ring(plan, reference):
+    item = plan.additional_ellipse
+    if item is None:
+        return None
+    if not isinstance(item, Ellipse) or item.role not in ('evacuate_from', 'evacuate_to'):
+        raise PreviewFallback('unsupported_geometry', stage='geometry', detail='未対応の追加避難範囲の役割',
+                              technical='Unsupported DCX additional evacuation ellipse')
+    if isinstance(item.lat, (int, float)) and 85 <= abs(item.lat) <= 90:
+        # These are valid transmitted latitudes outside this map projection.
+        # ellipse_ring's combined axis/projection error cannot distinguish
+        # them from malformed axes, so state the known limitation here.
+        raise PreviewFallback('projection_unavailable', stage='geometry', detail='EX3-EX7: 追加範囲の中心緯度',
+                              technical='Unprojectable MTInfo additional ellipse latitude')
+    # EX3-EX7 define an independent centre and ENU frame. A B3 transform
+    # about the primary ellipse would change the transmitted region.
+    try:
+        return ellipse_ring(item, reference=reference)
+    except ValueError as error:
+        # Its failure remains a geometry issue even when the notification
+        # target is a municipality rather than the primary ellipse.
+        failure = error_reason(error, stage='geometry')
+        raise PreviewFallback(failure.code, stage=failure.stage, detail=failure.detail,
+                              technical=str(error)) from error
+
+
+def _draw_additional(view, plan, ring):
+    if ring is not None:
+        colour = LEAVE_COLOUR if plan.additional_ellipse.role == 'evacuate_from' else EVACUATION_COLOUR
+        # A destination is a received instruction, not a guarantee of safety.
+        # Keep both full boundaries without inventing routes or mixed fills.
+        view.ax.add_patch(Polygon(ring, closed=True, facecolor='none', edgecolor=colour,
+                                  linewidth=2.3, linestyle='--', zorder=5.2,
+                                  gid='dcx-additional-ellipse'))
 
 
 def _geometry(fig, report, plan):
@@ -95,6 +139,9 @@ def _geometry(fig, report, plan):
     sequences = (*rings, *(ring for _, ring in secondaries), *((np.asarray(points),) if points else ()))
     if not sequences:
         raise PreviewFallback('no_geometry', stage='geometry', technical='No DCX geometry')
+    additional = _additional_ring(plan, reference)
+    if additional is not None:
+        sequences = (*sequences, additional)
     locator = _nearby_locator(plan.geometries) if isinstance(report, dcx.OutsideJapan) else ()
     view = wide.map_axes(fig, sequences, full=sequences, locator_context=locator)
     colour = _colour(report)
@@ -108,8 +155,9 @@ def _geometry(fig, report, plan):
     for index, ring in enumerate(rings):
         view.ax.add_patch(Polygon(ring, closed=True, facecolor=colour + '24',
                                   edgecolor=colour, linewidth=2.3,
-                                  linestyle='--' if report.camf.a1 == 3 and not secondaries else '-',
+                                  linestyle='--' if report.camf.a1 == 3 and not secondaries and additional is None else '-',
                                   zorder=5, gid=f'dcx-target-ellipse-{index}'))
+    _draw_additional(view, plan, additional)
     for index, point in enumerate(points):
         view.ax.scatter(*point, marker='x', s=170, linewidth=2.2, color=colour,
                         zorder=7, gid=f'dcx-hazard-point-{index}')
@@ -119,6 +167,8 @@ def _geometry(fig, report, plan):
         scope = ('通報の主範囲・避難先の指定'
                  if any(item.role == 'evacuation_destination' for item, _ in secondaries)
                  else '通報の主範囲・第2範囲 / 被害範囲ではありません')
+    if additional is not None:
+        scope = '通知対象・追加の避難指示範囲'
     wide.header(fig, report, CHANNELS[type(report)], scope, credit=MAP_CREDIT)
     _sidebar(fig, report, plan, mode='geometry')
 
@@ -145,6 +195,9 @@ def _area(fig, report, plan):
             sequences.extend(ring for part in parts for ring in part)
     if not sequences:
         raise PreviewFallback('no_area', stage='area', technical='No DCX target areas')
+    additional = _additional_ring(plan, 139.)
+    if additional is not None:
+        sequences.append(additional)
     # Every component belongs to the received scope. Fit the complete union,
     # including remote islands, instead of silently showing its largest part.
     view = wide.map_axes(fig, sequences, full=sequences)
@@ -155,7 +208,9 @@ def _area(fig, report, plan):
         view.ax.add_patch(PathPatch(Path.make_compound_path(*parts),
                                    facecolor=colour + '24', edgecolor=colour,
                                    linewidth=1.4, zorder=5, gid=f'region-area-dcx-{code}'))
-    wide.header(fig, report, CHANNELS[type(report)], '受信した通報の対象区域', credit=AREA_CREDIT)
+    _draw_additional(view, plan, additional)
+    scope = '通知対象・追加の避難指示範囲' if additional is not None else '受信した通報の対象区域'
+    wide.header(fig, report, CHANNELS[type(report)], scope, credit=AREA_CREDIT)
     _sidebar(fig, report, plan, mode='area')
 
 

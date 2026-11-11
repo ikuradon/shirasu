@@ -155,19 +155,71 @@ class DcxReportTests(unittest.TestCase):
         self.assert_topic(dcx_plan((report,)))
 
     def test_unsupported_extra_geometry_is_not_partially_drawn(self):
-        for plan, detail in ((self.plan(70, (26, 9, 100), (129, 2, 3), (40, 7, 36)), 'B4'),
-                             (self.plan(163), 'EX2-EX7')):
-            with self.subTest(detail=detail):
-                self.assert_topic(plan)
-                self.assertEqual(plan.reasons[0].code, 'unsupported_geometry')
-                self.assertEqual(plan.reasons[0].stage, 'geometry')
-                self.assertTrue(plan.reasons[0].detail.startswith(detail))
+        plan = self.plan(70, (26, 9, 100), (129, 2, 3), (40, 7, 36))
+        self.assert_topic(plan)
+        self.assertEqual(plan.reasons[0].code, 'unsupported_geometry')
+        self.assertEqual(plan.reasons[0].stage, 'geometry')
+        self.assertTrue(plan.reasons[0].detail.startswith('B4'))
         scalar = self.plan(70, (26, 9, 100), (129, 2, 3), (40, 7, 68))
         self.assertEqual(scalar.scope_kind, 'geometry')
-        # Both real extra-evacuation geometry and the decoder's EX2-only flag
-        # discrepancy must decline the entire geometry tier.
-        self.assert_topic(self.plan(163))
-        self.assert_topic(self.plan(163, (162, 52, 0), (162, 1, 1)))
+
+    def test_mtinfo_target_and_additional_ellipse_have_independent_centres_and_roles(self):
+        for direction, role in ((0, 'evacuate_from'), (1, 'evacuate_to')):
+            for state, status in ((0, '訓練'), (1, '発表'), (2, '更新'), (3, '解除')):
+                with self.subTest(direction=direction, state=state):
+                    report = self.report(163, (162, 1, direction), (24, 2, state))
+                    before = str(report), deepcopy(report.camf.get_params())
+                    plan = dcx_plan((report,))
+                    self.assertEqual((plan.scope_kind, plan.status), ('geometry', status))
+                    self.assertEqual(plan.geometries,
+                                     (Ellipse(140.717397, 41.765507, 3.413, 2.524, 39.375),))
+                    self.assertEqual(plan.additional_ellipse,
+                                     Ellipse(140.701261, 41.757292, .535, .535, -37.96875, role))
+                    self.assertEqual(plan.areas, (), 'EX1 must not expand an existing primary ellipse')
+                    self.assertEqual((str(report), report.camf.get_params()), before)
+        absent = self.plan(163, (162, 52, 0))
+        self.assertEqual(absent.scope_kind, 'geometry')
+        self.assertIsNone(absent.additional_ellipse)
+
+    def test_mtinfo_ex2_only_is_a_real_unprojectable_ellipse_not_an_absent_instruction(self):
+        report = self.report(163, (162, 52, 0), (162, 1, 1))
+        self.assertIs(report.ignore_ex2_to_ex7, True, 'The pinned decoder ignores EX2 for its sentinel')
+        plan = dcx_plan((report,))
+        self.assertEqual(plan.scope_kind, 'geometry')
+        self.assertEqual(plan.additional_ellipse,
+                         Ellipse(45., -90., .216, .216, -90., 'evacuate_to'))
+        self.assertEqual(len(plan.geometries), 1, 'Projection failure belongs to the whole renderer candidate')
+
+    def test_mtinfo_additional_longitude_beyond_dateline_is_normalized_without_clipping(self):
+        plan = self.plan(163, (180, 17, 131071))
+        self.assertEqual(plan.scope_kind, 'geometry')
+        self.assertEqual(plan.additional_ellipse.lon, -135.)
+
+    def test_invalid_mtinfo_additional_fields_cannot_leave_a_primary_map_or_area(self):
+        for fields in ((), ((80, 49, 0), (131, 15, 0))):
+            for target, name, value in (
+                    ('raw', 'ex3', -1), ('raw', 'ex2', True),
+                    ('report', 'ex3_additional_ellipse_centre_latitude', float('nan')),
+                    ('report', 'ignore_ex2_to_ex7', True)):
+                with self.subTest(fields=fields, field=name):
+                    report = self.report(163, *fields)
+                    setattr(report.camf if target == 'raw' else report, name, value)
+                    plan = dcx_plan((report,))
+                    self.assert_topic(plan)
+                    self.assertIsNone(plan.additional_ellipse)
+                    self.assertEqual((plan.reasons[0].code, plan.reasons[0].stage),
+                                     ('invalid_fields', 'geometry'))
+        for library in (((66, 1, 0),), ((67, 3, 1),)):
+            plan = self.plan(163, *library)
+            self.assert_topic(plan)
+            self.assertEqual(plan.reasons[0].code, 'unsupported_geometry')
+
+    def test_mtinfo_additional_ellipse_cannot_replace_an_unknown_primary_target(self):
+        for code in (0, 65535):
+            with self.subTest(code=code):
+                plan = self.plan(163, (80, 49, 0), (131, 15, 0), (146, 16, code))
+                self.assert_topic(plan)
+                self.assertIsNotNone(plan.additional_ellipse)
 
     def test_domestic_lalert_and_mtinfo_only_allow_b1_geometry(self):
         for index in (70, 163):
@@ -404,11 +456,13 @@ class DcxReportTests(unittest.TestCase):
                 self.assertEqual((plan.reasons[0].code, plan.reasons[0].stage),
                                  ('invalid_fields', 'geometry'))
 
-    def test_independent_area_candidate_survives_unrendered_evacuation_geometry(self):
+    def test_mtinfo_area_candidate_keeps_the_additional_instruction(self):
         plan = self.plan(163, (80, 49, 0))
         self.assertEqual(plan.scope_kind, 'area')
         self.assertEqual(plan.geometries, ())
         self.assertEqual(plan.areas, (Area('municipalities', 120200, '北海道函館市'),))
+        self.assertEqual(plan.additional_ellipse,
+                         Ellipse(140.701261, 41.757292, .535, .535, -37.96875, 'evacuate_from'))
 
     def test_decoder_ignore_flags_are_authoritative(self):
         for index, field in ((70, 'ignore_a12_to_a16'), (70, 'ignore_a17_to_a18'),

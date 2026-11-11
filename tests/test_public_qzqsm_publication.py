@@ -147,16 +147,30 @@ class PublicQzqsmPublicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await self.service.publish_one())
         self.assertEqual(self.nostr.send.await_count, 211)
 
-    def evacuation_report(self):
-        case = next(c for c in load_cases() if c.slug == 'dcx-secondary-evacuation')
+    def evacuation_report(self, slug='dcx-secondary-evacuation'):
+        case = next(c for c in load_cases() if c.slug == slug)
         sentence, milliseconds = case.records[0]
         return azarashi.decode(sentence, timestamp=datetime.fromtimestamp(milliseconds / 1000, timezone.utc))
 
     async def test_evacuation_default_guidance_is_saved_with_or_without_an_image(self):
         report = self.evacuation_report()
-        before = str(report), report.camf.get_params(), report.nmea
         expected = report_message(report)
         self.assertIn('IC-A-03', expected)
+        await self.assert_guidance_saved(report, 'c10')
+
+    async def test_mtinfo_additional_directions_survive_image_disable_and_url_failure(self):
+        for slug, direction in (('dcx-mtinfo-leave', '範囲から離れる'),
+                                ('dcx-mtinfo-head', '範囲へ向かう')):
+            with self.subTest(slug=slug):
+                report = self.evacuation_report(slug)
+                text = report_message(report)
+                self.assertIn(direction, text)
+                self.assertNotIn('IC-A-03', text)
+                await self.assert_guidance_saved(report, slug)
+
+    async def assert_guidance_saved(self, report, name):
+        before = str(report), report.camf.get_params(), report.nmea
+        expected = report_message(report)
         self.assertIn('【訓練・試験】', expected.splitlines()[0])
         self.assertNotIn('黄色', expected.partition('\n\n')[0],
                          'Guidance cannot depend on an attached or successfully rendered map')
@@ -165,7 +179,7 @@ class PublicQzqsmPublicationTests(unittest.IsolatedAsyncioTestCase):
         for index, images in enumerate((None, self.images, broken_images)):
             with self.subTest(images=index):
                 nostr = service_helpers.fake_nostr()
-                with Outbox(Path(self.directory.name) / f'evacuation-{index}.sqlite3', nostr.identity) as box:
+                with Outbox(Path(self.directory.name) / f'evacuation-{name}-{index}.sqlite3', nostr.identity) as box:
                     service = main.Service(nostr, box, asyncio.Event(), clock=self.clock, images=images)
                     self.assertEqual(await service.accept(report), 'queued')
                     self.assertTrue(await service.publish_one())

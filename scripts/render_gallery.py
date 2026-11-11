@@ -82,16 +82,20 @@ def _decoded_text(records):
 
 
 def _post_text(records):
-    """Expose the actual C10=0 post without inventing one for grouped records."""
+    """Show supplemented instruction posts without inventing grouped posts."""
     if len(records) != 1:
         return None
     import azarashi
-    from dcx_instructions import is_evacuation_destination
+    from dcx_instructions import MtInfoEvacuationError, is_evacuation_destination, mtinfo_evacuation
     from message_format import report_message
 
     nmea, milliseconds = records[0]
     report = azarashi.decode(nmea, timestamp=datetime.fromtimestamp(milliseconds / 1000, timezone.utc))
-    return report_message(report) if is_evacuation_destination(report) else None
+    try:
+        additional = mtinfo_evacuation(report)
+    except MtInfoEvacuationError:
+        additional = None
+    return report_message(report) if is_evacuation_destination(report) or additional is not None else None
 
 
 def _write_json(path, value):

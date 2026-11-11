@@ -147,13 +147,15 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         from message_format import report_message
 
         selected = ('dcx-secondary-evacuation', 'dcx-evacuation-overlap',
-                    'dcx-secondary-ellipse', 'typhoon-track', 'marine')
+                    'dcx-mtinfo-leave', 'dcx-mtinfo-head', 'dcx-mtinfo-area',
+                    'dcx-secondary-ellipse', 'dcx-mtinfo', 'typhoon-track', 'marine')
         cases = {case.slug: case for case in load_cases()}
         with patch.object(render_gallery, '_preflight'), \
                 patch.object(render_gallery, '_render_with_decision', return_value=(PNG, 'map', None)), \
                 redirect_stdout(io.StringIO()):
             result = render_gallery.generate(self.output, selected_cases=selected, preview_only=True)
-        eligible = {'dcx-secondary-evacuation', 'dcx-evacuation-overlap'}
+        eligible = {'dcx-secondary-evacuation', 'dcx-evacuation-overlap',
+                    'dcx-mtinfo-leave', 'dcx-mtinfo-head', 'dcx-mtinfo-area'}
         self.assertEqual({row['slug'] for row in result['cases'] if 'post_text' in row}, eligible)
         for row in result['cases']:
             case = cases[row['slug']]
