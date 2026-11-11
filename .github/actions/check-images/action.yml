@@ -23,10 +23,10 @@ runs:
       shell: bash
       run: >-
         docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
-        shirasu-images:test sh -c 'for suite in image_protocol image_renderer image_renderer_v2
+        shirasu-images:test sh -c 'status=0; for suite in image_protocol image_renderer image_renderer_v2
         image_renderer_v3 image_renderer_v4 image_package image_versions regional_reports marine_regions region_map
         weather_map weather_map_v4 eew_map volcano_map map_v3; do
-        python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
+        python -B -m unittest discover -s tests -p "test_${suite}.py" -v || status=1; done; exit "$status"'
     - name: Build unpublished offline preview
       shell: bash
       run: |
@@ -43,7 +43,7 @@ runs:
       shell: bash
       run: >-
         docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
-        shirasu-images:preview sh -c 'for suite in nwp_assets nwp_reports nwp_renderer image_preview_cli
+        shirasu-images:preview sh -c 'status=0; for suite in nwp_assets nwp_reports nwp_renderer image_preview_cli
         ash_reports ash_renderer municipality_assets flood_reports flood_renderer flood_context
         preview_regions preview_points preview_dispatch preview_wide_layout preview_fixed_map_axes preview_geometry_cache
         preview_buffer_lifecycle preview_nankai
@@ -55,7 +55,7 @@ runs:
         gallery_timeline timeline_catalog timeline_cli image_benchmark image_encoding_benchmark benchmark_html
         webp_encoding_probe webp_benchmark webp_renderer webp_protocol webp_http webp_release
         release_candidate release_images; do
-        python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
+        python -B -m unittest discover -s tests -p "test_${suite}.py" -v || status=1; done; exit "$status"'
     - name: Prepare immutable release rehearsal packages
       shell: bash
       run: |

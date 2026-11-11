@@ -10,7 +10,6 @@ from unittest.mock import patch
 import zlib
 
 import test_flood_renderer as flood_helpers
-import test_image_renderer as helpers
 from test_image_renderer_v3 import sample
 
 HAS_RENDERER = all(importlib.util.find_spec(name) for name in ('azarashi', 'matplotlib', 'numpy'))
@@ -21,6 +20,7 @@ if HAS_RENDERER:
     import numpy as np
     from image_service import flood_map
     from image_service import preview_context as context
+    from image_service import preview_wide_layout as wide
     from image_service import render as base
     from image_service.flood_reports import flood_plan
 
@@ -99,13 +99,20 @@ class FloodContextTests(unittest.TestCase):
         locators = [ax for ax in figure.axes if ax.get_gid() == 'preview-locator']
         self.assertEqual(len(locators), 1)
         locator, = locators
-        self.assertGreater(locator.get_position().x0, .7)
-        self.assertLess(locator.get_position().y1, .5)
+        # The main axes continue underneath the information overlay. The inset
+        # belongs to the lower right of the *visible map*, left of that overlay.
+        main_box, locator_box = main.get_position(), locator.get_position()
+        self.assertGreater(locator_box.x0, (main_box.x0 + wide.PANEL_X) / 2)
+        self.assertLess(locator_box.x1, wide.PANEL_X)
+        self.assertGreater(locator_box.y0, main_box.y0)
+        self.assertLess(locator_box.y1, (main_box.y0 + main_box.y1) / 2)
         frames = [patch for patch in locator.patches if patch.get_gid() == 'preview-main-extent']
         self.assertEqual(len(frames), 1)
         frame, = frames
         left, right = main.get_xlim()
         bottom, top = main.get_ylim()
+        right = main.transData.inverted().transform(
+            figure.transFigure.transform((wide.PANEL_X, 0)))[0]
         np.testing.assert_allclose(frame.get_bbox().extents, (left, bottom, right, top), rtol=0, atol=1e-10)
         west, east = locator.get_xlim()
         south, north = locator.get_ylim()
@@ -120,14 +127,32 @@ class FloodContextTests(unittest.TestCase):
             self.assertGreater(north, float(base._my(lat)))
         texts = '\n'.join(text.get_text() for text in figure.findobj(Text))
         self.assertIn('表示位置', texts)
-        self.assertIn('拡大範囲', texts)
+        self.assertIn('枠は主図範囲', texts)
 
     def test_inset_does_not_hide_any_river_label_or_leader(self):
-        records = sample('flood')
+        # Multiple reaches use numbered references; a single reach uses its
+        # name and a leader. Exercise both current presentations, not the old
+        # AnnotationBbox labels that the wide renderer no longer creates.
+        multiple = sample('flood')
+        notice = flood_plan(base._decode(multiple)).notices[0]
+        single = flood_helpers.forecast((notice.code, notice.warning_level))
+        for records in (multiple, single):
+            with self.subTest(reaches=len(flood_plan(base._decode(records)).notices)):
+                self.assert_inset_clear(records)
+
+    def assert_inset_clear(self, records):
         plan = flood_plan(base._decode(records))
         _, figure = self.capture(records)
         main = figure.axes[0]
-        obstacle = Bbox.from_extents(*context.LOCATOR_OBSTACLE).transformed(figure.transFigure)
+        renderer = figure.canvas.get_renderer()
+        locator, = [ax for ax in figure.axes if ax.get_gid() == 'preview-locator']
+        caption_boxes = [text.get_window_extent(renderer) for text in figure.texts
+                         if text.get_gid() == 'wide-locator']
+        self.assertTrue(caption_boxes)
+        obstacle = Bbox.union([locator.get_window_extent(renderer), *caption_boxes])
+        # The shared map body excludes the header/footer and reserves a column
+        # for the locator, rather than using the old portrait layout's Y band.
+        safe_map = Bbox.from_extents(*wide.LOCATOR_BODY)
         lines = self.reaches(figure)
         expected = {}
         for notice in plan.notices:
@@ -140,18 +165,32 @@ class FloodContextTests(unittest.TestCase):
             self.assertFalse(path.intersects_bbox(obstacle, filled=False),
                              'A locator must not cover a received river segment')
             positions = figure.transFigure.inverted().transform(main.transData.transform(line.get_xydata()))
-            self.assertTrue(np.all((0 <= positions[:, 0]) & (positions[:, 0] <= 1)))
-            self.assertTrue(np.all((.18 <= positions[:, 1]) & (positions[:, 1] <= .79)))
-        for annotation in main.artists:
-            if hasattr(annotation, 'offsetbox'):
-                box = annotation.offsetbox.get_window_extent(figure.canvas.get_renderer())
-                self.assertFalse(box.overlaps(obstacle), 'A forecast label must stay outside the locator')
-        for line in main.lines:
-            if line.get_gid() == 'label-leader':
-                path = line.get_transform().transform_path(line.get_path())
-                self.assertFalse(path.intersects_bbox(obstacle, filled=False),
-                                 'A forecast leader must stay outside the locator')
-        helpers.RendererTests.assert_clear_leaders(self, figure, main, len(plan.notices))
+            self.assertTrue(np.all((safe_map.x0 - 1e-9 <= positions[:, 0])
+                                   & (positions[:, 0] <= safe_map.x1 + 1e-9)))
+            self.assertTrue(np.all((safe_map.y0 - 1e-9 <= positions[:, 1])
+                                   & (positions[:, 1] <= safe_map.y1 + 1e-9)))
+        labels = [text for text in figure.texts if (text.get_gid() or '').startswith(
+            ('wide-number-flood-anchor-', 'flood-map-name-'))]
+        self.assertEqual(len(labels), len(plan.notices))
+        boxes = {text.get_gid().rsplit('-', 1)[-1]:
+                 text.get_bbox_patch().get_window_extent(renderer) for text in labels}
+        for index, box in enumerate(boxes.values()):
+            self.assertFalse(box.overlaps(obstacle), 'A forecast label must stay outside the locator')
+            for other in list(boxes.values())[index + 1:]:
+                self.assertFalse(box.overlaps(other), 'Forecast references must remain distinguishable')
+        leaders = [line for line in main.lines if (line.get_gid() or '').startswith(
+            ('wide-number-leader-flood-anchor-', 'flood-name-leader-'))]
+        if len(plan.notices) == 1:
+            self.assertEqual(len(leaders), 1, 'The named river reference must exercise a real leader')
+        for line in leaders:
+            path = line.get_transform().transform_path(line.get_path())
+            self.assertFalse(path.intersects_bbox(obstacle, filled=False),
+                             'A forecast leader must stay outside the locator')
+            own_code = line.get_gid().rsplit('-', 1)[-1]
+            for code, box in boxes.items():
+                if code != own_code:
+                    self.assertFalse(path.intersects_bbox(box, filled=False),
+                                     'A leader must not run through another forecast reference')
 
 
 if __name__ == '__main__':
