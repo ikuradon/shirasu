@@ -5,6 +5,11 @@ of a local ENU frame at the ellipse centre, with points on WGS84 at height
 zero. Inverting that construction avoids turning kilometre axes into map
 degrees, geodesic distances, or a different rotation convention.
 https://qzss.go.jp/en/technical/download/pdf/ps-is-qzss/is-qzss-dcx-004.pdf
+
+CAMF 1.2 section 3.7.3 defines B3 by translating, scaling and rotating in
+the main ellipse's frame. The C9 rotation acts on both the secondary centre
+and its axes, about the main centre; it is not an independent geodesic ellipse.
+https://www.gsc-europa.eu/sites/default/files/sites/all/files/EWSS-CAMF_in_force.pdf
 """
 
 import math
@@ -51,14 +56,7 @@ def _simple_ring(points):
     return True
 
 
-def ellipse_ring(ellipse, reference=None):
-    """Return a closed lon/Mercator-y ring, or reject unsupported geometry.
-
-    ``ellipse`` supplies lon, lat, semi_major_km, semi_minor_km and azimuth.
-    Azimuth is positive from east towards north; a centre is a parameter of
-    the target area, not the reported location of a disaster. A caller must
-    fall back as a whole on ValueError rather than truncate the boundary.
-    """
+def _ellipse_parameters(ellipse, reference):
     try:
         lon, lat, major, minor, azimuth = map(float, (
             ellipse.lon, ellipse.lat, ellipse.semi_major_km,
@@ -72,8 +70,56 @@ def ellipse_ring(ellipse, reference=None):
         raise ValueError('DCX ellipse is outside the supported projection or axis range')
     if not -90 <= azimuth < 90:
         raise ValueError('Invalid DCX ellipse azimuth')
+    return lon, lat, major, minor, azimuth, target
 
-    latitude, longitude, angle = np.radians((lat, lon, azimuth))
+
+def ellipse_ring(ellipse, reference=None):
+    """Return a closed lon/Mercator-y ring, or reject unsupported geometry.
+
+    ``ellipse`` supplies lon, lat, semi_major_km, semi_minor_km and azimuth.
+    Azimuth is positive from east towards north; a centre is a parameter of
+    the target area, not the reported location of a disaster. A caller must
+    fall back as a whole on ValueError rather than truncate the boundary.
+    """
+    lon, lat, major, minor, azimuth, target = _ellipse_parameters(ellipse, reference)
+    angle = np.radians(azimuth)
+    phase = np.linspace(0, 2 * np.pi, _STEPS + 1)
+    x, y = major * np.cos(phase), minor * np.sin(phase)
+    e = x * np.cos(angle) - y * np.sin(angle)
+    n = x * np.sin(angle) + y * np.cos(angle)
+    return _project_ring(lon, lat, e, n, target)
+
+
+def secondary_ellipse_ring(secondary, reference=None):
+    """Project all of a B3 secondary boundary in the *main* ENU frame.
+
+    The transformed centre is a mathematical construction, not a disaster
+    pin. C9 rotates the shift as well as the axes; angles differing by 180
+    degrees therefore generally produce different regions. A failed surface
+    intersection rejects the complete ring, never its offending points.
+    """
+    try:
+        main = secondary.main
+        shift, scale, rotation = map(float, (secondary.shift, secondary.scale, secondary.rotation))
+    except (AttributeError, TypeError, ValueError, OverflowError) as error:
+        raise ValueError('Invalid DCX secondary ellipse parameters') from error
+    lon, lat, major, minor, azimuth, target = _ellipse_parameters(main, reference)
+    if (not all(math.isfinite(value) for value in (shift, scale, rotation))
+            or shift not in (0, 1, 2, 3) or scale not in tuple(i / 4 for i in range(1, 9))
+            or not 0 <= rotation < 360 or not (rotation / 11.25).is_integer()):
+        raise ValueError('Invalid DCX secondary ellipse transform')
+    angle = np.radians(azimuth + rotation)
+    phase = np.linspace(0, 2 * np.pi, _STEPS + 1)
+    x = major * scale * np.cos(phase) + major * shift
+    y = minor * scale * np.sin(phase)
+    e = x * np.cos(angle) - y * np.sin(angle)
+    n = x * np.sin(angle) + y * np.cos(angle)
+    return _project_ring(lon, lat, e, n, target)
+
+
+def _project_ring(lon, lat, e, n, target):
+    """Invert main-centred east/north positions onto the near WGS84 surface."""
+    latitude, longitude = np.radians((lat, lon))
     sin_lat, cos_lat = np.sin(latitude), np.cos(latitude)
     sin_lon, cos_lon = np.sin(longitude), np.cos(longitude)
     normal = _A / np.sqrt(1 - _E2 * sin_lat ** 2)
@@ -82,10 +128,6 @@ def ellipse_ring(ellipse, reference=None):
     north = np.array((-sin_lat * cos_lon, -sin_lat * sin_lon, cos_lat))
     up = np.array((cos_lat * cos_lon, cos_lat * sin_lon, sin_lat))
 
-    phase = np.linspace(0, 2 * np.pi, _STEPS + 1)
-    x, y = major * np.cos(phase), minor * np.sin(phase)
-    e = x * np.cos(angle) - y * np.sin(angle)
-    n = x * np.sin(angle) + y * np.cos(angle)
     tangent = centre + e[:, None] * east + n[:, None] * north
 
     # Intersect the line through each EN position, parallel to geodetic up,

@@ -7,12 +7,17 @@ import unittest
 HAS_NUMPY = importlib.util.find_spec('numpy') is not None
 if HAS_NUMPY:
     import numpy as np
-    from image_service.preview_dcx_geometry import ellipse_ring
+    from image_service.preview_dcx_geometry import ellipse_ring, secondary_ellipse_ring
 
 
 def ellipse(lon=140.717397, lat=41.765507, major=3.413, minor=2.524, azimuth=39.375):
     return SimpleNamespace(lon=lon, lat=lat, semi_major_km=major,
                            semi_minor_km=minor, azimuth=azimuth)
+
+
+def secondary(main=None, shift=2, scale=1., rotation=90.):
+    return SimpleNamespace(main=ellipse() if main is None else main,
+                           shift=shift, scale=scale, rotation=rotation)
 
 
 def forward_enu(ring, source):
@@ -98,6 +103,77 @@ class DcxGeometryTests(unittest.TestCase):
             with self.subTest(source=source):
                 with self.assertRaises(ValueError):
                     ellipse_ring(source)
+
+    def assert_secondary_in_main_frame(self, source):
+        ring = secondary_ellipse_ring(source)
+        self.assertEqual(ring.shape, (513, 2))
+        np.testing.assert_array_equal(ring[0], ring[-1])
+        self.assertTrue(np.all(np.isfinite(ring)))
+        east, north, up = forward_enu(ring, source.main)
+        angle = np.radians(source.main.azimuth + source.rotation)
+        distance = source.shift * source.main.semi_major_km
+        centre = distance * np.array((np.cos(angle), np.sin(angle)))
+        # Uniform parameter samples give the centre independently of the
+        # projected lon/lat bounding box or any inferred geographic centre.
+        np.testing.assert_allclose((east[:-1].mean(), north[:-1].mean()), centre,
+                                   atol=3e-9, rtol=0)
+        x, y = east - centre[0], north - centre[1]
+        major = x * np.cos(angle) + y * np.sin(angle)
+        minor = -x * np.sin(angle) + y * np.cos(angle)
+        a, b = source.main.semi_major_km * source.scale, source.main.semi_minor_km * source.scale
+        np.testing.assert_allclose((major / a) ** 2 + (minor / b) ** 2, 1,
+                                   atol=2e-8, rtol=0)
+        self.assertAlmostEqual(major[0], a, places=8)
+        self.assertAlmostEqual(minor[128], b, places=8)
+        self.assertTrue(np.all(up <= 1e-9))
+        self.assertLess(float(np.max(np.abs(up))), 6378., 'The far surface is not the target')
+        return ring, centre
+
+    def test_secondary_shift_scale_and_rotation_preserve_the_main_enu_frame(self):
+        main = ellipse(95.769926, 5.11284, 165.324, 90.407, -45)
+        for shift, scale, rotation in ((2, 1., 90.), (1, .25, 11.25), (3, 2., 348.75)):
+            with self.subTest(shift=shift, scale=scale, rotation=rotation):
+                self.assert_secondary_in_main_frame(secondary(main, shift, scale, rotation))
+
+    def test_secondary_rotation_moves_the_centre_as_well_as_the_axes(self):
+        main = ellipse(139.5, 35., 10., 2., 0)
+        for rotation, expected in ((0, (20, 0)), (180, (-20, 0)), (270, (0, -20))):
+            with self.subTest(rotation=rotation):
+                _, centre = self.assert_secondary_in_main_frame(secondary(main, rotation=rotation))
+                np.testing.assert_allclose(centre, expected, atol=1e-12, rtol=0)
+
+    def test_zero_transform_codes_define_a_concentric_quarter_size_ellipse(self):
+        main = ellipse(130, 30, .216, .216, -90)
+        result, centre = self.assert_secondary_in_main_frame(secondary(main, 0, .25, 0))
+        np.testing.assert_array_equal(centre, (0, 0))
+        expected = ellipse_ring(ellipse(130, 30, .054, .054, -90))
+        np.testing.assert_array_equal(result, expected)
+
+    def test_maximum_secondary_scale_is_allowed_when_the_complete_surface_exists(self):
+        # The main-axis 2500 km limit is not also a 2500 km secondary-axis
+        # limit. The scaled 5000 km boundary still has a unique near surface.
+        self.assert_secondary_in_main_frame(secondary(ellipse(10, 0, 2500, 1200, 0), 0, 2, 0))
+
+    def test_secondary_dateline_boundary_uses_the_same_reference_as_the_main(self):
+        source = secondary(ellipse(179.8, -20, 165.324, 90.407, 20), 2, 1, 0)
+        ring, _ = self.assert_secondary_in_main_frame(source)
+        self.assertGreater(ring[:, 0].max(), 180)
+        self.assertLess(np.max(np.abs(np.diff(ring[:, 0]))), 1)
+        shifted = secondary_ellipse_ring(source, reference=-180)
+        np.testing.assert_allclose(shifted, ring - (360, 0), atol=1e-12)
+
+    def test_invalid_or_unprojectable_secondary_is_rejected_as_a_complete_ring(self):
+        sources = (secondary(shift=.5), secondary(shift=4), secondary(scale=0),
+                   secondary(scale=.3), secondary(scale=2.25), secondary(rotation=360),
+                   secondary(rotation=1), secondary(rotation=float('nan')),
+                   secondary(scale=float('inf')), secondary(shift=None),
+                   secondary(ellipse(130, 20, 2500, 1000, 0), 3, 2, 0),
+                   secondary(ellipse(130, 84, 100, 50, 0), 2, 1, 90))
+        for source in sources:
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                secondary_ellipse_ring(source)
+        with self.assertRaises(ValueError):
+            secondary_ellipse_ring(secondary(), reference=float('nan'))
 
 
 if __name__ == '__main__':

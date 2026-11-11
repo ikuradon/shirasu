@@ -172,6 +172,8 @@ _MESSAGES_BY_CODE = {
         'Non-finite DCX ellipse parameters',
         'DCX ellipse is outside the supported projection or axis range',
         'Invalid DCX ellipse azimuth',
+        'Invalid DCX secondary ellipse parameters',
+        'Invalid DCX secondary ellipse transform',
     ),
 }
 _CODES = {message: code for code, messages in _MESSAGES_BY_CODE.items() for message in messages}

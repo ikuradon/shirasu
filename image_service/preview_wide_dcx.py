@@ -14,13 +14,14 @@ from matplotlib.path import Path
 from image_service import preview_dcx_areas, region_map
 from image_service import preview_wide_layout as wide
 from image_service import render as base
-from image_service.preview_dcx_geometry import ellipse_ring
-from image_service.preview_dcx_reports import Ellipse, Point, dcx_plan
+from image_service.preview_dcx_geometry import ellipse_ring, secondary_ellipse_ring
+from image_service.preview_dcx_reports import Ellipse, Point, SecondaryEllipse, dcx_plan
 from image_service.preview_diagnostics import PreviewFallback, error_reason, unique_reasons
 
 
 MAP_CREDIT = '情報：みちびき DCX / 地形：Natural Earth'
 AREA_CREDIT = '情報：みちびき DCX / 区域：気象庁（加工） / 地形：Natural Earth'
+SECONDARY_COLOUR = '#d1b6f6'
 CHANNELS = {dcx.LAlert: 'Lアラート', dcx.JAlert: 'Jアラート',
             dcx.MTInfo: '自治体からの情報', dcx.OutsideJapan: '海外の災害情報'}
 
@@ -49,12 +50,17 @@ def _sidebar(fig, report, plan, *, mode):
             names = (f'{len(areas)}区域', '区域名の一覧は投稿本文を参照')
         rows.append(wide.Row('受信した対象区域', names))
     if mode == 'geometry':
-        if any(isinstance(item, Ellipse) for item in plan.geometries):
+        if any(isinstance(item, SecondaryEllipse) for item in plan.geometries):
+            rows.extend((wide.Row('主範囲（実線）', color=_colour(report)),
+                         wide.Row('第2範囲（破線）', ('個別指示は投稿本文へ',), color=SECONDARY_COLOUR)))
+        elif any(isinstance(item, Ellipse) for item in plan.geometries):
             rows.append(wide.Row('地図の表示', ('通報の対象範囲',)))
         if any(isinstance(item, Point) for item in plan.geometries):
             rows.append(wide.Row('受信した地点', ('災害中心位置',)))
-    wide.sidebar(fig, '受信した情報', rows,
-                 footnote=None if mode == 'topic' else '詳細・指示内容は投稿本文を参照')
+    footnote = None if mode == 'topic' else '詳細・指示内容は投稿本文を参照'
+    if mode == 'geometry' and any(isinstance(item, SecondaryEllipse) for item in plan.geometries):
+        footnote = '重なる区域は主範囲の指示を優先\n詳細・指示内容は投稿本文を参照'
+    wide.sidebar(fig, '受信した情報', rows, footnote=footnote)
 
 
 def _nearby_locator(items):
@@ -66,10 +72,12 @@ def _nearby_locator(items):
 
 def _geometry(fig, report, plan):
     reference = plan.geometries[0].lon
-    rings, points = [], []
+    rings, points, secondaries = [], [], []
     for item in plan.geometries:
         if isinstance(item, Ellipse) and item.role == 'target':
             rings.append(ellipse_ring(item, reference=reference))
+        elif isinstance(item, SecondaryEllipse) and item.role == 'secondary_target':
+            secondaries.append(secondary_ellipse_ring(item, reference=reference))
         elif isinstance(item, Point) and item.role == 'hazard_center':
             if not -85 < item.lat < 85 or not np.isfinite((item.lon, item.lat)).all():
                 raise PreviewFallback('projection_unavailable', stage='geometry', detail='災害中心位置',
@@ -79,22 +87,30 @@ def _geometry(fig, report, plan):
         else:
             raise PreviewFallback('unsupported_geometry', stage='geometry', detail='未対応の位置・範囲の役割',
                                   technical='Unsupported DCX geometry role')
-    sequences = (*rings, *((np.asarray(points),) if points else ()))
+    sequences = (*rings, *secondaries, *((np.asarray(points),) if points else ()))
     if not sequences:
         raise PreviewFallback('no_geometry', stage='geometry', technical='No DCX geometry')
     locator = _nearby_locator(plan.geometries) if isinstance(report, dcx.OutsideJapan) else ()
     view = wide.map_axes(fig, sequences, full=sequences, locator_context=locator)
     colour = _colour(report)
+    for index, ring in enumerate(secondaries):
+        # Do not blend fills into a third apparent warning level in the
+        # intersection. The main range's instructions take priority there.
+        view.ax.add_patch(Polygon(ring, closed=True, facecolor='none',
+                                  edgecolor=SECONDARY_COLOUR, linewidth=2.3,
+                                  linestyle='--', zorder=4.9, gid=f'dcx-secondary-ellipse-{index}'))
     for index, ring in enumerate(rings):
         view.ax.add_patch(Polygon(ring, closed=True, facecolor=colour + '24',
                                   edgecolor=colour, linewidth=2.3,
-                                  linestyle='--' if report.camf.a1 == 3 else '-',
+                                  linestyle='--' if report.camf.a1 == 3 and not secondaries else '-',
                                   zorder=5, gid=f'dcx-target-ellipse-{index}'))
     for index, point in enumerate(points):
         view.ax.scatter(*point, marker='x', s=170, linewidth=2.2, color=colour,
                         zorder=7, gid=f'dcx-hazard-point-{index}')
     scope = ('通報対象範囲・災害中心位置' if rings and points else
              '通報の対象範囲 / 災害の被害範囲ではありません' if rings else '受信した災害中心位置')
+    if secondaries:
+        scope = '通報の主範囲・第2範囲 / 被害範囲ではありません'
     wide.header(fig, report, CHANNELS[type(report)], scope, credit=MAP_CREDIT)
     _sidebar(fig, report, plan, mode='geometry')
 

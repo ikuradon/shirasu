@@ -32,6 +32,18 @@ class Ellipse:
 
 
 @dataclass(frozen=True)
+class SecondaryEllipse:
+    # Keep the original ENU frame: translating a centre to latitude/longitude
+    # and starting a new tangent plane would change the transmitted shape.
+    main: Ellipse
+    shift: int
+    scale: float
+    rotation: float
+    instruction_code: int
+    role: str = 'secondary_target'
+
+
+@dataclass(frozen=True)
 class Point:
     lon: float
     lat: float
@@ -51,7 +63,7 @@ class DcxPlan:
     headline: str
     status: str
     scope_kind: str  # 'geometry', 'area', or 'topic' (the first recommended tier).
-    geometries: tuple[Ellipse | Point, ...]
+    geometries: tuple[Ellipse | Point | SecondaryEllipse, ...]
     areas: tuple[Area, ...]
     details: tuple[str, ...]
     note: str
@@ -115,6 +127,36 @@ def _main_absent(camf, *, stage='geometry'):
     return all(_raw(camf, field, width, stage=stage) == 0 for field, width in _MAIN_WIDTHS)
 
 
+def _secondary(report, main):
+    """CAMF 1.2 §3.7.3; C9 rotates both the centre offset and the axes."""
+    camf = report.camf
+    library = _raw(camf, 'a9', 1, stage='geometry')
+    version = _raw(camf, 'a10', 3, stage='geometry')
+    if (library, version) != (0, 0):
+        raise PreviewFallback('unsupported_geometry', stage='geometry',
+                              detail=f'B3: 未対応の指示ライブラリ A9={library}, A10={version}')
+    shift = _raw(camf, 'c7', 2, stage='geometry')
+    scale = (_raw(camf, 'c8', 3, stage='geometry') + 1) / 4
+    rotation = _raw(camf, 'c9', 5, stage='geometry') * 11.25
+    instruction = _raw(camf, 'c10', 5, stage='geometry')
+    if instruction == 0:
+        # This is an evacuation destination, with default IC-A-03 guidance
+        # for the main ellipse, not an ordinary target with "no instruction".
+        # Support it together with that guidance in the post text, separately.
+        raise PreviewFallback('unsupported_geometry', stage='geometry',
+                              detail='B3: 避難先と既定指示の組合せ（C10=0）は未対応')
+    if instruction not in (*range(1, 17), 30, 31):
+        raise PreviewFallback('unsupported_geometry', stage='geometry',
+                              detail=f'B3: 予約済みの第2範囲指示 C10={instruction}')
+    for field, expected in (('c7_shift_of_second_ellipse_centre', shift),
+                            ('c8_homothetic_factor_of_second_ellipse', scale),
+                            ('c9_bearing_angle_of_second_ellipse', rotation)):
+        if _number(report, field) != expected:
+            raise PreviewFallback('invalid_fields', stage='geometry', detail=field,
+                                  technical='Inconsistent DCX secondary ellipse parameter')
+    return SecondaryEllipse(main, shift, scale, rotation, instruction)
+
+
 def _geometries(report):
     camf = report.camf
     if report.ignore_a12_to_a16 is not False or type(report) is dcx.JAlert:
@@ -126,10 +168,14 @@ def _geometries(report):
     if report.ignore_a17_to_a18 is not False:
         raise PreviewFallback('no_geometry', stage='geometry', detail='A17-A18: 通報の無視指定')
     setting = _raw(camf, 'a17', 2, stage='geometry')
-    if setting == 2 or (setting == 3 and camf.a4 not in _SCALAR_B4):
+    if setting != 0 and type(report) is not dcx.OutsideJapan:
+        # DCX-004 §4.2.3.17 fixes domestic L-Alert/MTInfo to B1; J-Alert
+        # ignores these fields entirely. B3 support must not broaden that.
+        raise PreviewFallback('unsupported_geometry', stage='geometry',
+                              detail=f'B{setting + 1}: 国内通報はB1固定')
+    if setting == 3 and camf.a4 not in _SCALAR_B4:
         # Never draw just the main ellipse of a multiple-geometry message.
-        detail = 'B3: 第2楕円と個別指示' if setting == 2 else 'B4: 未対応の追加位置・詳細設定'
-        raise PreviewFallback('unsupported_geometry', stage='geometry', detail=detail)
+        raise PreviewFallback('unsupported_geometry', stage='geometry', detail='B4: 未対応の追加位置・詳細設定')
     if type(report) is dcx.MTInfo:
         # DCX-004 requires EX2 *and* EX3..EX7 to be zero for no additional
         # instruction. The decoder's ignore flag alone does not check EX2.
@@ -163,6 +209,8 @@ def _geometries(report):
         lon = _number(report, 'c6_longitude_of_centre_of_hazard')
         _position(lon, lat)
         result += (Point(lon, lat),)
+    elif setting == 2:
+        result += (_secondary(report, result[0]),)
     return result
 
 

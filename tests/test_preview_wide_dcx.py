@@ -17,7 +17,7 @@ if HAS_RENDERER:
     from image_service import preview_wide_dcx as dcx_images
     from image_service import preview_dcx_areas as dcx_areas
     from image_service import preview_wide_layout as wide
-    from image_service.preview_dcx_reports import Point, dcx_plan
+    from image_service.preview_dcx_reports import Point, SecondaryEllipse, dcx_plan
     from scripts.gallery_catalog import load_cases
 
 
@@ -78,6 +78,57 @@ class DcxRenderingTests(unittest.TestCase):
         self.assert_plain_locator(fig)
         self.assertLess(fig.axes[1].get_xlim()[1], 130,
                         'The overseas locator must use its own region rather than fixed Japan')
+
+    def test_secondary_and_overlapping_ellipses_keep_both_complete_scopes(self):
+        for slug in ('dcx-secondary-ellipse', 'dcx-secondary-overlap'):
+            with self.subTest(slug=slug):
+                records = self.cases[slug].records
+                plan = dcx_plan(base._decode(records))
+                main, secondary = plan.geometries
+                self.assertIsInstance(secondary, SecondaryEllipse)
+                image, fig = self.capture(records)
+                self.assertEqual(image.decision.mode, 'geometry')
+                shapes = {p.get_gid(): p for p in fig.axes[0].patches
+                          if (p.get_gid() or '').startswith('dcx-')}
+                self.assertEqual(set(shapes), {'dcx-target-ellipse-0', 'dcx-secondary-ellipse-0'})
+                primary_patch, secondary_patch = shapes['dcx-target-ellipse-0'], shapes['dcx-secondary-ellipse-0']
+                np.testing.assert_allclose(primary_patch.get_xy(),
+                                           dcx_images.ellipse_ring(main, reference=main.lon))
+                np.testing.assert_allclose(secondary_patch.get_xy(),
+                                           dcx_images.secondary_ellipse_ring(secondary, reference=main.lon))
+                for shape in shapes.values():
+                    self.assert_visible(fig, shape.get_xy())
+                self.assertGreater(primary_patch.get_zorder(), secondary_patch.get_zorder())
+                self.assertEqual(secondary_patch.get_facecolor()[3], 0,
+                                 'Overlaps must not blend into an invented third warning colour')
+                self.assertEqual(primary_patch.get_linestyle(), '-')
+                self.assertEqual(secondary_patch.get_linestyle(), '--')
+                self.assertNotEqual(primary_patch.get_edgecolor(), secondary_patch.get_edgecolor())
+                self.assertFalse(any((artist.get_gid() or '').startswith('dcx-hazard-point-')
+                                     for artist in fig.axes[0].collections))
+                labels = self.text(fig).replace('\n', '')
+                for phrase in ('主範囲（実線）', '第2範囲（破線）', '個別指示は投稿本文へ',
+                               '重なる区域は主範囲の指示を優先'):
+                    self.assertIn(phrase, labels)
+                self.assert_plain_locator(fig)
+
+    def test_unprojectable_secondary_discards_the_main_ellipse_as_well(self):
+        records = self.cases['dcx-secondary-ellipse'].records
+        with patch.object(dcx_images, 'secondary_ellipse_ring', side_effect=ValueError('bad secondary projection')):
+            image, fig = self.capture(records)
+        self.assert_topic(fig)
+        self.assertEqual(image.decision.mode, 'topic')
+        self.assertTrue(any(item.stage == 'geometry' for item in image.decision.reasons))
+
+    def test_secondary_evacuation_destination_remains_an_explicit_topic_fallback(self):
+        image, fig = self.capture(self.cases['dcx-secondary-evacuation'].records)
+        self.assert_topic(fig)
+        self.assertEqual(image.decision.mode, 'topic')
+        failures = [item for item in image.decision.reasons if item.stage == 'geometry']
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0].code, 'unsupported_geometry')
+        self.assertIn('C10=0', failures[0].detail)
+        self.assertIn('避難先', failures[0].detail)
 
     def test_municipal_and_prefectural_maps_keep_every_received_component(self):
         for slug, expected_codes in (('dcx-municipality', {120200}),

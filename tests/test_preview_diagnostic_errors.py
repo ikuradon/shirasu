@@ -36,6 +36,8 @@ class PreviewDiagnosticErrorTests(unittest.TestCase):
             'Unsupported ash report classification': 'unsupported_report',
             'DCX ellipse crosses the Mercator latitude limit': 'projection_unavailable',
             'DCX ellipse is outside the supported projection or axis range': 'invalid_fields',
+            'Invalid DCX secondary ellipse parameters': 'invalid_fields',
+            'Invalid DCX secondary ellipse transform': 'invalid_fields',
         }
         for message, expected in examples.items():
             with self.subTest(message=message):

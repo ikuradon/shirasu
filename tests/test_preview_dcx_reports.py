@@ -9,7 +9,7 @@ HAS_DECODER = importlib.util.find_spec('azarashi') is not None
 if HAS_DECODER:
     import azarashi
     from image_service import preview_dcx_reports as dcx_reports
-    from image_service.preview_dcx_reports import Area, Ellipse, Point, dcx_plan
+    from image_service.preview_dcx_reports import Area, Ellipse, Point, SecondaryEllipse, dcx_plan
     from image_service.preview_diagnostics import reason
     from qzqsm_samples import frames, reference_time
     from scripts.gallery_catalog import _field_variant
@@ -35,6 +35,12 @@ class DcxReportTests(unittest.TestCase):
 
     def plan(self, index=70, *fields, version=1):
         return dcx_plan((self.report(index, *fields, version=version),))
+
+    def secondary_report(self, *fields):
+        # Explicit foreign test variant: international library #1, C7=2,
+        # C8=3 (scale 1), C9=16 (180 degrees), C10=5 (keep phone charged).
+        return self.report(70, (26, 9, 100), (66, 1, 0), (67, 3, 0), (129, 2, 2),
+                           (131, 2, 2), (133, 3, 3), (136, 5, 16), (141, 5, 5), *fields)
 
     def assert_topic(self, plan):
         self.assertEqual(plan.scope_kind, 'topic')
@@ -128,7 +134,7 @@ class DcxReportTests(unittest.TestCase):
         self.assertEqual(smallest.geometries[0].semi_minor_km, .027)
 
     def test_b2_keeps_hazard_point_separate_from_main_ellipse(self):
-        report = self.report(70, (129, 2, 1), (131, 7, 64), (138, 7, 65))
+        report = self.report(70, (26, 9, 100), (129, 2, 1), (131, 7, 64), (138, 7, 65))
         plan = dcx_plan((report,))
         self.assertEqual(len(plan.geometries), 2)
         ellipse, point = plan.geometries
@@ -142,20 +148,86 @@ class DcxReportTests(unittest.TestCase):
         self.assert_topic(dcx_plan((report,)))
 
     def test_unsupported_extra_geometry_is_not_partially_drawn(self):
-        for plan, detail in ((self.plan(70, (129, 2, 2)), 'B3'),
-                             (self.plan(70, (129, 2, 3), (40, 7, 36)), 'B4'),
+        for plan, detail in ((self.plan(70, (26, 9, 100), (129, 2, 3), (40, 7, 36)), 'B4'),
                              (self.plan(163), 'EX2-EX7')):
             with self.subTest(detail=detail):
                 self.assert_topic(plan)
                 self.assertEqual(plan.reasons[0].code, 'unsupported_geometry')
                 self.assertEqual(plan.reasons[0].stage, 'geometry')
                 self.assertTrue(plan.reasons[0].detail.startswith(detail))
-        scalar = self.plan(70, (129, 2, 3), (40, 7, 68))
+        scalar = self.plan(70, (26, 9, 100), (129, 2, 3), (40, 7, 68))
         self.assertEqual(scalar.scope_kind, 'geometry')
         # Both real extra-evacuation geometry and the decoder's EX2-only flag
         # discrepancy must decline the entire geometry tier.
         self.assert_topic(self.plan(163))
         self.assert_topic(self.plan(163, (162, 52, 0), (162, 1, 1)))
+
+    def test_domestic_lalert_and_mtinfo_only_allow_b1_geometry(self):
+        for index in (70, 163):
+            for setting in (1, 2, 3):
+                with self.subTest(index=index, setting=setting):
+                    plan = self.plan(index, (162, 52, 0), (129, 2, setting))
+                    self.assert_topic(plan)
+                    self.assertEqual((plan.reasons[0].code, plan.reasons[0].stage),
+                                     ('unsupported_geometry', 'geometry'))
+                    self.assertIn('国内', plan.reasons[0].detail)
+
+    def test_secondary_ellipse_keeps_main_frame_and_exact_transmitted_parameters(self):
+        plan = dcx_plan((self.secondary_report(),))
+        self.assertEqual(plan.scope_kind, 'geometry')
+        main = Ellipse(141.297617, 43.040970, 10.933, 8.085, 53.4375)
+        self.assertEqual(plan.geometries, (main, SecondaryEllipse(main, 2, 1., 180., 5)))
+        self.assertEqual(plan.areas, ())
+        self.assertFalse(any(isinstance(item, Point) for item in plan.geometries),
+                         'Neither ellipse centre is a transmitted disaster location')
+
+    def test_zero_secondary_geometry_codes_are_a_real_quarter_size_ellipse(self):
+        plan = dcx_plan((self.secondary_report((131, 15, 1)),))
+        self.assertEqual(plan.scope_kind, 'geometry')
+        main, secondary = plan.geometries
+        self.assertEqual(secondary, SecondaryEllipse(main, 0, .25, 0., 1))
+        maximum = dcx_plan((self.secondary_report((131, 2, 3), (133, 3, 7), (136, 5, 31)),))
+        main, secondary = maximum.geometries
+        self.assertEqual(secondary, SecondaryEllipse(main, 3, 2., 348.75, 5))
+
+    def test_secondary_instruction_codes_require_the_reviewed_international_library(self):
+        for code in (*range(1, 17), 30, 31):
+            with self.subTest(code=code):
+                plan = dcx_plan((self.secondary_report((141, 5, code)),))
+                self.assertEqual(plan.scope_kind, 'geometry')
+                self.assertEqual(plan.geometries[1].instruction_code, code)
+        for fields in (((66, 1, 1),), ((67, 3, 1),), ((67, 3, 7),)):
+            with self.subTest(fields=fields):
+                plan = dcx_plan((self.secondary_report(*fields),))
+                self.assert_topic(plan)
+                self.assertEqual(plan.reasons[0].code, 'unsupported_geometry')
+                self.assertIn('ライブラリ', plan.reasons[0].detail)
+
+    def test_secondary_evacuation_and_reserved_instructions_decline_the_whole_geometry(self):
+        for code in (0, *range(17, 30)):
+            with self.subTest(code=code):
+                plan = dcx_plan((self.secondary_report((141, 5, code)),))
+                self.assert_topic(plan)
+                self.assertEqual((plan.reasons[0].code, plan.reasons[0].stage),
+                                 ('unsupported_geometry', 'geometry'))
+                self.assertIn(f'C10={code}', plan.reasons[0].detail)
+                self.assertIn('避難先' if code == 0 else '予約', plan.reasons[0].detail)
+
+    def test_invalid_or_inconsistent_secondary_fields_do_not_leave_the_main_ellipse(self):
+        changes = (('camf', 'c7', 4), ('camf', 'c8', -1), ('camf', 'c9', 32),
+                   ('camf', 'c10', None), ('camf', 'c7', True),
+                   ('report', 'c7_shift_of_second_ellipse_centre', 1),
+                   ('report', 'c8_homothetic_factor_of_second_ellipse', float('nan')),
+                   ('report', 'c8_homothetic_factor_of_second_ellipse', None),
+                   ('report', 'c9_bearing_angle_of_second_ellipse', 181.))
+        for target, field, value in changes:
+            with self.subTest(field=field, value=value):
+                report = self.secondary_report()
+                setattr(report.camf if target == 'camf' else report, field, value)
+                plan = dcx_plan((report,))
+                self.assert_topic(plan)
+                self.assertEqual((plan.reasons[0].code, plan.reasons[0].stage),
+                                 ('invalid_fields', 'geometry'))
 
     def test_independent_area_candidate_survives_unrendered_evacuation_geometry(self):
         plan = self.plan(163, (80, 49, 0))

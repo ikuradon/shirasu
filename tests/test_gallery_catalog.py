@@ -28,7 +28,7 @@ class GalleryCatalogTests(unittest.TestCase):
         self.cases = {case.slug: case for case in load_cases()}
 
     def test_catalog_covers_image_categories_with_stable_unique_output_names(self):
-        self.assertEqual(len(self.cases), 25)
+        self.assertEqual(len(self.cases), 28)
         self.assertEqual({case.category for case in self.cases.values()}, {
             'Typhoon', 'Hypocenter', 'Weather', 'EarthquakeEarlyWarning', 'SeismicIntensity',
             'Tsunami', 'Volcano', 'AshFall', 'Flood', 'NorthwestPacificTsunami', 'Marine',
@@ -163,6 +163,51 @@ class GalleryCatalogTests(unittest.TestCase):
         self.assertEqual([getattr(ellipse.camf, f'ex{index}') for index in range(2, 8)], [0] * 6)
         for field in ('a12', 'a13', 'a14', 'a15', 'a16', 'a17', 'a18'):
             self.assertEqual(getattr(ellipse.camf, field), getattr(original.camf, field))
+
+    def test_secondary_ellipse_samples_preserve_the_foreign_source_and_main_geometry(self):
+        original = self.cases['dcx-outside-japan']
+        source_report = decoded(original)[0]
+        variants = (
+            ('dcx-secondary-ellipse', (2, 3, 8, 30)),
+            ('dcx-secondary-overlap', (0, 7, 0, 30)),
+            ('dcx-secondary-evacuation', (2, 3, 8, 0)),
+        )
+        for slug, expected in variants:
+            with self.subTest(case=slug):
+                case = self.cases[slug]
+                self.assertEqual((case.source_kind, case.classification, case.state),
+                                 ('synthetic', 'training', 'issue'))
+                self.assertEqual(case.category, 'OutsideJapan')
+                self.assertIsNone(case.source_url)
+                self.assertEqual(case.source_file, original.source_file)
+                self.assertEqual(case.source_sha256, original.source_sha256)
+                self.assertIn('公開受信ログ', case.source_label)
+                for text in (case.title, case.source_label, case.description):
+                    self.assertIn('合成訓練例', text)
+                self.assertIn('国外Vn=0', case.description)
+                self.assertIn('ビット129〜145', case.description)
+                self.assertNotEqual(case.records[0][0], original.records[0][0])
+                self.assertEqual(case.records[0][1], original.records[0][1])
+                # Decoding independently checks both the payload CRC and NMEA checksum.
+                report = decoded(case)[0]
+                self.assertEqual((report.camf.a1, report.camf.a2, report.camf.vn), (0, 103, 0))
+                self.assertEqual((report.camf.a9, report.camf.a10, report.camf.a17), (0, 0, 2))
+                self.assertEqual(tuple(getattr(report.camf, f'c{i}') for i in range(7, 11)), expected)
+                self.assertEqual(report.c7_shift_of_second_ellipse_centre, expected[0])
+                self.assertEqual(report.c8_homothetic_factor_of_second_ellipse, (expected[1] + 1) / 4)
+                self.assertEqual(report.c9_bearing_angle_of_second_ellipse, expected[2] * 11.25)
+                for field in ('a12', 'a13', 'a14', 'a15', 'a16'):
+                    self.assertEqual(getattr(report.camf, field), getattr(source_report.camf, field))
+                payloads = [int(item.records[0][0].split('*')[0].split(',')[2] + '0', 16)
+                            for item in (case, original)]
+                allowed = 0
+                for offset, width in ((24, 2), (129, 17), (226, 24)):
+                    allowed |= ((1 << width) - 1) << (256 - offset - width)
+                self.assertEqual((payloads[0] ^ payloads[1]) & ~allowed, 0,
+                                 'Only B3 settings, the forced training flag and CRC may change')
+        evacuation = self.cases['dcx-secondary-evacuation']
+        self.assertIn('未対応', evacuation.description)
+        self.assertIn('トピック表示', evacuation.description)
 
     def test_dcx_derivation_always_forces_the_test_flag_without_altering_satellite_designation(self):
         original = self.cases['dcx-lalert']

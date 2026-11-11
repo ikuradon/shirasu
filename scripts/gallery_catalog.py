@@ -154,13 +154,14 @@ def load_cases(root=ROOT):
             '同梱の合成訓練例' + ('から派生' if fields else ''), None, file.as_posix(),
             records, tuple(tags), hashlib.sha256(raw).hexdigest())))
 
-    def synthetic_dcx(slug, title, category, index, description, *, fields, tags=()):
-        metadata, file, records = sources[DCX]
+    def synthetic_dcx(slug, title, category, index, description, *, fields, tags=(), source=DCX):
+        metadata, file, records = sources[source]
         sentence, ms = records[index]
         derived = ((_dcx_training_variant(sentence, fields), ms),)
+        origin = '公開受信ログ' if source == RECEIVER else '公式アーカイブ'
         cases.append(_validated(GalleryCase(
             slug, title, category, 'synthetic', 'training', 'issue', description,
-            '公式アーカイブから派生した合成訓練例', None, file.as_posix(),
+            origin + 'から派生した合成訓練例', None, file.as_posix(),
             derived, tuple(tags), metadata['sha256'])))
 
     recorded('typhoon-track', '台風26号 / 実況と予報', 'Typhoon', range(2, 9),
@@ -205,6 +206,24 @@ def load_cases(root=ROOT):
              '公式アーカイブ由来の試験電文です。' + dcx_display, source=DCX)
     recorded('dcx-outside-japan', 'DCX / 海外通報', 'OutsideJapan', (70,),
              '受信ログに含まれる海外向けの試験電文です。' + dcx_display)
+    secondary_origin = ('公開受信ログのフレーム70から派生した合成訓練例です。'
+                        'A1=0（試験）と、国A2=103（インドネシア）・国外Vn=0・主楕円を保持し、'
+                        '0始まりのビット129〜145（A17/C7〜C10）を変更しています。'
+                        'CRCとNMEAチェックサムを再計算しています。')
+    synthetic_dcx('dcx-secondary-ellipse', 'DCX / 第2楕円・合成訓練例', 'OutsideJapan', 70,
+                  secondary_origin + 'A17=2、C7=2、C8=3（1倍）、C9=8（90度）、C10=30（試験）を指定します。',
+                  fields=((129, 2, 2), (131, 2, 2), (133, 3, 3), (136, 5, 8), (141, 5, 30)),
+                  source=RECEIVER, tags=('第2楕円', '複数範囲'))
+    synthetic_dcx('dcx-secondary-overlap', 'DCX / 第2楕円の重なり・合成訓練例', 'OutsideJapan', 70,
+                  secondary_origin + 'A17=2、C7=0、C8=7（2倍）、C9=0、C10=30（試験）を指定します。'
+                  '同心の第2楕円が主楕円を完全に含む場合も、重なる部分の主楕円の指示を優先します。',
+                  fields=((129, 2, 2), (131, 2, 0), (133, 3, 7), (136, 5, 0), (141, 5, 30)),
+                  source=RECEIVER, tags=('第2楕円', '範囲の重なり'))
+    synthetic_dcx('dcx-secondary-evacuation', 'DCX / 第2楕円の避難先特例・合成訓練例', 'OutsideJapan', 70,
+                  secondary_origin + 'A17=2、C7=2、C8=3（1倍）、C9=8（90度）、C10=0を指定します。'
+                  'C10=0の避難先特例は未対応のため、トピック表示へ戻す確認例です。',
+                  fields=((129, 2, 2), (131, 2, 2), (133, 3, 3), (136, 5, 8), (141, 5, 0)),
+                  source=RECEIVER, tags=('第2楕円', '避難先特例', '未対応'))
     synthetic_dcx('dcx-municipality', 'DCX / 市町村の対象区域', 'LAlert', 0,
                   '公式アーカイブのフレーム0から派生した合成訓練例です。'
                   'Vn=1、A1=0（試験）、EX1=1202（函館市）に設定し、'
