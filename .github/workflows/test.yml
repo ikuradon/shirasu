@@ -56,6 +56,7 @@ jobs:
           shirasu-images:preview sh -c 'for suite in nwp_assets nwp_reports nwp_renderer image_preview_cli
           ash_reports ash_renderer municipality_assets flood_reports flood_renderer flood_context
           preview_regions preview_points preview_dispatch preview_wide_layout
+          preview_cancel_scope preview_cancel_card preview_cancel_map preview_cancellation
           preview_wide_regions preview_seismic_markers preview_wide_points preview_wide_special public_qzqsm_images
           gallery_catalog gallery_cli gallery_html; do
           python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'

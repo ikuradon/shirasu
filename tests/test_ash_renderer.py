@@ -284,8 +284,9 @@ class AshForecastRendererTests(unittest.TestCase):
         for hour in (2, 3, 4, 5, 6):
             self.assertEqual(cells[(4620100, hour, 'cinders')][1].get_text(), '—')
 
-    def test_cancelled_unknown_or_conflicting_forecasts_use_the_complete_summary(self):
-        cases = [changed(NAME, (41, 2, 2)), changed(NAME, (69, 2, 0)),
+    def test_unknown_or_conflicting_forecasts_use_the_complete_summary(self):
+        # Cancellation backgrounds have their own complete-scope tests.
+        cases = [changed(NAME, (69, 2, 0)),
                  changed(NAME, (71, 12, 4000)), changed(NAME, (86, 3, 7)),
                  changed(NAME, (83, 3, 7)), changed(NAME, (89, 23, 999999)),
                  changed(NAME, (53, 5, 0), (58, 5, 31), (63, 6, 63)),
@@ -295,8 +296,6 @@ class AshForecastRendererTests(unittest.TestCase):
                 image, figure = self.capture(records)
                 self.assertEqual(figure.axes, [])
                 self.assertEqual(struct.unpack('>II', image.png[16:24]), (1920, 1080))
-        _, figure = self.capture(cases[0])
-        self.assertIn('取消', self.texts(figure))
 
     def test_missing_municipality_or_volcano_and_unreadable_layout_leave_no_partial_map(self):
         records = sample(NAME)

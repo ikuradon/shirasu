@@ -16,7 +16,11 @@ def main():
     rendering.add_argument('--version', choices=('v1', 'v2', 'v3', 'v4'), default=None,
                            help='published renderer for offline output (default: v1)')
     rendering.add_argument('--preview', action='store_true', help='use unpublished offline renderer')
+    parser.add_argument('--cancel-reference', type=Path,
+                        help='independently confirmed original records JSON for a cancellation; --preview only')
     args = parser.parse_args()
+    if args.cancel_reference and (not args.preview or not args.records):
+        parser.error('--cancel-reference requires --preview and --records; confirm the original independently')
     if args.serve:
         if args.preview:
             parser.error('--preview requires --records; unpublished images are offline only')
@@ -50,7 +54,11 @@ def main():
         else:
             from image_service.render_v4 import render
         records = json.loads(args.records.read_text())
-        image = render([(row['nmea'], row['received_ms']) for row in records])
+        options = {}
+        if args.cancel_reference:
+            reference = json.loads(args.cancel_reference.read_text())
+            options['cancel_reference'] = [(row['nmea'], row['received_ms']) for row in reference]
+        image = render([(row['nmea'], row['received_ms']) for row in records], **options)
         with args.output.open('xb') as destination:
             destination.write(image.png)
         print(f'{image.category}: {args.output}')

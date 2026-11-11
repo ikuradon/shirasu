@@ -37,7 +37,7 @@ def _preflight(published_version, *, preview_only=False):
         importlib.import_module(MODULES[version]).verify_assets()
 
 
-def _render_with_decision(records, version):
+def _render_with_decision(records, version, *, cancel_reference=None):
     """Observe the actual saved figure without changing frozen renderer output."""
     from unittest.mock import patch
     from image_service import render as base
@@ -57,7 +57,8 @@ def _render_with_decision(records, version):
     # The observer is process-local, restored on failure, and shares the renderer
     # lock. In particular, Figure.clear and fallback drawing are left intact.
     with base._LOCK, patch.object(base.Figure, 'savefig', observe):
-        image = renderer.render(records)
+        options = {'cancel_reference': cancel_reference} if version == 'preview' and cancel_reference else {}
+        image = renderer.render(records, **options)
     if len(kinds) != 1:
         raise ValueError('描画結果を確認できませんでした')
     decision = getattr(image, 'decision', None) if version == 'preview' else None
@@ -153,6 +154,7 @@ def generate(output, *, published_version='v4', selected_cases=None, preview_onl
     for index, case in enumerate(cases, 1):
         row = asdict(case)
         del row['records']
+        row.pop('cancel_reference', None)
         row['tags'] = list(case.tags)
         row.update(record_count=len(case.records), records_path=f'records/{case.slug}.json',
                    reference_times=sorted({datetime.fromtimestamp(milliseconds / 1000, timezone.utc)
@@ -163,10 +165,17 @@ def generate(output, *, published_version='v4', selected_cases=None, preview_onl
         _write_json(output / row['records_path'],
                     [{'nmea': nmea, 'received_ms': milliseconds}
                      for nmea, milliseconds in case.records])
+        if case.cancel_reference:
+            row['cancel_reference_path'] = f'records/{case.slug}-reference.json'
+            row['cancel_reference_note'] = '合成元が明らかな訓練例の参照。実受信通報の自動照合ではありません。'
+            _write_json(output / row['cancel_reference_path'],
+                        [{'nmea': nmea, 'received_ms': milliseconds}
+                         for nmea, milliseconds in case.cancel_reference])
         for slot, version in slots:
             print(f'[{index}/{len(cases)}] {case.slug} / {version}', flush=True)
             try:
-                png, kind, decision = _render_with_decision(case.records, version)
+                options = {'cancel_reference': case.cancel_reference} if version == 'preview' and case.cancel_reference else {}
+                png, kind, decision = _render_with_decision(case.records, version, **options)
                 if len(png) < 24 or png[:8] != b'\x89PNG\r\n\x1a\n' or kind not in ('map', 'summary', 'topic'):
                     raise ValueError('不正な描画結果です')
                 width, height = struct.unpack('>II', png[16:24])

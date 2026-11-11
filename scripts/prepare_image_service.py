@@ -56,6 +56,10 @@ FILES = (
 PREVIEW_FILES = (
     'dcx_instructions.py',
     'image_service/render_preview.py',
+    'image_service/preview_cancellation.py',
+    'image_service/preview_cancel_scope.py',
+    'image_service/preview_cancel_map.py',
+    'image_service/preview_cancel_card.py',
     'image_service/preview_wide_layout.py',
     'image_service/preview_wide_regions.py',
     'image_service/preview_wide_points.py',

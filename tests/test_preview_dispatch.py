@@ -87,17 +87,18 @@ class PreviewDispatchTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'renderer unavailable'):
                 preview.render(sample('weather'))
 
-    def test_cancellations_are_explicit_and_do_not_reuse_the_cancelled_map(self):
+    def test_cancellations_are_explicit_and_do_not_reuse_cancelled_forecasts(self):
         for name in ('weather', 'typhoon', 'volcano', 'flood'):
             records = changed(name, (41, 2, 2))
             with self.subTest(category=name):
                 image, figure = self.capture(records)
-                self.assertEqual(figure.axes, [])
+                self.assertEqual(bool(figure.axes), name in ('volcano', 'flood'))
                 text = ''.join(label.get_text() for label in figure.texts)
-                self.assertIn('【取消】', text)
+                self.assertIn('取消', text)
                 self.assertIn('取り消されました', text)
-                self.assertEqual(image.decision.mode, 'summary')
-                self.assertEqual([item.code for item in image.decision.reasons], ['cancelled'])
+                self.assertEqual(image.decision.mode, 'map' if figure.axes else 'summary')
+                self.assertEqual(image.decision.reasons[0].code, 'cancelled')
+                self.assertTrue(any(label.get_gid() == 'wide-cancel-status' for label in figure.texts))
 
 
 if __name__ == '__main__':

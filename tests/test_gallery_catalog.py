@@ -1,5 +1,6 @@
 """The offline gallery keeps provenance, message meaning and dates intact."""
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -13,7 +14,7 @@ import azarashi
 from azarashi.reports import dcr
 
 from message_format import report_message
-from scripts.gallery_catalog import _dcx_training_variant, load_cases
+from scripts.gallery_catalog import _dcx_training_variant, _field_variant, _validated, load_cases
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,7 +30,7 @@ class GalleryCatalogTests(unittest.TestCase):
         self.cases = {case.slug: case for case in load_cases()}
 
     def test_catalog_covers_image_categories_with_stable_unique_output_names(self):
-        self.assertEqual(len(self.cases), 33)
+        self.assertEqual(len(self.cases), 37)
         self.assertEqual({case.category for case in self.cases.values()}, {
             'Typhoon', 'Hypocenter', 'Weather', 'EarthquakeEarlyWarning', 'SeismicIntensity',
             'Tsunami', 'Volcano', 'AshFall', 'Flood', 'NorthwestPacificTsunami', 'Marine',
@@ -100,6 +101,96 @@ class GalleryCatalogTests(unittest.TestCase):
                          ('receiver', 'ordinary'))
         self.assertEqual((self.cases['eew'].source_kind, self.cases['eew'].classification),
                          ('receiver', 'training'))
+
+    def test_cancellation_background_examples_are_explicit_training_variants_at_the_end(self):
+        names = ('weather-cancel-area', 'weather-cancel-reference',
+                 'weather-cancel-unknown', 'typhoon-cancel-reference')
+        self.assertEqual(tuple(self.cases)[-4:], names)
+        self.assertTrue(all(not case.cancel_reference for case in tuple(self.cases.values())[:-4]))
+        for slug in names:
+            with self.subTest(case=slug):
+                case = self.cases[slug]
+                self.assertEqual((case.source_kind, case.classification, case.state),
+                                 ('synthetic', 'training', 'cancel'))
+                self.assertIsNone(case.source_url)
+                self.assertIn('合成訓練例', case.title)
+                self.assertIn('実受信の取消ではありません', case.description)
+                self.assertIn('CRC-24Q', case.description)
+                self.assertIn('NMEA', case.description)
+                report, = decoded(case)
+                self.assertEqual((report.information_type_no, report.report_classification_no), (2, 7))
+                source = json.loads((ROOT / case.source_file).read_text())[0]
+                source_report = azarashi.decode(source['nmea'], timestamp=datetime.fromtimestamp(
+                    source['received_ms'] / 1000, timezone.utc))
+                self.assertEqual(report.report_time, source_report.report_time)
+                self.assertEqual(case.records[0][1], source['received_ms'])
+                changes = ((14, 3), (41, 2), (226, 24))
+                if case.category == 'Weather':
+                    self.assertEqual(report.weather_related_disaster_sub_categories_raw, [21] * 5)
+                    changes += tuple((56 + 24 * index, 5) for index in range(5))
+                    expected = source_report.weather_forecast_regions_raw.copy()
+                    if slug == 'weather-cancel-unknown':
+                        expected[0] = 524287
+                        changes += ((61, 19),)
+                    self.assertEqual(report.weather_forecast_regions_raw, expected)
+                else:
+                    self.assertEqual(report.typhoon_number_raw, source_report.typhoon_number_raw)
+                # CRC and NMEA checksums were independently checked by decode.
+                actual = int(case.records[0][0].split('*')[0].split(',')[2] + '0', 16)
+                original = int(source['nmea'].split('*')[0].split(',')[2] + '0', 16)
+                allowed = 0
+                for offset, width in changes:
+                    allowed |= ((1 << width) - 1) << (256 - offset - width)
+                self.assertEqual((actual ^ original) & ~allowed, 0)
+        self.assertEqual(self.cases['weather-cancel-area'].records,
+                         self.cases['weather-cancel-reference'].records)
+
+    def test_explicit_cancel_references_keep_the_complete_known_original_bundle(self):
+        for slug, count in (('weather-cancel-reference', 1), ('typhoon-cancel-reference', 6)):
+            with self.subTest(case=slug):
+                case = self.cases[slug]
+                self.assertEqual(len(case.cancel_reference), count)
+                self.assertIn('対応を明示的に', case.description)
+                self.assertIn('自動照合の実証では', case.description)
+                reference = decoded(replace(case, records=case.cancel_reference))
+                self.assertEqual({type(report).__name__ for report in reference}, {case.category})
+                self.assertEqual({report.report_classification_no for report in reference}, {7})
+                self.assertEqual({report.information_type_no for report in reference}, {0})
+                self.assertEqual({report.report_time for report in reference},
+                                 {decoded(case)[0].report_time})
+                source = json.loads((ROOT / case.source_file).read_text())
+                self.assertEqual([ms for _, ms in case.cancel_reference],
+                                 [row['received_ms'] for row in source])
+                for (sentence, _), row in zip(case.cancel_reference, source, strict=True):
+                    changes = ((14, 3), (41, 2), (226, 24))
+                    if case.category == 'Weather':
+                        changes += tuple((56 + 24 * index, 5) for index in range(5))
+                    allowed = 0
+                    for offset, width in changes:
+                        allowed |= ((1 << width) - 1) << (256 - offset - width)
+                    actual = int(sentence.split('*')[0].split(',')[2] + '0', 16)
+                    original = int(row['nmea'].split('*')[0].split(',')[2] + '0', 16)
+                    self.assertEqual((actual ^ original) & ~allowed, 0)
+                if case.category == 'Typhoon':
+                    self.assertEqual(len({report.reference_time for report in reference}), 6)
+                    self.assertEqual({report.typhoon_number_raw for report in reference},
+                                     {decoded(case)[0].typhoon_number_raw})
+
+    def test_catalog_rejects_unlabelled_mixed_or_nontraining_cancel_references(self):
+        case = self.cases['weather-cancel-reference']
+        sentence, ms = case.cancel_reference[0]
+        invalid = (
+            replace(case, source_kind='receiver'),
+            replace(case, cancel_reference=case.records),
+            replace(case, cancel_reference=case.cancel_reference * 2),
+            replace(case, cancel_reference=self.cases['typhoon-cancel-reference'].cancel_reference),
+            replace(case, cancel_reference=((_field_variant(sentence, ((14, 3, 3),)), ms),)),
+            replace(case, cancel_reference=((_field_variant(sentence, ((30, 5, 13),)), ms),)),
+        )
+        for candidate in invalid:
+            with self.subTest(reference=candidate.cancel_reference):
+                with self.assertRaises(ValueError):
+                    _validated(candidate)
 
     def test_synthetic_dcx_preserves_source_provenance_and_only_changes_declared_fields(self):
         variants = (

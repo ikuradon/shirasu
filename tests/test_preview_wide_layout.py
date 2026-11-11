@@ -49,9 +49,10 @@ class WideLayoutTests(unittest.TestCase):
         image = preview.render(case.records)
         self.assertEqual(struct.unpack('>II', image.png[16:24]), (1920, 1080))
         fig = self.figure()
-        wide.summary(fig, base._decode(case.records))
+        from image_service.preview_cancel_card import draw_card
+        draw_card(fig, base._decode(case.records))
         self.assertEqual(fig.axes, [])
-        self.assertIn('【取消】', ''.join(t.get_text() for t in fig.texts))
+        self.assertIn('取消', ''.join(t.get_text() for t in fig.texts))
         self.assertIn('取り消されました', ''.join(t.get_text() for t in fig.texts))
 
 

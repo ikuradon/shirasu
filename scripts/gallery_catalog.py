@@ -36,6 +36,7 @@ class GalleryCase:
     records: tuple[tuple[str, int], ...]
     tags: tuple[str, ...]
     source_sha256: str
+    cancel_reference: tuple[tuple[str, int], ...] = ()
 
 
 def _decode(records):
@@ -70,6 +71,21 @@ def _validated(case):
             state = 'issue'
         if state != case.state:
             raise ValueError(f'Gallery sample state changed: {case.slug}')
+    if case.cancel_reference:
+        # The catalog has no general cancellation matcher. This explicit
+        # relation belongs only to a synthetic fixture's known construction.
+        if (case.source_kind, case.classification, case.state) != ('synthetic', 'training', 'cancel'):
+            raise ValueError('Gallery cancellation references must be explicit synthetic training pairs')
+        references = _decode(case.cancel_reference)
+        if (not references or len(references) != len(set(case.cancel_reference))
+                or any(not isinstance(report, dcr.Base)
+                       or type(report).__name__ != case.category
+                       or report.report_classification_no != 7
+                       or report.information_type_no not in (0, 1)
+                       or report.report_time > reports[0].report_time
+                       for report in references)
+                or len({(report.report_time, report.information_type_no) for report in references}) != 1):
+            raise ValueError('Invalid synthetic cancellation reference bundle')
     return case
 
 
@@ -295,4 +311,49 @@ def load_cases(root=ROOT):
     recorded('weather-many', '気象 / 7区域・複数種別', 'Weather', (53, 54, 55),
              '同じ発表の3電文に含まれる7区域と複数の警報種別をまとめます。',
              tags=('多数区域', '複数電文'))
+
+    def synthetic_cancel(slug, title, category, filename, description, *, original_fields=(),
+                         cancel_fields=(), reference=False, tags=()):
+        file = Path('image_service/examples') / (filename + '.json')
+        raw = (root / file).read_bytes()
+        rows = json.loads(raw)
+        original = tuple((_training_variant(row['nmea'], ((41, 2, 0), *original_fields)),
+                          row['received_ms']) for row in rows)
+        # The first frame is the explicit synthetic cancellation. The
+        # reference preserves every original forecast in its known bundle.
+        nmea, ms = original[0]
+        cancelled = ((_training_variant(nmea, ((41, 2, 2), *cancel_fields)), ms),)
+        cases.append(_validated(GalleryCase(
+            slug, title, category, 'synthetic', 'training', 'cancel', description,
+            '同梱例から派生した合成訓練例（実受信の取消ではありません）', None, file.as_posix(),
+            cancelled, tuple(tags), hashlib.sha256(raw).hexdigest(),
+            cancel_reference=original if reference else ())))
+
+    weather_cancel_origin = (
+        '同梱weather.jsonから派生した合成訓練例で、実受信の取消ではありません。'
+        '日時・区域コードを保持し、0始まりのビット14〜16をRc=7（訓練）、'
+        '41〜42をIt=2（取消）、56・80・104・128・152から始まる各5bitを'
+        'Ww=21（記録的短時間大雨情報）に設定しています。'
+        'CRC-24QとNMEAチェックサムを再計算しています。')
+    weather_fields = tuple((56 + 24 * index, 5, 21) for index in range(5))
+    synthetic_cancel('weather-cancel-area', '取消 / 取消報の地域・合成訓練例', 'Weather', 'weather',
+                     weather_cancel_origin + '元通報の参照は与えず、取消報に記載された区域だけで背景地図を作ります。',
+                     original_fields=weather_fields, tags=('取消', '区域の背景'))
+    synthetic_cancel('weather-cancel-reference', '取消 / 元情報の画角・合成訓練例', 'Weather', 'weather',
+                     weather_cancel_origin + '同じWw・区域・日時のIt=0訓練電文を参照用に生成し、'
+                     '作成時に分かっている対応を明示的に与えます。自動照合の実証ではありません。',
+                     original_fields=weather_fields, reference=True, tags=('取消', '明示した参照', '元情報の画角'))
+    synthetic_cancel('weather-cancel-unknown', '取消 / 未知区域で地図なし・合成訓練例', 'Weather', 'weather',
+                     weather_cancel_origin + 'さらに取消報のPl_1（ビット61〜79）を未定義の524287へ変更します。'
+                     '他の既知区域だけの地図を残さず、地図なしの取消カードへ戻る例です。',
+                     original_fields=weather_fields, cancel_fields=((61, 19, 524287),),
+                     tags=('取消', '未知区域', '地図なし'))
+    synthetic_cancel('typhoon-cancel-reference', '取消 / 台風の元の全画角・合成訓練例', 'Typhoon', 'typhoon',
+                     '同梱typhoon.jsonの6電文から派生した合成訓練例で、実受信の取消ではありません。'
+                     '全電文の0始まりのビット14〜16をRc=7（訓練）、41〜42をIt=0（発表）に設定し、'
+                     '日時・台風番号・実況予報6時点は保持します。先頭電文だけIt=2（取消）へ変更し、'
+                     '元の6電文との作成時に分かっている対応を明示的に与えます。'
+                     'CRC-24QとNMEAチェックサムを再計算しています。'
+                     '自動照合の実証ではなく、元の集約全体の画角を背景に再現する例です。',
+                     reference=True, tags=('取消', '明示した参照', '複数電文', '元情報の画角'))
     return tuple(cases)

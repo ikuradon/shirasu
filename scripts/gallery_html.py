@@ -144,6 +144,12 @@ def _case(case, index, published_version):
             f'<div class="details-content"><pre>{_escape(post_text)}</pre></div></details>\n  '
             if post_text else '')
     paths = _local_path(case['records_path'])
+    reference = ''
+    if case.get('cancel_reference_path'):
+        reference_path = _local_path(case['cancel_reference_path'])
+        reference = (f'<p class="date-note">{_escape(case.get("cancel_reference_note", ""))}</p>'
+                     f'<a class="records-link" href="{reference_path}" target="_blank" rel="noopener">'
+                     '確認済み参照入力JSONを開く ↗</a>')
     sides = [side for side in ('published', 'preview') if side in case['images']]
     images = ''.join(_image(case, side, published_version) for side in sides)
     grid = 'comparison-grid single' if len(sides) == 1 else 'comparison-grid'
@@ -162,7 +168,7 @@ def _case(case, index, published_version):
   {post}<details class="source-details"><summary>出典・入力データを確認</summary>
     <div class="details-content"><dl>{metadata}</dl>
     <p class="date-note">基準時刻は電文の日付を復元するために使用します。このギャラリーの公開受信ログには、電文ごとの正確な受信時刻は記録されていません。</p>
-    <a class="records-link" href="{paths}" target="_blank" rel="noopener">入力JSONを開く ↗</a>{body}</div>
+    <a class="records-link" href="{paths}" target="_blank" rel="noopener">入力JSONを開く ↗</a>{reference}{body}</div>
   </details>
 </article>'''
 

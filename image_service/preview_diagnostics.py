@@ -6,7 +6,10 @@ from image_service.preview_diagnostic_errors import known_error_code
 
 
 MESSAGES = {
-    'cancelled': '取消通報のため要旨を表示',
+    'cancelled': '取消通報として表示',
+    'cancel_reference_map': '別途確認して指定された元情報の画角を使用',
+    'cancel_area_map': '取消報に記載された地域を背景に表示',
+    'cancel_reference_unavailable': '指定された元情報の地図を参照できません',
     'unsupported_report': 'この種別の地図表示は未対応',
     'unsupported_version': '未対応の通報バージョン',
     'unknown_hazard': '未対応の災害種別',

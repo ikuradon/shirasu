@@ -252,9 +252,9 @@ class FloodRendererTests(unittest.TestCase):
         self.assertEqual(set(self.reaches(figure)), {f'flood-reach-{code}-0' for code in codes})
         self.assert_numbered_rows(figure, 2)
 
-    def test_unknown_cancelled_missing_or_unreadable_maps_keep_the_complete_summary(self):
-        for records in (changed(NAME, (41, 2, 2)), changed(NAME, (53, 4, 15)),
-                        changed(NAME, (57, 40, 0))):
+    def test_unknown_missing_or_unreadable_maps_keep_the_complete_summary(self):
+        # Cancellation backgrounds have their own complete-scope tests.
+        for records in (changed(NAME, (53, 4, 15)), changed(NAME, (57, 40, 0))):
             with self.subTest(records=records):
                 image, figure = self.capture(records)
                 self.assertEqual(figure.axes, [])

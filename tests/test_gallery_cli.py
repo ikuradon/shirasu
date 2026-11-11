@@ -142,6 +142,23 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         for path in (row['records_path'], *(item['path'] for item in row['images'].values())):
             self.assertIn(path, html)
 
+    def test_confirmed_reference_is_saved_and_only_passed_to_unpublished_renderer(self):
+        case = next(c for c in load_cases() if c.slug == 'weather-cancel-reference')
+        with patch.object(render_gallery, '_preflight'), \
+                patch.object(render_gallery, '_render_with_decision', return_value=(PNG, 'map', None)) as render, \
+                redirect_stdout(io.StringIO()):
+            result = render_gallery.generate(self.output, selected_cases=(case.slug,))
+        old, preview = render.call_args_list
+        self.assertEqual(old.kwargs, {})
+        self.assertEqual(preview.kwargs, {'cancel_reference': case.cancel_reference})
+        row, = result['cases']
+        self.assertNotIn('cancel_reference', row)
+        records = json.loads((self.output / row['cancel_reference_path']).read_text())
+        self.assertEqual(tuple((r['nmea'], r['received_ms']) for r in records), case.cancel_reference)
+        html = (self.output / 'index.html').read_text()
+        self.assertIn(row['cancel_reference_path'], html)
+        self.assertIn('実受信通報の自動照合ではありません', html)
+
     def test_only_single_evacuation_destinations_include_the_actual_post_with_nmea(self):
         import azarashi
         from message_format import report_message

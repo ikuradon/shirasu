@@ -15,6 +15,7 @@ from image_service import preview_wide_regions as regions
 from image_service import preview_wide_points as points
 from image_service import preview_wide_special as special
 from image_service import preview_wide_dcx as dcx_images
+from image_service import preview_cancellation as cancellation
 from image_service.preview_diagnostics import Decision, error_reasons, reason, unique_reasons
 
 
@@ -50,7 +51,7 @@ def verify_assets():
     return True
 
 
-def render(records):
+def render(records, *, cancel_reference=None):
     records = tuple(records)
     with base._LOCK:
         verify_assets()
@@ -62,12 +63,15 @@ def render(records):
             fig = layout.figure()
             drawer = DRAWERS.get(type(first))
             _, _, _, cancelled = base._metadata(first)
+            if cancel_reference is not None and not cancelled:
+                raise ValueError('A cancellation reference requires a cancellation report')
             decision = Decision('map')
             phase = 'selection'
             try:
-                if drawer is None or cancelled:
-                    code = 'cancelled' if cancelled else 'unsupported_report'
-                    decision = Decision('summary', (reason(code),))
+                if cancelled:
+                    decision = cancellation.draw(fig, reports, DRAWERS, cancel_reference=cancel_reference)
+                elif drawer is None:
+                    decision = Decision('summary', (reason('unsupported_report'),))
                     layout.summary(fig, reports)
                 else:
                     phase = 'render'
@@ -82,7 +86,10 @@ def render(records):
                 # Never create a plausible partial map by dropping values.
                 reasons = unique_reasons((*decision.reasons, *error_reasons(error, stage=phase)))
                 fig.clear()
-                if isinstance(first, dcx.AlertBase):
+                if cancelled:
+                    cancellation.card.draw_card(fig, reports)
+                    decision = Decision('summary', unique_reasons((reason('cancelled'), *reasons)))
+                elif isinstance(first, dcx.AlertBase):
                     plan = dcx_images.draw_topic(fig, reports, reasons=reasons)
                     decision = Decision('topic', unique_reasons(plan.reasons))
                 else:

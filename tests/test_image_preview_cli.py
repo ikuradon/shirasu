@@ -48,6 +48,9 @@ class PreviewBoundaryTests(unittest.TestCase):
 
     def test_preview_cannot_serve_or_ambiguously_select_a_published_version(self):
         combinations = [('--serve', '--preview')]
+        combinations.extend((('--serve', '--cancel-reference', 'not-read.json'),
+                             ('--records', 'not-read.json', '--output', 'not-created.png',
+                              '--cancel-reference', 'not-read.json')))
         combinations.extend(('--records', 'not-read.json', '--output', 'not-created.png',
                              '--preview', '--version', version) for version in SUPPORTED_VERSIONS)
         for arguments in combinations:
@@ -82,6 +85,22 @@ class PreviewBoundaryTests(unittest.TestCase):
 
 @unittest.skipUnless(HAS_RENDERER, 'Install image_service/requirements.txt for offline preview tests')
 class OfflinePreviewCLITests(unittest.TestCase):
+    def test_confirmed_cancel_reference_is_forwarded_only_to_offline_preview(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'cancel.json'
+            reference = Path(directory) / 'reference.json'
+            destination = Path(directory) / 'preview.png'
+            source.write_text(json.dumps([{'nmea': 'cancel', 'received_ms': 2}]))
+            reference.write_text(json.dumps([{'nmea': 'original', 'received_ms': 1}]))
+            arguments = ['images', '--preview', '--records', str(source), '--output', str(destination),
+                         '--cancel-reference', str(reference)]
+            with patch.object(sys, 'argv', arguments), redirect_stdout(io.StringIO()), \
+                    patch('image_service.render_preview.render', return_value=SimpleNamespace(
+                        png=b'preview-renderer', category='Weather')) as render:
+                main()
+            render.assert_called_once_with([('cancel', 2)], cancel_reference=[('original', 1)])
+            self.assertEqual(destination.read_bytes(), b'preview-renderer')
+
     def test_default_cli_still_selects_published_v1(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / 'image.png'
