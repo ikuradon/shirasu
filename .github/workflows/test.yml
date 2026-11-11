@@ -56,7 +56,7 @@ jobs:
           docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
           shirasu-images:preview sh -c 'for suite in nwp_assets nwp_reports nwp_renderer image_preview_cli
           ash_reports ash_renderer municipality_assets flood_reports flood_renderer flood_context
-          preview_regions preview_points preview_dispatch preview_wide_layout preview_fixed_map_axes preview_nankai
+          preview_regions preview_points preview_dispatch preview_wide_layout preview_fixed_map_axes preview_geometry_cache preview_nankai
           preview_cancel_scope preview_cancel_card preview_cancel_map preview_cancellation
           preview_wide_regions preview_seismic_markers preview_wide_points preview_wide_special public_qzqsm_images
           preview_wide_tsunami preview_wide_flood preview_wide_dcx preview_context_scale_integration

@@ -3,6 +3,7 @@
 from copy import deepcopy
 from dataclasses import replace
 import importlib.util
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -19,7 +20,7 @@ if HAS_RENDERER:
     from image_service import preview_wide_dcx as dcx_images
     from image_service import preview_dcx_areas as dcx_areas
     from image_service import preview_wide_layout as wide
-    from image_service.preview_dcx_reports import Point, SecondaryEllipse, dcx_plan
+    from image_service.preview_dcx_reports import Area, Point, SecondaryEllipse, dcx_plan
     from scripts.gallery_catalog import load_cases
     from message_format import report_message
 
@@ -389,6 +390,69 @@ class DcxRenderingTests(unittest.TestCase):
         with patch.object(region_map, '_layer', side_effect=without_iwate):
             _, fig = self.capture(records)
         self.assert_topic(fig)
+
+    def test_degenerate_first_boundary_precedes_a_later_missing_area(self):
+        feature = {'geometry': {'type': 'Polygon', 'coordinates': [[
+            [139., 35.], [139.1, 35.], [139.2, 35.], [139., 35.],
+        ]]}}
+        plan = SimpleNamespace(areas=(Area('prefectures', 1, 'first'),
+                                      Area('prefectures', 2, 'missing')),
+                               additional_ellipse=None)
+        fig = wide.figure()
+        self.addCleanup(fig.clear)
+        with patch.object(region_map, '_layer', return_value={1: [feature]}) as layer, \
+                patch.object(dcx_images, '_additional_ring') as additional, \
+                patch.object(wide, 'map_axes') as map_axes:
+            with self.assertRaisesRegex(ValueError, '^Degenerate regional polygon$'):
+                dcx_images._area(fig, None, plan)
+        layer.assert_called_once_with('prefectures')
+        additional.assert_not_called()
+        map_axes.assert_not_called()
+        self.assertFalse(fig.axes)
+
+    def test_degenerate_boundary_precedes_invalid_additional_geometry(self):
+        feature = {'geometry': {'type': 'Polygon', 'coordinates': [[
+            [139., 35.], [139.1, 35.], [139.2, 35.], [139., 35.],
+        ]]}}
+        plan = SimpleNamespace(areas=(Area('prefectures', 1, 'first'),),
+                               additional_ellipse=object())
+        fig = wide.figure()
+        self.addCleanup(fig.clear)
+        with patch.object(region_map, '_layer', return_value={1: [feature]}), \
+                patch.object(dcx_images, '_additional_ring', wraps=dcx_images._additional_ring) as additional, \
+                patch.object(wide, 'map_axes') as map_axes:
+            with self.assertRaisesRegex(ValueError, '^Degenerate regional polygon$'):
+                dcx_images._area(fig, None, plan)
+        additional.assert_not_called()
+        map_axes.assert_not_called()
+        self.assertFalse(fig.axes)
+
+    def test_cached_feature_paths_keep_the_exact_combined_polygon_and_hole_order(self):
+        outer = [[139., 35.], [140., 35.], [140., 36.], [139., 36.], [139., 35.]]
+        hole = [[139.2, 35.2], [139.8, 35.2], [139.8, 35.8], [139.2, 35.8], [139.2, 35.2]]
+        adjacent = [[140., 35.], [141., 35.], [141., 36.], [140., 36.], [140., 35.]]
+        features = [{'geometry': {'type': 'Polygon', 'coordinates': rings}}
+                    for rings in ([outer, hole], [adjacent])]
+        # Both source features share one received area; the final artist must
+        # preserve their polygon and hole order.
+        expected = Path.make_compound_path(*(
+            region_map._polygon_path(polygon) for feature in features
+            for polygon in region_map._geometry(feature, 'prefectures', 139.)))
+        plan = SimpleNamespace(areas=(Area('prefectures', 1, 'both features'),),
+                               additional_ellipse=None)
+        report, = base._decode(self.cases['dcx-prefectures'].records)
+        fig = wide.figure()
+        self.addCleanup(fig.clear)
+        ax = fig.add_axes((0, 0, 1, 1))
+        with patch.object(region_map, '_layer', return_value={1: features}), \
+                patch.object(wide, 'map_axes', return_value=SimpleNamespace(ax=ax)), \
+                patch.object(wide, 'header'), patch.object(dcx_images, '_sidebar'), \
+                patch.object(dcx_images, '_draw_additional'):
+            dcx_images._area(fig, report, plan)
+        artist, = ax.patches
+        self.assertEqual(artist.get_gid(), 'region-area-dcx-1')
+        np.testing.assert_array_equal(artist.get_path().vertices, expected.vertices)
+        np.testing.assert_array_equal(artist.get_path().codes, expected.codes)
 
     def test_drawing_failure_tries_an_independent_area_candidate_before_topic(self):
         records = self.cases['dcx-ellipse'].records

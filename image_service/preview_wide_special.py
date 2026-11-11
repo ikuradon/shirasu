@@ -12,6 +12,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
 from image_service import ash_map, volcano_map
+from image_service import preview_geometry_cache as cached_geometry
 from image_service import preview_wide_layout as wide
 from image_service import region_map as geometry
 from image_service import render as base
@@ -76,7 +77,7 @@ def _numbered_markers(fig, view, points, notices, *, prefix):
 
 
 def _neutral_areas(ax, leaves):
-    geometry._paint_regions(ax, leaves, 'prefectures')
+    cached_geometry.paint_regions(ax, leaves, 'prefectures')
     for artist in ax.patches:
         if (artist.get_gid() or '').startswith('region-area-'):
             artist.set_facecolor('none')
@@ -204,7 +205,7 @@ def draw_ash(fig, reports):
         feature = catalogue.get(notice.code)
         if feature is None or notice.code in leaves:
             raise ValueError('Missing or duplicated municipality geometry')
-        polygons = geometry._geometry(feature, 'prefectures', reference)
+        polygons = cached_geometry.geometry(feature, 'prefectures', reference)
         leaves[notice.code] = {'color': notice.color, 'parts': [(feature, polygons)]}
         full.extend(ring for polygon in polygons for ring in polygon)
         principal.extend(max(polygons, key=lambda polygon: abs(geometry._signed_area(polygon[0]))

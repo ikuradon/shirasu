@@ -95,6 +95,7 @@ PREVIEW_FILES = (
     'image_service/flood_reports.py',
     'image_service/preview_context.py',
     'image_service/preview_regions.py',
+    'image_service/preview_geometry_cache.py',
     'image_service/preview_points.py',
     'image_service/assets/preview/prefecture_boundaries.geojson.zlib',
     'image_service/assets/preview/prefecture_boundaries_manifest.json',

@@ -14,6 +14,7 @@ from image_service import map_base_v3 as terrain
 from image_service import map_v3 as geography
 from image_service import map_v4 as weather_labels
 from image_service import preview_context as context
+from image_service import preview_geometry_cache as cached_geometry
 from image_service import region_map as layout
 from image_service import render as base
 
@@ -41,7 +42,8 @@ def _regions(plan):
                                 float(base._my(lat))))
                 leaf = leaves.setdefault(code, {'color': notice.color, 'parts': []})
                 if not any(old is feature for old, _ in leaf['parts']):
-                    leaf['parts'].append((feature, layout._geometry(feature, painted_layer, reference)))
+                    leaf['parts'].append((feature, cached_geometry.geometry(
+                        feature, painted_layer, reference)))
         centre = np.mean(members, axis=0)
         anchors.append(min(members, key=lambda point: (math.dist(point, centre), point)))
     full, principal = [], []
@@ -83,7 +85,7 @@ def draw_map(fig, plan):
         locator = True
     ax = terrain.axes(fig, limits)
     context.draw_prefecture_boundaries(ax)
-    layout._paint_regions(ax, leaves, painted_layer)
+    cached_geometry.paint_regions(ax, leaves, painted_layer)
     if painted_layer == 'prefectures':
         clip = Rectangle((0, layout.LABEL_BOTTOM), 1, layout.LABEL_TOP - layout.LABEL_BOTTOM,
                          transform=fig.transFigure)
@@ -95,7 +97,7 @@ def draw_map(fig, plan):
         if remote:
             # The complete source geometry remains visible at small scale,
             # including every island cropped from the main map's body.
-            layout._paint_regions(overview, leaves, painted_layer)
+            cached_geometry.paint_regions(overview, leaves, painted_layer)
     for point, notice in zip(anchors, plan.notices, strict=True):
         ax.scatter(*point, s=35, facecolor=base.SEA, edgecolor=notice.color, linewidth=1.5,
                    zorder=8, gid=f'region-anchor-{notice.code}')

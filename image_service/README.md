@@ -248,6 +248,8 @@ PNG圧縮時間、PNG／WebP／JPEG／AVIFの容量・変換時間・画素差�
 条件・形式設定・再実行方法は[計測の説明](../docs/image-benchmark.md)を参照してください。
 固定範囲の地図で重複する範囲計算を省いた変更は
 [地図の高速化と比較結果](../docs/map-bounds-performance.md)に記録しています。
+続く[地域投影・Path生成の再利用](../docs/geometry-reuse-performance.md)では、
+保持量と件数に上限のある未公開専用キャッシュの効果とメモリ量を確認します。
 
 ```sh
 python -B scripts/benchmark_images.py --list

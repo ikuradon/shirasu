@@ -17,6 +17,7 @@ import numpy as np
 from azarashi.definitions.qzss.dcr.seismic_intensity import seismic_intensity
 
 from image_service import preview_regions as geometry
+from image_service import preview_geometry_cache as cached_geometry
 from image_service import region_map as regions
 from image_service import render as base
 from image_service import preview_wide_layout as wide
@@ -168,7 +169,7 @@ def _weather_bands(plan):
 
 
 def _weather_outlines(ax, leaves, bands, *, scale=1., released=False):
-    regions._paint_regions(ax, leaves, 'prefectures')
+    cached_geometry.paint_regions(ax, leaves, 'prefectures')
     areas = {int(artist.get_gid().removeprefix('region-area-')): artist
              for artist in ax.patches if (artist.get_gid() or '').startswith('region-area-')}
     for area in areas.values():
@@ -196,7 +197,7 @@ def _weather_outlines(ax, leaves, bands, *, scale=1., released=False):
 
 
 def _neutral_areas(ax, leaves):
-    regions._paint_regions(ax, leaves, 'prefectures')
+    cached_geometry.paint_regions(ax, leaves, 'prefectures')
     for artist in ax.patches:
         if (artist.get_gid() or '').startswith('region-area-'):
             artist.set_facecolor('none')
@@ -206,7 +207,7 @@ def _neutral_areas(ax, leaves):
 
 def _eew_areas(ax, leaves):
     """Show the received warning scope with one fill, never an intensity map."""
-    regions._paint_regions(ax, leaves, 'prefectures')
+    cached_geometry.paint_regions(ax, leaves, 'prefectures')
     for artist in ax.patches:
         if (artist.get_gid() or '').startswith('region-area-'):
             artist.set_alpha(None)
@@ -287,7 +288,7 @@ def _draw_values(fig, reports, adapter, scope):
     if painted == 'prefectures':
         _neutral_areas(view.ax, leaves)
     else:
-        regions._paint_regions(view.ax, leaves, painted)
+        cached_geometry.paint_regions(view.ax, leaves, painted)
     names = _references(fig, view, anchors, plan.notices)
     released = plan.layer == 'tsunami' and reports[0].tsunami_warning_code_raw == 2
     title = '津波 警報解除' if released else plan.title

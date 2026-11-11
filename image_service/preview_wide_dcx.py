@@ -12,6 +12,7 @@ from matplotlib.patches import Ellipse as SymbolEllipse, PathPatch, Polygon
 from matplotlib.path import Path
 
 from image_service import preview_dcx_areas, region_map
+from image_service import preview_geometry_cache as cached_geometry
 from image_service import preview_wide_layout as wide
 from image_service import render as base
 from image_service.preview_dcx_geometry import ellipse_ring, secondary_ellipse_ring
@@ -190,8 +191,11 @@ def _area(fig, report, plan):
             raise PreviewFallback('missing_boundary', stage='area', detail=detail,
                                   technical='A received DCX target area is missing from the pinned map')
         for feature in features:
-            parts = region_map._geometry(feature, 'prefectures', 139.)
-            paths.setdefault(area.code, []).extend(region_map._polygon_path(part) for part in parts)
+            parts = cached_geometry.geometry(feature, 'prefectures', 139.)
+            # Compile each feature before visiting the next one, preserving
+            # which invalid boundary is reported first. Only the final cheap
+            # concatenation across features remains specific to this render.
+            paths.setdefault(area.code, []).append(cached_geometry.compound_path(parts))
             sequences.extend(ring for part in parts for ring in part)
     if not sequences:
         raise PreviewFallback('no_area', stage='area', technical='No DCX target areas')

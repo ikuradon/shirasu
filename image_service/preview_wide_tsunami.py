@@ -11,8 +11,8 @@ from matplotlib.lines import Line2D
 import numpy as np
 
 from image_service import nwp_map
+from image_service import preview_geometry_cache as cached_geometry
 from image_service import preview_wide_layout as wide
-from image_service import region_map as geometry
 from image_service import render as base
 from image_service.nwp_reports import nwp_plan
 from image_service.regional_reports import tsunami_map
@@ -154,7 +154,7 @@ def draw_tsunami(fig, reports):
         raise ValueError('Unsupported number of tsunami forecast regions')
     warning = reports[0].tsunami_warning_code_raw
     view, painted, leaves, anchors = regions._prepare(fig, plan)
-    geometry._paint_regions(view.ax, leaves, painted)
+    cached_geometry.paint_regions(view.ax, leaves, painted)
     labels = [('解除' if warning == 2 else '津波なし') if warning in (1, 2)
               else '\n'.join(_heights(notice)) for notice in plan.notices]
     _value_markers(fig, view, anchors, plan.notices, labels, prefix='tsunami-region')

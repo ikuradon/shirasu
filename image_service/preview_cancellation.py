@@ -10,6 +10,7 @@ import numpy as np
 
 from image_service import ash_map, flood_map, region_map, volcano_map
 from image_service import preview_regions
+from image_service import preview_geometry_cache as cached_geometry
 from image_service import preview_cancel_map as background
 from image_service import preview_cancel_card as card
 from image_service import preview_wide_layout as wide
@@ -40,7 +41,7 @@ def _scope_sequences(scope):
         if any(code not in catalogue for code in scope.codes):
             raise PreviewFallback('missing_boundary', stage='area', detail='取消報の市町村')
         return tuple(ring for code in scope.codes
-                     for polygon in region_map._geometry(catalogue[code], 'prefectures', 139.)
+                     for polygon in cached_geometry.geometry(catalogue[code], 'prefectures', 139.)
                      for ring in polygon)
     if scope.layer == 'volcano':
         catalogue = volcano_map._positions()
