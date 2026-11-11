@@ -66,7 +66,7 @@ class PreviewCliTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
         for name in ('main.py', 'outbox.py', 'receiver.py', 'inspection.py', 'preview.py', 'message_format.py',
-                     'dcx_instructions.py', 'image_publication.py', 'image_protocol.py', 'image_alt.py', 'nankai_image.py',
+                     'dcx_instructions.py', 'image_publication.py', 'image_protocol.py', 'image_versions.py', 'image_alt.py', 'nankai_image.py',
                      'typhoon.py', 'nankai.py'):
             shutil.copyfile(ROOT / name, self.root / name)
         (self.root / 'config.py').write_text(

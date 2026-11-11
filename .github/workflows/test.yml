@@ -16,12 +16,13 @@ concurrency:
 jobs:
   image-service:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0 # Export the fixed pre-candidate public renderer reference.
       - name: Prepare isolated source and build renderer
         run: |
           python3 scripts/prepare_image_service.py dist/image-service
@@ -60,8 +61,40 @@ jobs:
           preview_wide_regions preview_seismic_markers preview_wide_points preview_wide_special public_qzqsm_images
           preview_wide_tsunami preview_wide_flood preview_wide_dcx preview_context_scale_integration
           preview_scale preview_place_labels preview_dcx_geometry preview_dcx_reports preview_diagnostic_errors dcx_ward_assets
-          nankai_image image_alt gallery_catalog gallery_posts gallery_compare gallery_cli gallery_html; do
+          nankai_image image_alt gallery_catalog gallery_posts gallery_compare gallery_cli gallery_html
+          release_candidate release_images; do
           python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
+      - name: Prepare immutable release rehearsal packages
+        run: |
+          python3 -B scripts/prepare_release_candidate.py dist/release-check/candidate
+          python3 -B scripts/prepare_release_baseline.py dist/release-check/legacy --ref 43e0fa4
+          python3 -B scripts/prepare_release_baseline.py dist/release-check/legacy \
+            --candidate-images dist/release-check/candidate/images > dist/release-check/source-comparison.json
+          mkdir dist/release-check/results
+          docker build --pull=false -t shirasu-images:rehearsal dist/release-check/candidate/images
+          docker build --pull=false -t shirasu:rehearsal dist/release-check/candidate/receiver
+      - name: Verify signed posts, old URLs, candidate PNGs and rollback
+        run: |
+          docker run --rm --network none \
+            --volume "$PWD/dist/release-check/candidate:/candidate:ro" \
+            --volume "$PWD:/checks:ro" --volume "$PWD/dist/release-check/results:/output" \
+            --workdir /candidate/receiver --env PYTHONPATH=/candidate/receiver:/checks:/checks/tests \
+            shirasu:rehearsal python -B /checks/scripts/check_release_receiver.py \
+            --bundle /candidate --output /output/posts.json
+          docker run --rm --network none \
+            --volume "$PWD/dist/release-check/legacy:/legacy:ro" \
+            --volume "$PWD:/checks:ro" --volume "$PWD/dist/release-check/results:/output" \
+            --workdir /legacy --env PYTHONPATH=/legacy:/checks \
+            shirasu-images:rehearsal python -B /checks/scripts/check_release_images.py \
+            --legacy-package /legacy --events /output/posts.json --output /output/legacy.json
+          docker run --rm --network none \
+            --volume "$PWD/dist/release-check/candidate:/candidate:ro" \
+            --volume "$PWD:/checks:ro" --volume "$PWD/dist/release-check/results:/output" \
+            --workdir /candidate/images --env PYTHONPATH=/candidate/images:/checks \
+            shirasu-images:rehearsal python -B /checks/scripts/check_release_images.py \
+            --bundle /candidate --events /output/posts.json --legacy-result /output/legacy.json \
+            --output /output/images.json
+          python3 -B scripts/prepare_release_candidate.py --verify dist/release-check/candidate
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -89,7 +122,7 @@ jobs:
       - name: Check receiver publication against gallery fixtures
         run: >-
           docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
-          shirasu:test sh -c 'for suite in public_qzqsm_publication gallery_post_publication; do
+          shirasu:test sh -c 'for suite in public_qzqsm_publication gallery_post_publication release_receiver; do
           python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
 
       - name: Build integration test image

@@ -18,9 +18,10 @@ import json
 import re
 import zlib
 
+from image_versions import SUPPORTED_VERSIONS
+
 
 VERSION = 'v1'
-SUPPORTED_VERSIONS = ('v1', 'v2', 'v3', 'v4')
 MAX_REPORTS = 32
 MAX_PATH_LENGTH = 8192
 MAX_COMPRESSED_BYTES = 4096

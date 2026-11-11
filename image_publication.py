@@ -9,6 +9,7 @@ import re
 from urllib.parse import urlsplit
 
 from image_protocol import VERSION, load_keys, make_path, validate_version
+from image_versions import NANKAI_TOPIC_VERSIONS
 
 
 @dataclass(frozen=True)
@@ -71,9 +72,7 @@ class ImagePublisher:
 
     @property
     def supports_nankai_topic(self):
-        # No published URL generation contains the topic renderer yet. Enable
-        # this capability for its generation during the coordinated release.
-        return False
+        return self.version in NANKAI_TOPIC_VERSIONS
 
 
 def image_entry(report):

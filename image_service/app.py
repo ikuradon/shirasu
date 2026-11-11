@@ -5,9 +5,7 @@ from importlib import import_module
 import os
 
 from image_protocol import MAX_PATH_LENGTH, SUPPORTED_VERSIONS, load_keys, parse_path, path_version
-
-RENDERERS = {'v1': 'image_service.render', 'v2': 'image_service.render_v2',
-             'v3': 'image_service.render_v3', 'v4': 'image_service.render_v4'}
+from image_versions import RENDERERS
 
 
 def app(environ, start_response):

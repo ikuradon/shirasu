@@ -8,6 +8,7 @@ import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = (
+    'image_versions.py',
     'image_protocol.py',
     'image_service/__init__.py',
     'image_service/__main__.py',

@@ -1,0 +1,236 @@
+"""Candidate artifacts are explicit snapshots, isolated from normal releases."""
+
+from contextlib import redirect_stderr, redirect_stdout
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from scripts import prepare_image_service as images
+from scripts import prepare_release_candidate as candidate
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = {'commit': 'a' * 40, 'working_tree': True}
+ENTRY = ('$QZQSM,55,C6AF89A820000324000050400548C5E2C000000003DFF8001C00001185443FC*05',
+         1794092400123)
+
+
+class ReleaseCandidateTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='shirasu-candidate-test-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.source = self.root / 'source'
+        self.output = self.root / 'candidate'
+        names = {*images.FILES, *images.PREVIEW_FILES, *candidate.RECEIVER_FILES,
+                 'image_service/requirements.txt', 'image_service/Dockerfile'}
+        # Exercise the real protocol/profile/import boundary without repeatedly
+        # copying large fonts or requiring any image dependencies. Asset bytes
+        # are deliberate placeholders; actual rendering is checked separately.
+        for name in names:
+            destination = self.source / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes((ROOT / name).read_bytes() if name.endswith('.py')
+                                    else ('fixture: ' + name + '\n').encode())
+        for name in ('config.py', '.env', 'state/signing-key.json', 'backups/database.sqlite3'):
+            path = self.source / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('must never be packaged\n')
+        self.enterContext(patch.object(candidate, 'ROOT', self.source))
+        self.enterContext(patch.object(images, 'ROOT', self.source))
+        self.enterContext(patch.object(candidate, '_source_info', return_value=SOURCE))
+
+    def make(self):
+        return candidate.prepare(self.output)
+
+    def manifest(self):
+        return json.loads((self.output / candidate.MANIFEST_NAME).read_text())
+
+    def write_manifest(self, manifest):
+        (self.output / candidate.MANIFEST_NAME).write_text(json.dumps(manifest))
+
+    def isolated(self, package, code):
+        result = subprocess.run(
+            [sys.executable, '-I', '-B', '-c', 'import os, sys; sys.path.insert(0, os.getcwd());\n' + code],
+            cwd=package, env={'PATH': os.environ.get('PATH', '')}, capture_output=True,
+            text=True, timeout=20, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_exact_allowlist_and_manifest_cover_independent_packages_without_live_files(self):
+        self.assertEqual(self.make(), self.output)
+        result = candidate.verify_bundle(self.output)
+        self.assertEqual(result['source'], SOURCE)
+        self.assertEqual((result['schema_version'], result['candidate_version'], result['rollback_version']),
+                         (1, 'v5', 'v4'))
+        actual = {str(path.relative_to(self.output)) for path in self.output.rglob('*') if path.is_file()}
+        self.assertEqual(actual, set(result['files']) | {candidate.MANIFEST_NAME})
+        self.assertEqual(result['manifest_sha256'], hashlib.sha256(
+            (self.output / candidate.MANIFEST_NAME).read_bytes()).hexdigest())
+        for name, digest in result['files'].items():
+            self.assertEqual(digest, hashlib.sha256((self.output / name).read_bytes()).hexdigest())
+        for package in ('images', 'receiver'):
+            self.assertEqual((self.output / package / 'image_versions.py').read_text(), candidate.CANDIDATE_PROFILE)
+            for name in ('config.py', '.env', 'state', 'backups', '.git'):
+                self.assertFalse((self.output / package / name).exists())
+        self.assertFalse((self.output / 'receiver/image_service').exists())
+        self.assertFalse((self.output / 'images/main.py').exists())
+        self.assertEqual((self.output / 'receiver/requirements.txt').read_bytes(),
+                         (self.source / 'requirements.txt').read_bytes())
+        self.assertEqual((self.output / 'images/requirements.txt').read_bytes(),
+                         (self.source / 'image_service/requirements.txt').read_bytes())
+
+    def test_normal_package_stays_v1_to_v4_and_candidate_registers_v5_in_both_artifacts(self):
+        self.make()
+        production = images.prepare(self.root / 'production')
+        code = '''import json
+import image_versions, image_protocol
+from image_service.app import RENDERERS
+print(json.dumps({'versions': image_protocol.SUPPORTED_VERSIONS, 'routes': RENDERERS,
+                  'candidate': image_versions.CANDIDATE_VERSION, 'default': image_protocol.VERSION,
+                  'origin': image_versions.__file__}))
+'''
+        regular = self.isolated(production, code)
+        future = self.isolated(self.output / 'images', code)
+        self.assertEqual(regular['versions'], ['v1', 'v2', 'v3', 'v4'])
+        self.assertIsNone(regular['candidate'])
+        self.assertEqual(future['versions'], ['v1', 'v2', 'v3', 'v4', 'v5'])
+        self.assertEqual(future['routes']['v5'], 'image_service.render_preview')
+        for version in regular['versions']:
+            self.assertEqual(regular['routes'][version], future['routes'][version])
+        self.assertEqual((regular['default'], future['default']), ('v1', 'v1'))
+        self.assertEqual(Path(future['origin']), self.output / 'images/image_versions.py')
+        receiver = self.isolated(self.output / 'receiver', '''import json
+from image_publication import ImagePublisher
+from image_protocol import parse_path
+from urllib.parse import urlsplit
+entries = ''' + repr((ENTRY,)) + '''
+key = bytes(range(32))
+publishers = [ImagePublisher('https://images.example.test', 'test', key, version=v)
+              for v in ('v1', 'v2', 'v3', 'v4', 'v5')]
+assert all(parse_path(urlsplit(p.url(entries)).path, {'test': key}) == entries for p in publishers)
+print(json.dumps({'topics': [p.supports_nankai_topic for p in publishers],
+                  'v5': urlsplit(publishers[-1].url(entries)).path.split('/')[1]}))
+''')
+        self.assertEqual(receiver, {'topics': [False, False, False, False, True], 'v5': 'v5'})
+        self.assertEqual((self.source / 'image_versions.py').read_bytes(), (ROOT / 'image_versions.py').read_bytes())
+        candidate.verify_bundle(self.output)  # Isolated imports created no bytecode or mutable state.
+
+    def test_later_working_tree_edits_cannot_change_the_saved_artifact(self):
+        self.make()
+        before = candidate.verify_bundle(self.output)
+        for name in ('image_service/render_preview.py', 'image_publication.py', 'image_versions.py'):
+            with (self.source / name).open('a') as target:
+                target.write('\n# Later working change\n')
+        self.assertEqual(candidate.verify_bundle(self.output), before)
+
+    def test_existing_destination_and_missing_sources_fail_before_partial_output(self):
+        self.output.mkdir()
+        with self.assertRaises(FileExistsError):
+            self.make()
+        self.assertEqual(list(self.output.iterdir()), [])
+        self.output.rmdir()
+        (self.source / 'image_service/assets/preview/flood.geojson.zlib').unlink()
+        with self.assertRaisesRegex(ValueError, 'prepare_flood_assets.py'):
+            self.make()
+        self.assertFalse(self.output.exists())
+
+    def test_source_symlinks_and_symlink_destination_are_rejected(self):
+        source = self.source / 'nankai_image.py'
+        source.unlink()
+        source.symlink_to(ROOT / 'nankai_image.py')
+        with self.assertRaisesRegex(ValueError, 'Linked source'):
+            self.make()
+        self.assertFalse(self.output.exists())
+        self.output.symlink_to(self.root / 'nonexistent')
+        with self.assertRaises(FileExistsError):
+            self.make()
+
+    def test_changed_missing_extra_and_linked_files_are_all_rejected(self):
+        self.make()
+        target = self.output / 'receiver/main.py'
+        original = target.read_bytes()
+        target.write_bytes(original + b'\n# modified\n')
+        with self.assertRaisesRegex(ValueError, 'hash differs'):
+            candidate.verify_bundle(self.output)
+        target.unlink()
+        with self.assertRaisesRegex(ValueError, 'missing declared'):
+            candidate.verify_bundle(self.output)
+        target.symlink_to(self.source / 'main.py')
+        with self.assertRaisesRegex(ValueError, 'symbolic link'):
+            candidate.verify_bundle(self.output)
+        target.unlink()
+        target.write_bytes(original)
+        unexpected = self.output / 'receiver/.env'
+        unexpected.write_text('unexpected')
+        with self.assertRaisesRegex(ValueError, 'unexpected file'):
+            candidate.verify_bundle(self.output)
+        unexpected.unlink()
+        unexpected.mkdir()
+        with self.assertRaisesRegex(ValueError, 'unexpected directory'):
+            candidate.verify_bundle(self.output)
+
+    def test_manifest_cannot_add_paths_drop_required_files_or_forge_profile(self):
+        self.make()
+        original = self.manifest()
+        for unsafe in ('../outside', '/absolute', 'images//bad', 'images/../bad', 'images/.'):
+            with self.subTest(path=unsafe):
+                altered = {**original, 'files': {**original['files'], unsafe: '0' * 64}}
+                self.write_manifest(altered)
+                with self.assertRaisesRegex(ValueError, 'unsafe file path'):
+                    candidate.verify_bundle(self.output)
+        files = dict(original['files'])
+        del files['receiver/main.py']
+        self.write_manifest({**original, 'files': files})
+        with self.assertRaisesRegex(ValueError, 'allowlist'):
+            candidate.verify_bundle(self.output)
+        target = self.output / 'receiver/image_versions.py'
+        target.write_text('NANKAI_TOPIC_VERSIONS = ()\n')
+        original['files']['receiver/image_versions.py'] = hashlib.sha256(target.read_bytes()).hexdigest()
+        self.write_manifest(original)
+        with self.assertRaisesRegex(ValueError, 'generation profile'):
+            candidate.verify_bundle(self.output)
+
+    def test_manifest_types_duplicate_keys_and_excess_size_fail_closed(self):
+        self.make()
+        original = self.manifest()
+        for changed in ({'schema_version': True}, {'candidate_version': 'v6'},
+                        {'rollback_version': 'v5'}, {'files': []},
+                        {'source': {'commit': 'a' * 40, 'working_tree': 1}},
+                        {'source': {'commit': None, 'working_tree': False}},
+                        {'files': dict(original['files'], **{'receiver/main.py': 'wrong'})}):
+            with self.subTest(changed=changed):
+                self.write_manifest({**original, **changed})
+                with self.assertRaises(ValueError):
+                    candidate.verify_bundle(self.output)
+        path = self.output / candidate.MANIFEST_NAME
+        path.write_text('{"schema_version":1,"schema_version":1}')
+        with self.assertRaisesRegex(ValueError, 'duplicate JSON'):
+            candidate.verify_bundle(self.output)
+        path.write_bytes(b' ' * (candidate.MAX_MANIFEST_BYTES + 1))
+        with self.assertRaisesRegex(ValueError, 'size limit'):
+            candidate.verify_bundle(self.output)
+
+    def test_cli_can_prepare_then_verify_without_changing_files(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(candidate.main([str(self.output)]), 0)
+        result = json.loads(output.getvalue())
+        before = candidate.verify_bundle(self.output)
+        self.assertEqual(result['manifest_sha256'], before['manifest_sha256'])
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(candidate.main(['--verify', str(self.output)]), 0)
+        self.assertEqual(candidate.verify_bundle(self.output), before)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.assertEqual(candidate.main([str(self.output)]), 1)
+
+
+if __name__ == '__main__':
+    unittest.main()

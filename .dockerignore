@@ -64,6 +64,9 @@ tests/test_gallery_catalog.py
 tests/test_gallery_posts.py
 tests/test_gallery_cli.py
 tests/test_gallery_html.py
+tests/test_release_candidate.py
+tests/test_release_receiver.py
+tests/test_release_images.py
 # These receiver tests need image fixtures and run with a read-only source mount in CI.
 tests/test_gallery_post_publication.py
 tests/test_public_qzqsm_publication.py

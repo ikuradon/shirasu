@@ -57,7 +57,7 @@ class BackupCliTests(unittest.TestCase):
         self.root = Path(self.directory.name)
         for name in ('main.py', 'outbox.py', 'receiver.py', 'inspection.py',
                      'message_format.py', 'dcx_instructions.py', 'backup.py', 'typhoon.py', 'nankai.py',
-                     'image_publication.py', 'image_protocol.py', 'image_alt.py', 'nankai_image.py'):
+                     'image_publication.py', 'image_protocol.py', 'image_versions.py', 'image_alt.py', 'nankai_image.py'):
             shutil.copyfile(ROOT / name, self.root / name)
         (self.root / 'config.py').write_text(
             "raise AssertionError('BACKUP_SIDE_EFFECT: config was imported')\n",
