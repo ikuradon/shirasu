@@ -241,6 +241,21 @@ docker run --rm --network none \
 `tests/test_timeline_publication.py`は、別の時計で毎秒実Serviceを動かし、投稿時刻・本文・NMEA・
 画像入力・署名イベント・ALTの一致を確認します。画像付きのHTMLはPC・スマホ幅でも確認しています。
 
+## 描画時間・画像形式の計測
+
+`scripts/benchmark_images.py`で、ギャラリーと投稿に使う画像の初回・再描画時間、
+PNG圧縮時間、PNG／WebP／JPEG／AVIFの容量・変換時間・画素差を比較できます。
+条件・形式設定・再実行方法は[計測の説明](../docs/image-benchmark.md)を参照してください。
+
+```sh
+python -B scripts/benchmark_images.py --list
+python -B scripts/benchmark_images.py --output dist/benchmark
+```
+
+`dist/benchmark/index.html`に計測表と形式比較、`manifest.json`と`results.csv`に測定値を出力します。
+初回1回・再描画3回・各形式の圧縮／復号3回を画像ごとに直列実行するため、
+通常のギャラリー生成より時間がかかります。公開URLや投稿形式は変更しません。
+
 ## 未公開画像のプレビュー
 
 `--preview` で未公開の作業版を描画します。`--records` 専用で、`--version`・`--serve`

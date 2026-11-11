@@ -68,6 +68,9 @@ tests/test_gallery_timeline.py
 tests/test_timeline_catalog.py
 tests/test_timeline_cli.py
 tests/test_timeline_publication.py
+tests/test_image_benchmark.py
+tests/test_image_encoding_benchmark.py
+tests/test_benchmark_html.py
 tests/test_release_candidate.py
 tests/test_release_receiver.py
 tests/test_release_images.py
@@ -79,5 +82,8 @@ scripts/gallery_html.py
 scripts/render_gallery.py
 scripts/render_timeline.py
 scripts/timeline_html.py
+scripts/benchmark_images.py
+scripts/image_encoding_benchmark.py
+scripts/benchmark_html.py
 dist
 .vercel
