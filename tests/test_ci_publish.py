@@ -1,4 +1,4 @@
-"""Only tested images from trusted manual runs may reach private release storage."""
+"""Only tested images from trusted release runs may reach private storage."""
 
 import hashlib
 import json
@@ -21,13 +21,20 @@ ENV = {'GITHUB_ACTIONS': 'true', 'GITHUB_EVENT_NAME': 'workflow_dispatch',
 
 
 class CIPublishTests(unittest.TestCase):
-    def test_only_manual_main_runs_have_a_release_context(self):
+    def test_only_manual_main_or_release_tag_pushes_have_a_release_context(self):
         self.assertEqual(publish.context(ENV)['sha'], SOURCE)
+        self.assertIsNone(publish.context(ENV)['tag'])
+        tagged = dict(ENV, GITHUB_EVENT_NAME='push', GITHUB_REF='refs/tags/images-v5')
+        self.assertEqual(publish.context(tagged)['tag'], 'images-v5')
         for changed in ({'GITHUB_EVENT_NAME': 'pull_request'}, {'GITHUB_EVENT_NAME': 'push'},
                         {'GITHUB_REF': 'refs/heads/topic'}, {'GITHUB_ACTIONS': 'false'},
                         {'GITHUB_REPOSITORY': 'owner/repo;command'}, {'GITHUB_RUN_ID': '../1'}):
             with self.subTest(changed=changed), self.assertRaises(ValueError):
                 publish.context(dict(ENV, **changed))
+        for ref in ('refs/heads/main', 'refs/tags/v5', 'refs/tags/images-v0',
+                    'refs/tags/images-v05', 'refs/tags/images-v5/extra', 'refs/tags/images-v5;command'):
+            with self.subTest(ref=ref), self.assertRaises(ValueError):
+                publish.context(dict(tagged, GITHUB_REF=ref))
 
     def test_public_or_unlinked_packages_are_rejected_before_any_docker_operation(self):
         for info in ({'visibility': 'public', 'repository': {'full_name': REPOSITORY}},
@@ -60,12 +67,79 @@ class CIPublishTests(unittest.TestCase):
             publish.ensure_private(REPOSITORY, 'User', 'shirasu-images', '123-1')
         self.assertEqual(len(operations), 2)
 
+    def test_bootstrap_waits_briefly_only_for_package_visibility_404s(self):
+        private = {'visibility': 'private', 'repository': {'full_name': REPOSITORY}}
+        with patch.object(publish, 'api', side_effect=[None, None, private]) as api, \
+                patch.object(publish, 'run'), patch.object(publish.time, 'sleep') as sleep:
+            publish.ensure_private(REPOSITORY, 'User', 'shirasu-images', '123-1')
+        self.assertEqual(api.call_count, 3)
+        self.assertTrue(all(call.kwargs == {'missing': True} for call in api.call_args_list))
+        sleep.assert_called_once_with(1)
+        with patch.object(publish, 'api', return_value=None) as api, \
+                patch.object(publish, 'run'), patch.object(publish.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(ValueError, 'must be private'):
+                publish.ensure_private(REPOSITORY, 'User', 'shirasu-images', '123-1')
+        self.assertEqual(api.call_count, 6)
+        self.assertEqual(sleep.call_count, 4)
+        with patch.object(publish, 'api', side_effect=[None, ValueError('HTTP 403')]), \
+                patch.object(publish, 'run'), patch.object(publish.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(ValueError, 'HTTP 403'):
+                publish.ensure_private(REPOSITORY, 'User', 'shirasu-images', '123-1')
+        sleep.assert_not_called()
+
     def test_existing_tag_or_draft_cannot_be_overwritten(self):
         for responses in ([{'ref': 'existing'}], [None, {'id': 8}],
                           [None, None, [{'tag_name': 'images-v5', 'draft': True}]]):
             with self.subTest(responses=responses), patch.object(publish, 'api', side_effect=responses):
                 with self.assertRaises(ValueError):
                     publish.require_new_version(REPOSITORY, 'images-v5')
+
+    def test_tag_push_accepts_only_the_same_peeled_commit_and_no_release_or_draft(self):
+        light = {'object': {'type': 'commit', 'sha': SOURCE}}
+        annotated = {'object': {'type': 'tag', 'sha': 'b' * 40}}
+        for tag_objects in ([light], [annotated, light]):
+            with self.subTest(tag_objects=tag_objects), \
+                    patch.object(publish, 'api', side_effect=[*tag_objects, None, []]):
+                publish.require_new_version(REPOSITORY, 'images-v5', SOURCE)
+        for responses in ([None], [light, {'id': 8}],
+                          [light, None, [{'tag_name': 'images-v5', 'draft': True}]]):
+            with self.subTest(responses=responses), patch.object(publish, 'api', side_effect=responses):
+                with self.assertRaises(ValueError):
+                    publish.require_new_version(REPOSITORY, 'images-v5', SOURCE)
+        with patch.object(publish, 'api', return_value=light):
+            with self.assertRaisesRegex(ValueError, 'different source commit'):
+                publish.require_new_version(REPOSITORY, 'images-v5', 'b' * 40)
+
+    def test_annotated_tag_resolution_is_bounded_and_rejects_noncommit_targets(self):
+        annotated = {'object': {'type': 'tag', 'sha': 'b' * 40}}
+        commit = {'object': {'type': 'commit', 'sha': SOURCE}}
+        with patch.object(publish, 'api', side_effect=[annotated] * 5 + [commit]) as api:
+            self.assertEqual(publish.resolve_tag_commit(REPOSITORY, 'images-v5'), SOURCE)
+        self.assertEqual(api.call_count, 6)
+        with patch.object(publish, 'api', return_value=annotated) as api:
+            with self.assertRaisesRegex(ValueError, 'depth'):
+                publish.resolve_tag_commit(REPOSITORY, 'images-v5')
+        self.assertEqual(api.call_count, 6)
+        for target in ({'type': 'tree', 'sha': SOURCE}, {'type': 'commit', 'sha': '../unsafe'}, None):
+            with self.subTest(target=target), patch.object(publish, 'api', return_value={'object': target}):
+                with self.assertRaises(ValueError):
+                    publish.resolve_tag_commit(REPOSITORY, 'images-v5')
+
+    def test_fixed_container_tags_are_checked_across_all_package_version_pages(self):
+        version = {'metadata': {'container': {'tags': ['run-123-1']}}}
+        occupied = {'metadata': {'container': {'tags': ['images-v5']}}}
+        with patch.object(publish, 'api', side_effect=[[version] * 100, [occupied]]) as api:
+            with self.assertRaisesRegex(ValueError, 'Fixed container tag already exists'):
+                publish.require_unused_image_tag(REPOSITORY, 'Organization', 'shirasu-images', 'images-v5')
+        self.assertEqual([call.args[0] for call in api.call_args_list],
+                         ['orgs/Example/packages/container/shirasu-images/versions?per_page=100&page=1',
+                          'orgs/Example/packages/container/shirasu-images/versions?per_page=100&page=2'])
+        with patch.object(publish, 'api', side_effect=[[version] * 100, []]):
+            publish.require_unused_image_tag(REPOSITORY, 'User', 'shirasu-images', 'images-v5')
+        for response in ({}, [{'metadata': {}}], [{'metadata': {'container': {'tags': None}}}]):
+            with self.subTest(response=response), patch.object(publish, 'api', return_value=response):
+                with self.assertRaisesRegex(ValueError, 'Cannot check'):
+                    publish.require_unused_image_tag(REPOSITORY, 'User', 'shirasu-images', 'images-v5')
 
     def test_registry_digest_and_config_image_id_are_both_checked(self):
         digest = 'sha256:' + 'f' * 64
@@ -76,6 +150,24 @@ class CIPublishTests(unittest.TestCase):
         with patch.object(publish, 'run', side_effect=['', 'tag: digest: ' + digest, '', RENDERER]):
             with self.assertRaisesRegex(ValueError, 'differs'):
                 publish.push_image(RECEIVER, 'ghcr.io/example/shirasu-receiver', 'run-123-1')
+
+    def test_container_alias_must_preserve_both_recorded_identities(self):
+        image = {'reference': 'ghcr.io/example/shirasu-receiver@sha256:' + 'f' * 64,
+                 'image_id': RECEIVER}
+        with patch.object(publish, 'push_image', return_value=image) as push:
+            self.assertEqual(publish.tag_image(image, 'images-v5'), image)
+        push.assert_called_once_with(RECEIVER, 'ghcr.io/example/shirasu-receiver', 'images-v5')
+        for changed in (dict(image, reference=image['reference'].replace('f' * 64, 'e' * 64)),
+                        dict(image, image_id=RENDERER)):
+            with self.subTest(changed=changed), patch.object(publish, 'push_image', return_value=changed):
+                with self.assertRaisesRegex(ValueError, 'differs from the recorded image'):
+                    publish.tag_image(image, 'latest')
+        for reference, tag in ((image['reference'].split('@')[0] + ':latest', 'latest'),
+                               (image['reference'], '../latest')):
+            with self.subTest(reference=reference, tag=tag), patch.object(publish, 'push_image') as push:
+                with self.assertRaises(ValueError):
+                    publish.tag_image(dict(image, reference=reference), tag)
+                push.assert_not_called()
 
     def test_permission_error_cannot_masquerade_as_an_absent_package(self):
         error = HTTPError('https://api.github.com/test', 403, 'private detail', {}, None)
@@ -115,15 +207,32 @@ class CIPublishTests(unittest.TestCase):
             api.assert_not_called()
             run.assert_not_called()
 
-    def simulate(self, root, *, fail_upload=False):
+    def test_release_tag_must_match_the_candidate_version_before_docker_or_api(self):
+        root = self.fixture()
+        with patch.dict(publish.os.environ, {'GITHUB_EVENT_NAME': 'push', 'GITHUB_REF': 'refs/tags/images-v6'}), \
+                patch.object(publish, 'api') as api, patch.object(publish, 'run') as run:
+            with self.assertRaisesRegex(ValueError, 'differs from the candidate version'):
+                publish.publish(root, 'receiver:test', 'renderer:test')
+            api.assert_not_called()
+            run.assert_not_called()
+
+    def simulate(self, root, *, fail_upload=False, tag_push=False, main_status='ahead',
+                 existing_image_tag=False, expected_error=None):
         calls, commands, uploads = [], [], []
 
         def api(path, **kwargs):
             calls.append((path, kwargs))
-            if '/git/ref/' in path or '/releases/tags/' in path:
+            if '/git/ref/' in path:
+                return {'object': {'type': 'commit', 'sha': SOURCE}} if tag_push else None
+            if '/releases/tags/' in path:
                 return None
+            if '/compare/' in path:
+                return {'status': main_status}
             if '/releases?' in path:
                 return []
+            if '/versions?' in path:
+                return ([{'metadata': {'container': {'tags': ['images-v5']}}}]
+                        if existing_image_tag else [])
             if '/packages/' in path:
                 return {'visibility': 'private', 'repository': {'full_name': REPOSITORY}}
             if kwargs.get('method') == 'POST':
@@ -154,9 +263,11 @@ class CIPublishTests(unittest.TestCase):
                     raise ValueError('fixture upload failure')
             return ''
 
-        with patch.object(publish, 'api', side_effect=api), patch.object(publish, 'run', side_effect=run):
-            if fail_upload:
-                with self.assertRaisesRegex(ValueError, 'upload failure'):
+        environment = {'GITHUB_EVENT_NAME': 'push', 'GITHUB_REF': 'refs/tags/images-v5'} if tag_push else {}
+        with patch.dict(publish.os.environ, environment), patch.object(publish, 'api', side_effect=api), \
+                patch.object(publish, 'run', side_effect=run):
+            if fail_upload or expected_error:
+                with self.assertRaisesRegex(ValueError, expected_error or 'upload failure'):
                     publish.publish(root, 'receiver:test', 'renderer:test')
             else:
                 result = publish.publish(root, 'receiver:test', 'renderer:test')
@@ -170,6 +281,29 @@ class CIPublishTests(unittest.TestCase):
                                     {'method': 'PATCH', 'body': {'draft': False}}))
         self.assertFalse(any(command[:2] == ['docker', 'build'] for command in commands))
         self.assertFalse(any('--clobber' in command for command in commands))
+        pushed = [command[-1] for command in commands if command[:2] == ['docker', 'push']]
+        self.assertCountEqual(pushed, ['ghcr.io/example/shirasu-' + role + ':' + tag
+                                      for role in ('receiver', 'images')
+                                      for tag in ('run-123-1', 'images-v5')])
+        self.assertFalse(any(':latest' in command[-1] for command in commands))
+
+    def test_tag_release_source_must_be_reachable_from_main_before_publication(self):
+        for status in ('ahead', 'identical'):
+            with self.subTest(status=status):
+                calls, _ = self.simulate(self.fixture(), tag_push=True, main_status=status)
+                self.assertIn(('repos/' + REPOSITORY + '/compare/' + SOURCE + '...main', {}), calls)
+        for status in ('behind', 'diverged', 'unknown', None):
+            with self.subTest(status=status):
+                calls, commands = self.simulate(self.fixture(), tag_push=True, main_status=status,
+                                                expected_error='must belong to main')
+                self.assertFalse(any(options.get('method') == 'POST' for _, options in calls))
+                self.assertFalse(any(command[:2] == ['docker', 'push'] for command in commands))
+
+    def test_preexisting_fixed_container_tag_stops_before_payload_upload(self):
+        calls, commands = self.simulate(self.fixture(), existing_image_tag=True,
+                                       expected_error='Fixed container tag already exists')
+        self.assertFalse(any(options.get('method') == 'POST' for _, options in calls))
+        self.assertFalse(any(command[:2] == ['docker', 'push'] for command in commands))
 
     def test_failed_upload_keeps_reserved_draft_and_does_not_publish(self):
         calls, _ = self.simulate(self.fixture(), fail_upload=True)

@@ -1,8 +1,10 @@
 name: Publish verified image release
 
-# No publication from pull requests, pushes, arbitrary refs or rebuilt artifacts.
+# Only an explicit renderer release tag or a manual main run may publish.
 on:
   workflow_dispatch:
+  push:
+    tags: ['images-v*']
 
 permissions:
   contents: read
@@ -13,7 +15,9 @@ concurrency:
 
 jobs:
   verify-receiver:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/images-v') && !github.event.deleted)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -27,7 +31,9 @@ jobs:
       - name: Check receiver
         uses: ./.github/actions/check-receiver
   release:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/images-v') && !github.event.deleted)
     needs: verify-receiver
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -58,6 +64,58 @@ jobs:
           --check-root dist/release-check
           --receiver-image shirasu:rehearsal
           --renderer-image shirasu-images:rehearsal
+      - name: Log out of GHCR
+        if: always()
+        shell: bash
+        run: docker logout ghcr.io
+  restore:
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # The runner starts without the publishing job's images or workspace.
+    # Writes are needed only for latest aliases and the public restore report.
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Check out the same commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download the stored release metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          release_tag=$(python3 -B -c 'from scripts.prepare_release_candidate import CANDIDATE_VERSION; print("images-" + CANDIDATE_VERSION)')
+          mkdir -p dist/registry-restore/metadata
+          gh release download "$release_tag" --repo "$GITHUB_REPOSITORY" \
+            --pattern release.json --pattern candidate-manifest.json \
+            --dir dist/registry-restore/metadata
+      - name: Authenticate to GHCR
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USERNAME: ${{ github.actor }}
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+      - name: Restore fixed digests and promote latest after verification
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          python3 -B scripts/verify_ci_restore.py
+          --release dist/registry-restore/metadata/release.json
+          --manifest dist/registry-restore/metadata/candidate-manifest.json
+          --output dist/registry-restore/verified
+      - name: Retain the restore result in the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          release_tag=$(python3 -B -c 'from scripts.prepare_release_candidate import CANDIDATE_VERSION; print("images-" + CANDIDATE_VERSION)')
+          gh release upload "$release_tag" --repo "$GITHUB_REPOSITORY" \
+            dist/registry-restore/verified/restore-result.json
       - name: Log out of GHCR
         if: always()
         shell: bash

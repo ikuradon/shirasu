@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep the images tested by a manual Actions run in private GHCR packages."""
+"""Keep the images tested by a release Actions run in private GHCR packages."""
 
 import argparse
 import json
@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -69,10 +70,12 @@ def api(path, *, method='GET', body=None, missing=False):
 
 
 def context(environment):
-    require(environment.get('GITHUB_ACTIONS') == 'true'
-            and environment.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
-            and environment.get('GITHUB_REF') == 'refs/heads/main',
-            'Releases require a manual GitHub Actions run on main')
+    event, ref = environment.get('GITHUB_EVENT_NAME'), environment.get('GITHUB_REF', '')
+    tag = ref.removeprefix('refs/tags/') if ref.startswith('refs/tags/') else None
+    manual = event == 'workflow_dispatch' and ref == 'refs/heads/main'
+    tagged = event == 'push' and tag is not None and re.fullmatch(r'images-v[1-9][0-9]*', tag)
+    require(environment.get('GITHUB_ACTIONS') == 'true' and (manual or tagged),
+            'Releases require a manual run on main or an images-vN tag push')
     repository = environment.get('GITHUB_REPOSITORY', '')
     sha = environment.get('GITHUB_SHA', '')
     run_id, attempt = environment.get('GITHUB_RUN_ID', ''), environment.get('GITHUB_RUN_ATTEMPT', '')
@@ -80,13 +83,18 @@ def context(environment):
             and re.fullmatch(r'[0-9a-f]{40}', sha) is not None
             and re.fullmatch(r'[1-9][0-9]*', run_id) is not None
             and re.fullmatch(r'[1-9][0-9]*', attempt) is not None, 'Invalid Actions source identity')
-    return {'repository': repository, 'sha': sha, 'id': run_id, 'attempt': attempt}
+    return {'repository': repository, 'sha': sha, 'id': run_id, 'attempt': attempt,
+            'tag': tag if tagged else None}
+
+
+def package_endpoint(repository, owner_type, package):
+    prefix = 'orgs' if owner_type == 'Organization' else 'users'
+    return prefix + '/' + repository.split('/')[0] + '/packages/container/' + quote(package, safe='')
 
 
 def ensure_private(repository, owner_type, package, run_id):
     owner = repository.split('/')[0]
-    prefix = 'orgs' if owner_type == 'Organization' else 'users'
-    endpoint = prefix + '/' + owner + '/packages/container/' + quote(package, safe='')
+    endpoint = package_endpoint(repository, owner_type, package)
     info = api(endpoint, missing=True)
     if info is None:
         # Establish and inspect package visibility using an empty image FIRST.
@@ -98,11 +106,37 @@ def ensure_private(repository, owner_type, package, run_id):
                 + repository + '"\n')
             run(['docker', 'build', '--network', 'none', '--tag', bootstrap, directory])
         run(['docker', 'push', bootstrap])
-        info = api(endpoint)
+        # A just-created package may not appear immediately in the Packages API.
+        # Only an actual 404 can be retried; permission failures still stop here.
+        for attempt in range(5):
+            info = api(endpoint, missing=True)
+            if info is not None:
+                break
+            if attempt < 4:
+                time.sleep(1)
     require(isinstance(info, dict) and info.get('visibility') == 'private',
             'GHCR package must be private before uploading release payloads: ' + package)
     linked = (info.get('repository') or {}).get('full_name', '')
     require(linked.lower() == repository.lower(), 'GHCR package must be linked to this repository: ' + package)
+
+
+def require_unused_image_tag(repository, owner_type, package, tag):
+    """A fixed container tag must not replace a version left outside a Release."""
+    page = 1
+    while True:
+        versions = api(package_endpoint(repository, owner_type, package)
+                       + '/versions?per_page=100&page=' + str(page))
+        require(isinstance(versions, list), 'Cannot check existing container tags')
+        for version in versions:
+            metadata = version.get('metadata') if isinstance(version, dict) else None
+            container = metadata.get('container') if isinstance(metadata, dict) else None
+            tags = container.get('tags') if isinstance(container, dict) else None
+            require(isinstance(tags, list) and all(isinstance(value, str) for value in tags),
+                    'Cannot check existing container tags')
+            require(tag not in tags, 'Fixed container tag already exists: ' + package + ':' + tag)
+        if len(versions) < 100:
+            return
+        page += 1
 
 
 def push_image(image_id, name, tag):
@@ -118,9 +152,48 @@ def push_image(image_id, name, tag):
     return {'reference': pinned, 'image_id': image_id}
 
 
-def require_new_version(repository, tag):
-    require(api('repos/' + repository + '/git/ref/tags/' + tag, missing=True) is None
-            and api('repos/' + repository + '/releases/tags/' + tag, missing=True) is None,
+def tag_image(image, tag):
+    """Add an alias only when pushing preserves both recorded image identities."""
+    require(isinstance(image, dict), 'Expected a recorded image')
+    reference, image_id = image.get('reference'), image.get('image_id')
+    require(isinstance(reference, str) and re.fullmatch(
+        r'ghcr\.io/[a-z0-9][a-z0-9_.-]*/[a-z0-9][a-z0-9_.-]*@sha256:[0-9a-f]{64}', reference),
+        'Expected a fixed GHCR image reference')
+    require(isinstance(image_id, str) and IMAGE_ID.fullmatch(image_id), 'Expected a full image ID')
+    require(isinstance(tag, str) and re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}', tag),
+            'Invalid container tag')
+    result = push_image(image_id, reference.split('@', 1)[0], tag)
+    require(result == {'reference': reference, 'image_id': image_id},
+            'Container tag differs from the recorded image digest or ID')
+    return result
+
+
+def resolve_tag_commit(repository, tag):
+    """Resolve a lightweight or at most five nested annotated release tags."""
+    require(isinstance(tag, str) and re.fullmatch(r'images-v[1-9][0-9]*', tag),
+            'Invalid release tag')
+    ref = api('repos/' + repository + '/git/ref/tags/' + tag, missing=True)
+    require(isinstance(ref, dict), 'Release tag is missing')
+    target = ref.get('object')
+    for depth in range(6):
+        require(isinstance(target, dict) and isinstance(target.get('sha'), str)
+                and re.fullmatch(r'[0-9a-f]{40}', target['sha']), 'Invalid release tag target')
+        if target.get('type') == 'commit':
+            return target['sha']
+        require(target.get('type') == 'tag' and depth < 5, 'Unsupported release tag target or depth')
+        annotation = api('repos/' + repository + '/git/tags/' + target['sha'])
+        target = annotation.get('object') if isinstance(annotation, dict) else None
+    raise ValueError('Release tag did not resolve to a commit')
+
+
+def require_new_version(repository, tag, source_commit=None):
+    if source_commit is None:
+        require(api('repos/' + repository + '/git/ref/tags/' + tag, missing=True) is None,
+                'This renderer version already has a release/tag; do not overwrite published URLs')
+    else:
+        require(resolve_tag_commit(repository, tag) == source_commit,
+                'Release tag points to a different source commit')
+    require(api('repos/' + repository + '/releases/tags/' + tag, missing=True) is None,
             'This renderer version already has a release/tag; do not overwrite published URLs')
     # Drafts may not have created their Git tag yet. Treat a failed draft as a
     # reserved version too, rather than silently replacing its intended build.
@@ -142,6 +215,8 @@ def publish(check_root, receiver_image, renderer_image):
     public = root / 'public'
     manifest = verify_bundle(bundle)
     evidence = verify_public(public)
+    tag = 'images-' + manifest['candidate_version']
+    require(ctx['tag'] in (None, tag), 'Release tag differs from the candidate version')
     require(manifest['source'] == {'commit': ctx['sha'], 'working_tree': False},
             'Only the clean Actions checkout can become a formal release')
     require(evidence['candidate_manifest_sha256'] == manifest['manifest_sha256'],
@@ -162,14 +237,18 @@ def publish(check_root, receiver_image, renderer_image):
         require(result.strip() == 'verified', 'Image application files differ from the candidate')
 
     repository = ctx['repository']
-    tag = 'images-' + manifest['candidate_version']
-    require_new_version(repository, tag)
+    require_new_version(repository, tag, ctx['sha'] if ctx['tag'] else None)
+    if ctx['tag']:
+        comparison = api('repos/' + repository + '/compare/' + ctx['sha'] + '...main')
+        require(isinstance(comparison, dict) and comparison.get('status') in ('ahead', 'identical'),
+                'Tagged release source must belong to main')
     repo = api('repos/' + repository)
     require(repo.get('full_name', '').lower() == repository.lower(), 'Unexpected GitHub repository')
     owner, name = repository.lower().split('/')
     packages = {'receiver': name + '-receiver', 'renderer': name + '-images'}
     for package in packages.values():
         ensure_private(repository, repo['owner']['type'], package, ctx['id'] + '-' + ctx['attempt'])
+        require_unused_image_tag(repository, repo['owner']['type'], package, tag)
 
     # Reserve the version before pushing payloads. Keep a failed draft visible;
     # retries must not silently substitute another build under the same version.
@@ -180,6 +259,8 @@ def publish(check_root, receiver_image, renderer_image):
     image_tag = 'run-' + ctx['id'] + '-' + ctx['attempt']
     pinned = {role: push_image(image_id, 'ghcr.io/' + owner + '/' + packages[role], image_tag)
               for role, image_id in [('receiver', receiver_id), ('renderer', renderer_id)]}
+    for image in pinned.values():
+        tag_image(image, tag)
     for package in packages.values():
         ensure_private(repository, repo['owner']['type'], package, ctx['id'] + '-' + ctx['attempt'])
     require(verify_bundle(bundle) == manifest and verify_public(public) == evidence,

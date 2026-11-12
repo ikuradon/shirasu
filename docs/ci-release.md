@@ -9,19 +9,45 @@ Vercelへのデプロイと受信側の本番切替は、引き続き別の作�
 | Workflow | 起動条件 | 処理・保存先 |
 | --- | --- | --- |
 | `Tests` | mainへのpush、PR、手動 | 受信・画像・HTTP・Composeの検証。公開可能な結果とプレビューだけをActions artifactへ14日間保存 |
-| `Publish verified image release` | mainを指定した手動実行のみ | 同じcommitの受信テスト後、公開用runnerで候補をビルド・検証。そのイメージをprivate GHCRへ、識別情報と検証結果をGitHub Releaseへ保存 |
+| `Publish verified image release` | mainの手動実行、または`images-v*`タグのpush | 同じcommitの受信テスト後、公開用runnerで候補をビルド・検証。そのイメージをprivate GHCRへ保存し、別runnerで復元確認 |
 
 検証の本体は`.github/actions/check-receiver`と`check-images`で共有します。
-通常CIの権限は`contents: read`です。正式保管のjobにだけ`contents: write`と
+通常CIの権限は`contents: read`です。正式保管と復元確認のjobにだけ`contents: write`と
 `packages: write`を与え、Actionsの`GITHUB_TOKEN`を使用します。
+復元確認側の書き込みは、成功後の`latest`更新と結果JSONの保存に使用します。
 本番のNostr鍵・画像HMAC鍵・`.env`・配送DBをActionsへ登録する必要はありません。
 
 初回は通常の`Tests`が成功したcommitのartifactをダウンロードし、
 `png-gallery/index.html`の投稿・画像を承認済みのローカルプレビューと比較します。
 CI内の比較対象は、そのCIで作ったPNGギャラリーです。
 **過去に承認したローカル画像との一致を、このworkflowが自動で保証するわけではありません。**
-確認後、同じcommitがmainの先頭であることを確かめて正式保管を手動実行します。
+確認後、同じcommitがmainの先頭であることを確かめて正式保管を手動実行するか、
+そのcommitへ候補版に対応するGitタグを付けてpushします。
 正式保管でも再検証し、そこで検証したイメージを再ビルドせず保存します。
+
+```sh
+git tag images-v5 <確認したcommit>
+git push origin refs/tags/images-v5
+```
+
+タグからの保管では、タグの指すcommitと候補の元commitが同じで、mainの履歴に含まれることを確認します。
+通常のmainへのpushでは、正式保管は起動しません。
+
+## イメージタグの意味
+
+| 指定 | 意味 |
+| --- | --- |
+| `:images-v5` | 同名Gitタグに対応する固定版。既存のイメージタグは上書きしない |
+| `:latest` | 別runnerでの復元確認まで成功した最新の正式版 |
+| `:run-<run-id>-<attempt>` | そのActions実行で検証・保存したイメージ |
+| `@sha256:...` | `release.json`に記録した内容の識別子。復元と本番運用ではこれを使う |
+
+HEADを追いかける開発用イメージを追加するなら`:main`と分けます。今回の変更ではmainの自動配布は追加しません。
+`latest`には自動的にHEADを意味する性質はなく、このworkflowが復元成功後に付け替える名前です。
+タグごとに用途を分ける方式は[Docker Metadata actionのタグ設定](https://github.com/docker/metadata-action#tags-input)でも使えます。
+
+`images-v5`は描画URLの世代に対応した今回の固定候補です。アプリ全体のSemVerではありません。
+後日の受信アプリ更新やデザイン変更で同じタグを付け替えず、別の配布版として扱います。
 
 ## 保存するもの
 
@@ -29,7 +55,7 @@ CI内の比較対象は、そのCIで作ったPNGギャラリーです。
 | --- | --- |
 | `ghcr.io/<owner>/<repo>-receiver`（private） | 固定依存を含む受信イメージ |
 | `ghcr.io/<owner>/<repo>-images`（private） | レンダラー、固定依存、フォント、GISを含む画像サービスのイメージ |
-| GitHub Release `images-v5` | `release.json`、元の`candidate-manifest.json`、`public-verification.tar.gz` |
+| GitHub Release `images-v5` | `release.json`、元の`candidate-manifest.json`、`public-verification.tar.gz`、成功後の`restore-result.json` |
 | Actions artifact `image-checks-<run-id>-<attempt>` | 検証JSON、PNG/WebP、投稿ギャラリー、候補manifest、全公開ファイルのSHA-256とサイズ |
 
 洪水GISの原データは、プロジェクトの配布方針に従い公開artifactへ含めません。
@@ -59,8 +85,23 @@ registry digestとDocker image IDは別の値です。push後にdigestでpullし
 検証したイメージIDと一致することを確認してから記録します。
 
 同じ版のtag、Release、draftがある場合は停止し、上書きしません。
+ただしタグpushで起動した実行では、そのタグが今回のcommitを指すことを確認して使用します。
 保管途中で失敗した場合はdraftを残し、保存済みの情報を調べてから対応します。
 成功したasset uploadを確認して最後にReleaseを公開します。再実行による自動置換は行いません。
+
+## 別runnerでの復元確認
+
+保管jobが成功すると、Dockerイメージも作業ディレクトリも共有しない新しいrunnerで復元します。
+実際のGitHub Releaseからmetadataをダウンロードし、元commit・run ID・manifestを照合してから
+GHCRの両イメージをdigestで取得します。全配布ファイルと受信イメージの起動設定を確認し、
+Compose overrideを生成できることも確かめます。
+
+すべて成功した場合だけ、同じdigestを指す`latest`タグを付けて`restore-result.json`をReleaseへ保存します。
+過去のReleaseを再実行して最新Releaseから`latest`を巻き戻す操作は拒否します。
+復元した候補本体とGISはrunner内に置き、公開artifactへuploadしません。
+
+保管に成功して復元jobだけが失敗した場合は、原因を確認して失敗jobのみ再実行します。
+保管job全体をやり直して同じ版を上書きしないでください。
 
 ## 受信機での取得・復元
 
@@ -119,8 +160,11 @@ python3 -B scripts/prepare_release_compose.py \
 既存の検証記録から公開対象200ファイルを抽出し、元の候補を保持したまま検証できています。
 既存Dockerイメージからの実`create/cp/rm`で119ファイルの復元・manifest照合も成功しました。
 この復元試験のregistry pull/inspectは代替し、cleanなCI記録は合成しています。
-**GitHub API・GHCRへの正式保管はまだ行っていません。**
+後続の[通常CI](https://github.com/ikuradon/shirasu/actions/runs/43122044922)は`b9b5f23`で成功し、
+実artifactの200ファイルを検証しました。40ケース・46投稿の本文・ALT・画像も承認済みプレビューと一致しています。
 実装後のCI実行結果は[GitHub ActionsのTests](https://github.com/ikuradon/shirasu/actions/workflows/test.yml)で確認します。
+正式保管と実registryからの復元結果は、[公開workflow](https://github.com/ikuradon/shirasu/actions/workflows/release.yml)と
+GitHub Releaseの`restore-result.json`で確認します。
 
 現在のローカル候補、承認済みプレビュー、Docker export、成功した検証記録は残します。
 最初のActions候補との比較、正式保管と復元の成功を確認してから、重複するローカル保管物を整理します。
