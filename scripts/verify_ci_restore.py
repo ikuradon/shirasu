@@ -129,7 +129,9 @@ def verify(release_path, manifest_path, output):
             'source_commit': ctx['sha'], 'release_tag': tag,
             'candidate_manifest_sha256': receipt['candidate_manifest_sha256'],
             'run': {key: ctx[key] for key in ('repository', 'id', 'attempt')},
-            'publication_run': receipt['run'], 'images': receipt['images'],
+            'publication_run': {key: receipt['run'][key] for key in ('repository', 'id', 'attempt')},
+            'images': {role: {key: image[key] for key in ('reference', 'image_id')}
+                       for role, image in receipt['images'].items()},
             'file_count': len(checked['files']), 'aliases': completed_aliases,
             'checks': {'release_metadata_matches_run': True, 'fixed_digest_pull_and_image_ids': True,
                        'all_candidate_files_match': True, 'receiver_startup_and_compose': True,
