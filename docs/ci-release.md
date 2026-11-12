@@ -23,13 +23,16 @@ Vercelへのデプロイと受信側の本番切替は、引き続き別の作�
 復元確認側の書き込みは、成功後の`latest`更新と結果JSONの保存に使用します。
 本番のNostr鍵・画像HMAC鍵・`.env`・配送DBをActionsへ登録する必要はありません。
 
-初回は通常の`Tests`が成功したcommitのartifactをダウンロードし、
-`png-gallery/index.html`の投稿・画像を承認済みのローカルプレビューと比較します。
+通常の`Tests`（AMD64）と正式workflow（ARM64）は、同じcommitで並行実行できます。
+正式workflowは自身の受信・画像・HTTP・Composeの検証を通してから保管し、
+通常CIの成功を自動で待つ依存関係はありません。
+配布対象のcommitをmainへpushし、そのcommitへ候補版に対応するGitタグを付けてpushするか、
+mainで正式保管を手動実行します。正式workflowで検証したイメージを再ビルドせず保存します。
+
+承認済みのローカルプレビューとの一致は、それぞれのartifactをダウンロードして、
+`png-gallery/index.html`に対応する投稿・画像と別途比較し、結果を記録します。
 CI内の比較対象は、そのCIで作ったPNGギャラリーです。
 **過去に承認したローカル画像との一致を、このworkflowが自動で保証するわけではありません。**
-確認後、同じcommitがmainの先頭であることを確かめて正式保管を手動実行するか、
-そのcommitへ候補版に対応するGitタグを付けてpushします。
-正式保管でも再検証し、そこで検証したイメージを再ビルドせず保存します。
 
 ```sh
 git tag images-v5-r1 <確認したcommit>
@@ -70,8 +73,9 @@ private／internal、または別repositoryへのリンクなら停止し、自�
 非公開packageの初回作成用PATや`GHCR_BOOTSTRAP_TOKEN`の登録は不要です。
 実際の復元は、別runnerの空のDocker認証設定で匿名pullできることも確認します。
 
-従来の非公開初期化用に用意した一時branch／worktreeは、正式保管と復元の成功後に削除します。
-現時点ではその削除と、新方針での正式実行結果の確認は未完了です。
+正式保管と復元の成功後、従来の非公開初期化用branch`ci/ghcr-bootstrap-check`を
+remote・localとも削除し、`/tmp/shirasu-ghcr-bootstrap-check`のworktreeも削除しました。
+旧`images-v5`タグ、既存候補、切り戻し用Docker exportは維持しています。
 
 ## 保存するもの
 
@@ -130,7 +134,8 @@ GHCRの両イメージを匿名・digest指定で取得します。
 今回の候補はライセンス文書を加えた全121ファイルを照合し、受信イメージの起動設定と
 Compose overrideの生成も確認します。
 
-すべて成功した場合だけ、`GITHUB_TOKEN`で認証して同じdigestを指す`latest`タグを付け、
+`GITHUB_TOKEN`によるGHCR認証はworkflowで先に設定し、匿名取得の確認には別の空Docker認証設定を使います。
+すべて成功した場合だけ、その認証を使って同じdigestを指す`latest`タグを付け、
 workflow outputで受け取った配布タグのReleaseへ`restore-result.json`を保存します。
 過去のReleaseを再実行して最新Releaseから`latest`を巻き戻す操作は拒否します。
 復元した候補本体とGISはrunner内に置き、公開artifactへuploadしません。
@@ -201,14 +206,56 @@ python3 -B scripts/prepare_release_compose.py \
 [正式保管の初回実行](https://github.com/ikuradon/shirasu/actions/runs/43129666472)では、受信・画像・HTTP・Composeの検証が成功し、
 取得した公開artifactの200ファイルと、40ケース・46投稿の本文・ALT・画像が承認済みプレビューと一致しました。
 候補manifestは`5c6bb92f451606499a1a5931bdab6e8863031a41dedb58c3d0e78be8caac1d38`です。
-ただし空bootstrapのprivate確認で停止したため、実イメージの正式保管・別runnerでの復元はまだ完了していません。
+この実行は空bootstrapのprivate確認で停止したため、当時は実イメージの正式保管・別runnerでの復元に進みませんでした。
 その後、OSM代替は採用せず、現行流路を出典付きで同梱してpublic GHCRを使う方針に変更しました。
-旧`images-v5`を動かさず、今回の正式保管は`images-v5-r1`として実施します。
-新方針での正式保管・匿名pull・別runner復元・`latest`更新の成功記録は、実行後に追記します。
-実装後のCI実行結果は[GitHub ActionsのTests](https://github.com/ikuradon/shirasu/actions/workflows/test.yml)で確認します。
-正式保管と実registryからの復元結果は、[公開workflow](https://github.com/ikuradon/shirasu/actions/workflows/release.yml)と
-GitHub Releaseの`restore-result.json`で確認します。
+旧`images-v5`を動かさず、今回の正式保管は`images-v5-r1`として完了しました。
 
 現在のローカル候補、承認済みプレビュー、Docker export、成功した検証記録は残します。
-最初のActions候補との比較、正式保管と復元の成功を確認してから、重複するローカル保管物を整理します。
+正式保管と復元の成功を確認できたため、重複するローカル保管物は用途を確認して整理できます。
 ローカルの過去候補をCI由来と書き換えたり、同じ候補として扱ったりはしません。
+今回作成した一時候補`dist/ghcr-public-check/candidate/`と`dist/ghcr-public-check/committed/`は、
+GHCR復元物とのmanifest照合後に削除しました。
+正式な復元物は`dist/ghcr-restored/images-v5-r1/`に保持しています。
+
+## 正式保管・復元の実績（2026-11-12）
+
+source commit `241ee4b604012ebcfbb0ae39b96670ba90bf2f69`で、
+[通常AMD64 CI](https://github.com/ikuradon/shirasu/actions/runs/43174098113)と
+[正式ARM64 workflow](https://github.com/ikuradon/shirasu/actions/runs/43174832148)が成功しました。
+同じcommitの両workflowを並行して実行し、正式workflowでは`verify-receiver`、`release`、
+別runnerの`restore`まで完了しています。
+
+両runから公開artifactを取得して`verify_public`を実行し、それぞれ201ファイルを確認しました。
+40ケース・46投稿・48種類のPNGについて、承認済みの`dist/preview/`と
+投稿本文・ALT・原入力・PNGのバイト列が一致しています。
+両artifactの候補manifestは同じSHA-256でした。
+
+正式な[GitHub Release `images-v5-r1`](https://github.com/ikuradon/shirasu/releases/tag/images-v5-r1)には、
+`release.json`、`candidate-manifest.json`、`public-verification.tar.gz`、`restore-result.json`の4ファイルを保存しました。
+
+| 記録 | SHA-256 |
+| --- | --- |
+| `candidate-manifest.json` | `39df12e1f83b9fe3059016b2009c60d3d34286fbdcd655eb7cdb41f4fcd365a2` |
+| `release.json` | `c712107207d6810ff15de8c08f84d1c291dbe0af806c01aee873bd5d23122a4c` |
+| `restore-result.json` | `166babc6008bd4d58ab38d49de984697e236cdfccfaa854c785c1c58c2746e25` |
+
+両GHCR packageはpublic、配布タグは`images-v5-r1`、描画版は`v5`、対象は`linux/arm64`です。
+
+| package | 固定registry digest | Docker image ID |
+| --- | --- | --- |
+| `ghcr.io/ikuradon/shirasu-receiver` | `sha256:e9a6d9b9bc4623194d33f5d975bc087479bd11f99890b56fc8df45c31c30618b` | `sha256:2aac5d2a3820d8a3861cff99ac50e5d1f9ce81f6f2149bd78d207a24dd21acf3` |
+| `ghcr.io/ikuradon/shirasu-images` | `sha256:141f2831e3d58b1a80b4cec018d02d766a126eee6d0e11fc4343cb8fb16feef5` | `sha256:32c808aa79e6d3688ddde0f63ab33204fe762d9fd1d8e5eb6bf007b33ba70711` |
+
+別runnerでは空のDocker認証設定による固定digestの匿名pull、全121ファイル照合、
+受信イメージの起動設定・Compose生成、publicとrepositoryリンク、Releaseの整合を確認しました。
+成功後に両`latest`を更新し、`restore-result.json`の8項目はすべて`true`です。
+
+さらに受信機ホストでも、空のDocker認証設定で固定digestから匿名復元しました。
+121ファイルとARM64を確認し、両packageについて`images-v5-r1`と`latest`の
+registry digest・image IDが上記と一致しています。隔離したCompose設定の生成も成功しました。
+この結果は`dist/ghcr-restored/images-v5-r1/host-restore-result.json`に保存しています。
+同じディレクトリの`metadata/`には公開Releaseのメタデータを保持しています。
+公開Releaseの検証tar内の201ファイルも、正式workflowのartifactとすべてバイト一致しました。
+
+ここで完了したのはGitHub／GHCRへの正式保管と復元確認です。
+Vercelの本番公開と受信側の切替はまだ実施していません。

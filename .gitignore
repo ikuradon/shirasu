@@ -178,5 +178,5 @@ config.py
 state/
 compose.override.yaml
 
-# JMA river geometry is prepared locally; publish generated PNGs, not the GIS.
+# JMA river geometry is bundled with attribution in GHCR, not tracked in Git.
 image_service/assets/preview/flood.geojson.zlib
