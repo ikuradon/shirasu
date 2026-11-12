@@ -27,8 +27,11 @@ CDN のキャッシュが消えた場合は同じ入力から再生成します�
 ## ローカルで確認
 
 依存は受信機の環境へ追加せず、別の環境へインストールします。
+新しいcheckoutでは最初に固定データを `vendor/` から配置します。この配置処理は
+SHA-256とサイズを照合し、地図・フォントの外部取得やGISの再加工を行いません。
 
 ```sh
+python3 -B scripts/prepare_vendor_assets.py
 python3.12 -m venv /tmp/shirasu-images-venv
 /tmp/shirasu-images-venv/bin/pip install --require-hashes -r image_service/requirements.txt
 /tmp/shirasu-images-venv/bin/python -m image_service \
@@ -42,7 +45,7 @@ python3.12 -m venv /tmp/shirasu-images-venv
 ## オフライン画像ギャラリー
 
 16種類・40ケースについて、公開済み版と作業版を横に並べるHTMLとPNGを一括生成します。
-画像サービス用の依存関係と、[洪水の流路データ](#指定河川洪水予報のプレビュー)を準備した後、
+画像サービス用の依存関係と、上記のコマンドで固定アセットを準備した後、
 リポジトリルートで次の1コマンドを実行します。
 
 ```sh
@@ -270,8 +273,8 @@ python -B scripts/benchmark_images.py --output dist/benchmark
 
 `--preview` で未公開の作業版を描画します。`--records` 専用で、`--version`・`--serve`
 とは併用できません。指定しなければ従来どおりv1です。HTTP経路や署名対象の版は追加しません。
-最初に、後述する[洪水の流路データの準備](#指定河川洪水予報のプレビュー)を行ってください。
-流路データ本体はリポジトリに含めず、プレビューの固定アセットとしてローカルに生成します。
+最初に `python3 -B scripts/prepare_vendor_assets.py` を実行してください。
+洪水流路を含む固定データと出典を `vendor/` から従来の `assets/` へ配置します。
 
 ```sh
 /tmp/shirasu-images-venv/bin/python -m image_service --preview \
@@ -511,21 +514,22 @@ QZQSMの降灰予報（速報／詳細）に含まれる火山・基点時刻・
 
 ### 指定河川洪水予報のプレビュー
 
-流路データの加工用依存は受信機や描画サービスへ追加せず、準備専用の環境で使います。
-既存の画像用依存に含まれる `azarashi==0.17.1` と、次のハッシュ固定した `pyshp` が必要です。
+通常のプレビュー・CI・配布では、出典付きで固定した `vendor/jma/preview/` の流路を使います。
+上流データの再取得やGIS用依存の追加は必要ありません。
 
 ```sh
-python3.12 -m venv /tmp/shirasu-flood-assets
-/tmp/shirasu-flood-assets/bin/pip install --require-hashes -r image_service/requirements.txt
-/tmp/shirasu-flood-assets/bin/pip install --require-hashes -r scripts/requirements-flood-assets.txt
-/tmp/shirasu-flood-assets/bin/python scripts/prepare_flood_assets.py
+python3 -B scripts/prepare_vendor_assets.py
 /tmp/shirasu-images-venv/bin/python -m image_service --preview \
   --records image_service/examples/flood.json --output /tmp/flood-preview.png
 ```
 
-準備スクリプトは[気象庁提供の固定流路データ](https://www.jmbsc.or.jp/jp/online/c-onlineGsd-oshirase.html#date20260520)
-の2026年5月20日版を取得し、SHA-256とDCRのコード表を検証します。保存済みZIPを使う場合は
-`--source /path/to/flow.zip` を指定できます。ダウンロードやGIS処理は準備時だけに行い、描画時には外部通信しません。
+流路を更新するときだけ `scripts/prepare_flood_assets.py` を使います。
+この更新用スクリプトは[気象庁提供の固定流路データ](https://www.jmbsc.or.jp/jp/online/c-onlineGsd-oshirase.html#date20260520)
+の2026年5月20日版を取得し、SHA-256とDCRのコード表を検証します。
+`--source /path/to/flow.zip --output dist/vendor-update/flood` で保存済みZIPから別の作業先へ生成できます。
+加工専用の環境に `image_service/requirements.txt` と `scripts/requirements-flood-assets.txt` を
+`pip install --require-hashes` で導入し、生成後は[データ更新手順](../vendor/README.md#データ更新)に従って
+出典・ハッシュ・描画差分を確認します。通常のビルド・描画では流路の外部取得やGIS処理を行いません。
 
 指定河川洪水予報用の338区間を12桁の予報区域コードで直接対応させ、先頭の0と全ての分岐・区間を保持します。
 関連市町村の面、川全体、浸水想定区域には置き換えません。「その他の河川」57コードには位置を割り当てません。
@@ -543,8 +547,9 @@ python3.12 -m venv /tmp/shirasu-flood-assets
 受信束全体を共通配置の要旨表示へ戻します。サンプルは合成した訓練通報で、実際の災害情報ではありません。
 
 `assets/preview/flood_manifest.json` と `FLOOD_NOTICE.txt` に出典・入力と加工後のハッシュ・加工内容を記録します。
-生成する `flood.geojson.zlib` はGit対象外とし、ビルド時に固定した入力から準備します。
-2026-11-12の採用方針により、出典・加工内容を記したNOTICEとともにGHCRの描画イメージへ同梱します。
+2026-11-12の採用方針により、`flood.geojson.zlib` は出典・加工内容を記したNOTICEとともに
+公開リポジトリの `vendor/jma/preview/` でGit管理し、GHCRの描画イメージへ同梱します。
+`assets/preview/` のコピーはGit管理外で、ビルド前に固定データから配置します。
 画像サービスにGISを直接取得するHTTP経路は設けません。ZIP固有の再配布条件が公開資料で確定したという意味ではありません。
 PNGには国土数値情報・気象庁の加工とShirasuによる画像作成を明記します。
 
@@ -673,6 +678,14 @@ HMAC は新しい入力の作成を制限する仕組みです。公開済みの
 維持する期間は古い検証鍵も残します。署名 URL は入力内容を暗号化するものではありません。
 
 ## 再現性とアセット
+
+保存元は取得元別の `vendor/jma/`・`vendor/natural-earth/`・`vendor/noto-cjk/` です。
+フォントは未加工の原本、地理データの多くは検証済みの加工済みスナップショットです。
+`python3 -B scripts/prepare_vendor_assets.py` が明示した39ファイルをハッシュ・サイズ検証して
+従来の `image_service/assets/` へ配置します。`--check` は配置済みの一致だけを確認します。
+同じファイルは保持し、異なる既存ファイルやsymlinkは上書きせず停止します。
+生成先のコピーはGit管理外で、複数の提供元を束ねる `assets/v1/manifest.json` だけは
+アプリ側の索引としてGit管理を続けます。更新方法は[`vendor/README.md`](../vendor/README.md)を参照してください。
 
 `assets/v1/` の Natural Earth 50m land、Noto Sans CJK JP Regular / Bold は固定コピーです。
 出典・SHA-256 は `manifest.json`、ライセンスは `NATURAL_EARTH.txt`、`OFL.txt`、

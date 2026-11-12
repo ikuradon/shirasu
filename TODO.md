@@ -7,11 +7,11 @@ WebP統合までを`21209e5`でcommit済み。ローカルの164テスト、49�
 
 2026-11-12の方針: 洪水流路は出典・加工者を明記した現行の気象庁データを使用する。OSM代替の試作は採用せず撤去済み。②は出典・ライセンス文書を同梱したpublic GHCRへ変更し、非公開初回作成用PATは不要とする。出典表示の採用を、GIS本体の再配布条件が確認済みになったという意味にはしない。
 
-正式配布は受信機に合わせて`linux/arm64`に固定する。正式workflowは全jobをARM64 runnerで検証し、実イメージのOS／Architectureと`release.json`の`platform`を照合する。通常のAMD64 CIは継続する。
+正式配布は受信機に合わせて`linux/arm64`に固定する。正式workflowの受信検証・保管・復元はARM64 runnerで行い、実イメージのOS／Architectureと`release.json`の`platform`を照合する。Vercelのデプロイjobと通常CIはAMD64で行う。
 
 1. [x] **固定した受信イメージを使うCompose設定を用意する。** [手順と結果](docs/release-compose.md)。候補とイメージ内の全配布ファイル・起動設定を照合し、完全なimage IDへ固定したoverrideを生成する。受信・監視・バックアップのbuildを削除してpullも禁止し、既存のproject・DB volume・config bind・ネットワーク・healthcheck等を継承。生成・実Composeマージ13テストと、一時DBでの本物の受信プロセスの起動・正常停止・再起動を確認した。v5/w1→v4/pngで保存済みイベントのJSON・ID・署名を維持し、新規投稿だけPNGになる。COMPOSE_FILEで通常の運用コマンドにも適用する手順とCIを追加（本番未反映）。
 2. [x] **GitHub Actionsで正式候補と検証記録を保管する。** [手順と実績](docs/ci-release.md#正式保管復元の実績2026-11-12)。`241ee4b`の[通常AMD64 CI](https://github.com/ikuradon/shirasu/actions/runs/43174098113)と[正式ARM64 workflow](https://github.com/ikuradon/shirasu/actions/runs/43174832148)が成功。[Release `images-v5-r1`](https://github.com/ikuradon/shirasu/releases/tag/images-v5-r1)とpublic GHCRに出典・ライセンス文書付きで正式保管した。描画版は`v5`、旧Gitタグ`images-v5`は維持。別runnerで匿名・固定digestのpull、121ファイル照合、Compose生成を確認してから両`latest`を同じdigestへ更新し、復元結果8項目すべて成功。このホストでも匿名復元・121ファイル・ARM64・固定タグとlatestのdigest／image ID一致・隔離Compose生成を確認した。両runのartifact各201ファイルを検証し、40ケース・46投稿・48種類のPNGが承認済みプレビューと本文・ALT・原入力・画像bytesまで一致。公開Releaseの検証tarも正式artifactと全ファイル一致。非公開初回用PATは不要で、初期化用のremote・local branchと一時worktreeも削除済み。本番Vercel／受信側切替は次項。
-3. [ ] **画像サービスを先に検証・公開する。** 通常の画像パッケージではなく、同じ候補の`images/`をVercelの検証デプロイへ渡す。固定Pillow／libwebp・地理データ・フォント、初回と再描画の時間・メモリを実環境で確認してから本番へ反映する。本番ドメインのTLS・認証不要の取得・`/healthz`・既存鍵での署名検証、v5 WebP／PNGと旧v1〜v4の代表URLを照合し、MIME・画素・ETag・HEAD／304・改ざん拒否・CDNのキャッシュと再描画を確認する。この段階では受信側を切り替えない。
+3. [ ] **画像サービスを先に検証・公開する。** [Vercel検証とHEAD／タグ運用](docs/vercel-release.md)。2026-11-12: r1のPreviewで配布99ファイル・実95画像・115リクエスト、HEAD／304・改ざん拒否・PNG／WebPのCDN HITが一致。旧本番の5代表も一致。今回、外部データのvendor固定、main成功後のPreview＋95画像検証、正式タグのGHCR保管・別runner復元→ドメイン未割当の本番候補検証→同一deployment昇格→匿名95画像検証をGHAへ接続した。永続的なドメイン自動割当設定は変更しない。検証専用の鍵をdeploymentごとに生成し、本来の画像鍵はGHAへ渡さない。保護された候補にはGitHub OIDCでアクセスする。ユーザー指示により実装を先行し、VERCEL_TOKEN登録・Trusted Sources初期設定・新配布改訂タグ（例images-v5-r2）での実行は未実施。既存r1は追加鍵非対応のため新自動化では拒否する。詳細メモリ計測はObservability Plusのプラン制約で未取得。本番ドメインでの匿名取得・旧版維持・署名・MIME・画素・ETag・HEAD／304・拒否・CDNを確認し、受信側の切替は次項で行う。
 4. [ ] **バックアップを検証して受信側を切り替える。** 直前のDBバックアップを作成・検証し、①の固定イメージと`SHIRASU_IMAGE_VERSION=v5`・`SHIRASU_IMAGE_ENCODING=w1`へ切り替える。既存DBを引き継ぎ、受信・集約・配送・画像URL生成エラーと、保存済みイベントの再送を確認する。
 5. [ ] **本番URLでSNS表示と運用を確認し、公開記録を残す。** 実nostterの通常表示・拡大、新規投稿の本文URL・`imeta`・ALT、既存投稿画像の取得を確認する。前段のnostter確認は応答を差し替えた表示検証まで。新規投稿だけを`v4/png`または画像無効へ戻す手順を用意し、公開済みv5/w1の画像経路と検証鍵を維持する。公開先・配布物・受信イメージ・確認結果を記録し、運用説明とTODOを更新する。
 
@@ -69,7 +69,7 @@ WebP統合までを`21209e5`でcommit済み。ローカルの164テスト、49�
 - [x] 海上警報・震度情報・津波情報を、公式の地域データを使ったv2地図へ追加する。
 - [x] 気象・緊急地震速報・火山を、公式区域・位置データを使ったv3地図へ追加する。
 - [x] v4で気象ラベルを種別ごとに色分けし、特別警報を黒、土砂災害警戒情報を紫にする。
-- [x] 洪水: 338の予報区域コードと気象庁の対象河川区間を直接対応させ、オフラインプレビューへ実装（未公開）。関連市町村の面を河川や浸水の範囲として使わない。流路データ本体は準備時に取得し、公開リポジトリには含めない。
+- [x] 洪水: 338の予報区域コードと気象庁の対象河川区間を直接対応させ、オフラインプレビューへ実装（未公開）。関連市町村の面を河川や浸水の範囲として使わない。加工済み流路を出典付きで`vendor/jma/preview/`に固定し、GHAは通信や再変換なしで同じデータを配置する。
 - [x] 洪水流路のOSM代替を3例で検証。予報区間の端点・支流との個別対応が必要なため採用せず、出典付きの現行流路を使う（2026-11-12、ユーザー方針）。試作用コード・テスト・取得データ・比較画像は削除済み。
 - [x] 降灰: 市町村ごとの予想時間・降灰量・小さな噴石をオフラインプレビューへ実装（未公開）。噴煙の広がりや実際の落下範囲は補わない。
 - [x] 北西太平洋津波: [気象庁の61予測地点](https://www.data.jma.go.jp/eqev/data/nwptac/forecastpoint.html)とDCR沿岸コードを明示対応させ、予想高・到達予想の地点図をオフラインプレビューへ実装（未公開）。

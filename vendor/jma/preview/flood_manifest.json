@@ -1,12 +1,12 @@
 {
   "FLOOD_NOTICE.txt": {
-    "bytes": 2722,
-    "sha256": "9936bd33a76e7477b580815c1eb5ed9d45647b966fc98e4a1b1d788e31ce3dfc"
+    "bytes": 2733,
+    "sha256": "730034340b6d5c50c2cefcfaa5ab1013566314e3cc4772fe270087ace042a726"
   },
   "flood.geojson.zlib": {
     "bytes": 285685,
     "compression": "zlib; level=9",
-    "distribution_policy": "Project decision on 2026-11-12: retain this attributed geometry and include it with FLOOD_NOTICE.txt in the renderer image; geometry is not checked into the public repository.",
+    "distribution_policy": "Project decision on 2026-11-12: retain this attributed geometry with FLOOD_NOTICE.txt in vendor/jma/preview in the public repository and include the fixed data and attribution in the renderer image.",
     "excluded_non_specific_codes": [
       "019999999999",
       "029999999999",

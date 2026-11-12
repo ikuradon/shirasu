@@ -3,9 +3,19 @@ description: Build one isolated candidate and verify its images, HTTP and Compos
 runs:
   using: composite
   steps:
+    - name: Materialize locked vendor assets offline
+      shell: bash
+      run: python3 -B scripts/prepare_vendor_assets.py
     - name: Check CI publication tooling
       shell: bash
-      run: python3 -B -m unittest discover -s tests -p 'test_ci*.py' -v
+      run: |
+        python3 -B -m unittest discover -s tests -p 'test_ci*.py' -v
+        python3 -B -m unittest discover -s tests -p 'test_vercel_release.py' -v
+        python3 -B -m unittest discover -s tests -p 'test_vercel_preview.py' -v
+        python3 -B -m unittest discover -s tests -p 'test_vercel_deploy.py' -v
+        python3 -B -m unittest discover -s tests -p 'test_vercel_prepare.py' -v
+        python3 -B -m unittest discover -s tests -p 'test_vercel_access.py' -v
+        python3 -B -m unittest discover -s tests -p 'test_vendor_assets.py' -v
     - name: Prepare isolated source and build renderer
       shell: bash
       run: |
@@ -24,17 +34,15 @@ runs:
       run: >-
         docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
         shirasu-images:test sh -c 'status=0; for suite in image_protocol image_renderer image_renderer_v2
-        image_renderer_v3 image_renderer_v4 image_package image_versions regional_reports marine_regions region_map
+        image_renderer_v3 image_renderer_v4 image_check_keys image_package image_versions regional_reports marine_regions region_map
         weather_map weather_map_v4 eew_map volcano_map map_v3; do
         python -B -m unittest discover -s tests -p "test_${suite}.py" -v || status=1; done; exit "$status"'
     - name: Build unpublished offline preview
       shell: bash
       run: |
-        docker run --rm --volume "$PWD:/source" --workdir /source shirasu-images:test sh -c \
-          'python -m pip install --require-hashes -r scripts/requirements-flood-assets.txt && \
-           python scripts/prepare_flood_assets.py && \
-           python -B -m unittest discover -s tests -p "test_flood_assets.py" -v'
-        git diff --exit-code -- image_service/assets/preview/flood_manifest.json image_service/assets/preview/FLOOD_NOTICE.txt
+        python3 -B scripts/prepare_vendor_assets.py --check
+        docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source \
+          shirasu-images:test python -B -m unittest discover -s tests -p 'test_flood_assets.py' -v
         python3 scripts/prepare_image_service.py --include-preview dist/image-preview
         docker build -f image_service/Dockerfile -t shirasu-images:preview dist/image-preview
         docker run --rm --network none shirasu-images:preview python -B -c \

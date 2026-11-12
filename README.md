@@ -69,10 +69,18 @@ docker compose logs --tail 100 -f shirasu
 南海トラフは画像の有効／無効に関係なくページをまとめ、全文が揃えば1投稿にする変更を実装済みです。作業版では本文を重複させない見出しカードを添え、巨大地震注意・調査終了・取消の訓練例を確認できます。公開済みv1〜v4は見出しカードに未対応のため、対応版の一括公開までは新しい集約処理の画像添付を無効にしています。受信側の変更も本番未反映で、保存済みイベントと公開済み画像URLは維持します。
 受信機には描画依存を追加せず、画像も永続保存しません。設定と運用は [画像の運用手順](IMAGES.md) を参照してください。
 
+画像用の地図・フォント・出典は取得元別の[`vendor/`](vendor/README.md)で固定管理します。
+新しいcheckoutで画像のプレビュー・テスト・配布準備を行う前に、次を実行してください。
+固定データを検証して従来の `image_service/assets/` へ配置し、外部取得やGISの再加工は行いません。
+
+```sh
+python3 -B scripts/prepare_vendor_assets.py
+```
+
 一括公開に向け、画像・受信側の候補パッケージを固定して署名URL、実PNG、投稿添付・ALT、旧URL、切り戻しを確認する
 [通し検証の手順](docs/image-release-rehearsal.md)を用意しています。候補内だけでv5を登録し、通常配布と本番設定はv1〜v4のままです。
 候補を使う受信側の起動は[公開用Compose設定](docs/release-compose.md)で準備します。検証したイメージへ固定し、既存DB・設定を引き継ぎます。本番への切替はまだ行っていません。
-候補の正式なビルド・検証・保管は[GitHub Actionsの手順](docs/ci-release.md)へ集約します。手動workflowで検証済みイメージをprivate GHCRへ保存し、digestで復元して公開用設定へ接続します。
+候補の正式なビルド・検証・保管は[GitHub Actionsの手順](docs/ci-release.md)へ集約します。正式タグの検証済みイメージを出典付きでpublic GHCRへ保存し、digestで復元します。[Vercel自動化](docs/vercel-release.md)はmainをPreview、正式タグを本番候補へ接続し、HTTPS検証後に公開する実装です（初期設定・新workflowの実行前）。
 
 ## 通報の再生・投稿プレビュー
 

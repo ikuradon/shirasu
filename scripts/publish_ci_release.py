@@ -209,14 +209,16 @@ def require_new_version(repository, tag, source_commit=None):
         page += 1
 
 
-def publish(check_root, receiver_image, renderer_image):
+def publish(check_root, receiver_image, renderer_image, *, release_tag=None):
     ctx = context(os.environ)
     root = Path(check_root).absolute()
     bundle = root / 'candidate'
     public = root / 'public'
     manifest = verify_bundle(bundle)
     evidence = verify_public(public)
-    tag = validate_release_tag(ctx['tag'] or DEFAULT_RELEASE_TAG, manifest['candidate_version'])
+    requested_tag = (ctx['tag'] or DEFAULT_RELEASE_TAG) if release_tag is None else release_tag
+    tag = validate_release_tag(requested_tag, manifest['candidate_version'])
+    require(ctx['tag'] is None or tag == ctx['tag'], 'Requested release tag differs from the tag push')
     require(manifest['source'] == {'commit': ctx['sha'], 'working_tree': False},
             'Only the clean Actions checkout can become a formal release')
     require(evidence['candidate_manifest_sha256'] == manifest['manifest_sha256'],
@@ -292,9 +294,11 @@ def main(argv=None):
     parser.add_argument('--check-root', required=True, type=Path)
     parser.add_argument('--receiver-image', required=True)
     parser.add_argument('--renderer-image', required=True)
+    parser.add_argument('--release-tag', help='New distribution tag; must match a tag-push event')
     args = parser.parse_args(argv)
     try:
-        receipt = publish(args.check_root, args.receiver_image, args.renderer_image)
+        receipt = publish(args.check_root, args.receiver_image, args.renderer_image,
+                          release_tag=args.release_tag)
         output = os.environ.get('GITHUB_OUTPUT')
         if output:
             with Path(output).open('a', encoding='utf-8') as stream:

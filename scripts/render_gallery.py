@@ -35,7 +35,7 @@ def _preflight(published_version, *, preview_only=False):
     flood = ROOT / 'image_service/assets/preview/flood.geojson.zlib'
     if not flood.is_file():
         raise FileNotFoundError(
-            '洪水用データがありません。python scripts/prepare_flood_assets.py を先に実行してください。')
+            '固定アセットがありません。python3 -B scripts/prepare_vendor_assets.py を先に実行してください。')
     for version in (('preview',) if preview_only else (published_version, 'preview')):
         importlib.import_module(MODULES[version]).verify_assets()
 

@@ -111,12 +111,15 @@ PREVIEW_FILES = (
 def prepare(destination, *, include_preview=False):
     destination = Path(destination).absolute()
     names = FILES + (PREVIEW_FILES if include_preview else ())
-    # Check local-only assets before creating a partial output directory.
+    # Check materialized assets before creating a partial output directory.
     for name in names:
         source = ROOT / name
         if source.is_symlink() or not source.is_file():
-            if name == 'image_service/assets/preview/flood.geojson.zlib':
-                raise ValueError('Prepare the flood asset first: python scripts/prepare_flood_assets.py')
+            if (not source.is_symlink() and not source.exists()
+                    and name.startswith('image_service/assets/')
+                    and name != 'image_service/assets/v1/manifest.json'):
+                raise ValueError('Prepare vendor assets first: python3 -B scripts/prepare_vendor_assets.py'
+                                 f' (missing: {name})')
             raise ValueError(f'Missing or linked source: {name}')
     # A fresh directory prevents accidental inclusion of old deployments or keys.
     destination.mkdir(parents=True, exist_ok=False)

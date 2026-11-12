@@ -2,7 +2,7 @@
 
 公開候補のビルド、通し検証、配布物の保管をGitHub Actionsで行います。
 検証したDockerイメージをそのままGHCRへ保存し、受信機ではdigestを指定して取得します。
-Vercelへのデプロイと受信側の本番切替は、引き続き別の作業です。
+Vercelへのデプロイは[専用workflow](vercel-release.md)へ接続しました。受信側の本番切替は別の作業です。
 
 今回の正式配布対象は、受信機に合わせた`linux/arm64`です。
 正式workflowの受信検証・保管・復元jobはすべて`ubuntu-24.04-arm`で動かします。
@@ -14,20 +14,27 @@ Vercelへのデプロイと受信側の本番切替は、引き続き別の作�
 
 | Workflow | 起動条件 | 処理・保存先 |
 | --- | --- | --- |
-| `Tests` | mainへのpush、PR、手動 | 受信・画像・HTTP・Composeの検証。公開可能な結果とプレビューだけをActions artifactへ14日間保存 |
+| `Tests` | mainへのpush、PR、手動 | 受信→画像・HTTP・Composeの検証。公開可能な結果をartifactへ14日間保存。mainは認証設定済みならVercel Previewを作成し実HTTPS検証 |
 | `Publish verified image release` | mainの手動実行、または`images-v*`タグのpush | 同じcommitの受信テスト後、公開用runnerで候補をビルド・検証。そのイメージをpublic GHCRへ保存し、別runnerで匿名取得・復元確認 |
+| `Deploy verified release to Vercel` | 正式保管・復元の成功後、またはmainで既存Releaseのタグを指定して手動実行 | 固定候補を復元し、ドメイン未割当の本番候補をHTTPS検証。同じbuildを昇格し本番ドメインで再検証 |
 
 検証の本体は`.github/actions/check-receiver`と`check-images`で共有します。
-通常CIの権限は`contents: read`です。正式保管と復元確認のjobにだけ`contents: write`と
-`packages: write`を与え、Actionsの`GITHUB_TOKEN`を使用します。
+通常CIのリポジトリ権限は`contents: read`です。正式保管・復元jobは`contents: write`と
+`packages: write`、Vercel公開jobは結果の追記用に`contents: write`を使います。
+Vercel候補の保護されたURLへのアクセス用に、対象jobだけ`id-token: write`も付与します。
 復元確認側の書き込みは、成功後の`latest`更新と結果JSONの保存に使用します。
 本番のNostr鍵・画像HMAC鍵・`.env`・配送DBをActionsへ登録する必要はありません。
+
+地図・フォントは取得元別の`vendor/`で固定し、最初にチェックサム付きでruntimeパスへ配置します。
+通常CI・正式保管とも上流からのデータ取得やGIS変換は行いません。
+Vercel自動化は初期設定後に有効になります。現時点で新workflowの実行と本番公開は未実施です。
 
 通常の`Tests`（AMD64）と正式workflow（ARM64）は、同じcommitで並行実行できます。
 正式workflowは自身の受信・画像・HTTP・Composeの検証を通してから保管し、
 通常CIの成功を自動で待つ依存関係はありません。
 配布対象のcommitをmainへpushし、そのcommitへ候補版に対応するGitタグを付けてpushするか、
-mainで正式保管を手動実行します。正式workflowで検証したイメージを再ビルドせず保存します。
+mainで新しい`release_tag`を指定して正式保管を手動実行します。
+既に存在するタグの再利用・移動は拒否します。正式workflowで検証したイメージを再ビルドせず保存します。
 
 承認済みのローカルプレビューとの一致は、それぞれのartifactをダウンロードして、
 `png-gallery/index.html`に対応する投稿・画像と別途比較し、結果を記録します。
@@ -35,8 +42,8 @@ CI内の比較対象は、そのCIで作ったPNGギャラリーです。
 **過去に承認したローカル画像との一致を、このworkflowが自動で保証するわけではありません。**
 
 ```sh
-git tag images-v5-r1 <確認したcommit>
-git push origin refs/tags/images-v5-r1
+git tag images-v5-r2 <確認したcommit>
+git push origin refs/tags/images-v5-r2
 ```
 
 タグからの保管では、タグの指すcommitと候補の元commitが同じで、mainの履歴に含まれることを確認します。

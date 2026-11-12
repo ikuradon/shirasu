@@ -2,8 +2,9 @@
 """Prepare the pinned JMA flood forecast reaches for attributed offline rendering.
 
 Use azarashi==0.17.1 and pyshp==2.3.1. Pyshp is a build-only dependency.
-The generated geometry is deliberately not checked into the public repository;
-download the pinned source or pass a saved ZIP with --source when building.
+The reviewed geometry is kept with its attribution under vendor/jma/preview.
+This is an explicit update tool: download the pinned source or pass a saved ZIP
+with --source, then compare its output before replacing the vendored snapshot.
 """
 
 import argparse
@@ -50,8 +51,8 @@ https://www.jma.go.jp/jma/kishou/books/hakusho/2019/index3.html#toc-173
 当該ZIP固有の利用許諾文書は確認できていない。出典表示や配布方針の採用を、
 原典由来のGISデータ自体について無条件の再配布許諾を確認した意味にはしない。
 Shirasuの配布方針（2026年11月12日）として、生成した flood.geojson.zlib は
-この出典・加工内容の文書とともに描画用イメージへ同梱する。公開リポジトリには
-データ本体を含めず、描画時に配布物内の固定データを使用する。
+公開リポジトリの vendor/jma/preview にこの出典・加工内容の文書とともに固定保存し、
+描画用イメージへ同梱する。描画時には配布物内の固定データを使用する。
 公開する画像にも上記の出典と加工者を表示する。
 
 TYPE=2 の338予報区間のみを選択。FAREACODEをDCR-017の12桁予報区域コードと
@@ -167,7 +168,7 @@ def prepare(source, output):
             'source': SOURCE, 'source_sha256': SOURCE_SHA256, 'retrieved': DATE,
             'specification': SPECIFICATION, 'general_data_policy': POLICY,
             'individual_redistribution_license': 'Not established; attribution and the project distribution decision do not establish an unrestricted redistribution grant.',
-            'distribution_policy': 'Project decision on 2026-11-12: retain this attributed geometry and include it with FLOOD_NOTICE.txt in the renderer image; geometry is not checked into the public repository.',
+            'distribution_policy': 'Project decision on 2026-11-12: retain this attributed geometry with FLOOD_NOTICE.txt in vendor/jma/preview in the public repository and include the fixed data and attribution in the renderer image.',
             'source_coordinate_system': 'JGD2000',
             'sha256': hashlib.sha256(compressed).hexdigest(), 'bytes': len(compressed),
             'uncompressed_bytes': len(raw), 'compression': 'zlib; level=9', 'feature_count': len(features),

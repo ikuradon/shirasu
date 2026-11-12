@@ -5,7 +5,8 @@ PNGの永続保存やBlob/R2は使いません。受信機にMatplotlib・地図
 表示内容とHTTP仕様は [画像サービス](image_service/README.md) を参照してください。
 
 運用先は [shirasu-images](https://shirasu-images.vercel.app/healthz)（Vercelの `g-s-n` チーム）です。
-プロジェクトは受信機のGitリポジトリには接続せず、上記の専用パッケージをデプロイします。
+プロジェクトは受信機のGitリポジトリには直接接続せず、検証済み候補の画像パッケージをデプロイします。
+[GHAによる検証・公開](docs/vercel-release.md)を実装済みです。mainはPreview URL、正式タグはGHCR復元・候補のHTTPS検証後に本番へ接続します。新しい自動化の有効化と本番公開は未実施です。
 
 ## 投稿の動き
 
@@ -70,7 +71,13 @@ Vercelへの問い合わせは受信・配送経路では行いません。描�
 正式な候補は[GitHub Actionsで検証・保管](docs/ci-release.md)し、GHCRの固定digestから復元した`images/`を公開に使います。
 通常checkoutのビルドはv1〜v4用なので、環境変数だけをv5/w1へ変更して起動する手順ではありません。
 
+地図・フォント・出典は取得元別の[`vendor/`](vendor/README.md)で固定管理します。
+新しいcheckoutでは最初に `prepare_vendor_assets.py` を実行してください。
+manifestのSHA-256とサイズを照合して従来の `image_service/assets/` へ配置するだけで、
+外部データのダウンロードやGISの再加工は行いません。既存ファイルが一致すれば保持し、異なれば停止します。
+
 ```sh
+python3 -B scripts/prepare_vendor_assets.py
 python3 scripts/prepare_image_service.py dist/image-service
 # Vercel CLIを使う場合: 対象プロジェクトとチームを確認してから実行
 cd dist/image-service
@@ -176,6 +183,7 @@ CDNはこのパス全体でキャッシュし、保持されていれば再描�
 CIは受信機と画像サービスを別のイメージで検証します。描画だけを確認する例:
 
 ```sh
+python3 -B scripts/prepare_vendor_assets.py
 python3 scripts/prepare_image_service.py dist/image-test
 docker build -f image_service/Dockerfile -t shirasu-images:test dist/image-test
 docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source \
@@ -190,10 +198,11 @@ docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source \
 
 未公開の画像を確認する場合は、`--include-preview` を明示してローカル用のソースを作ります。
 通常の配布用ソースには未公開レンダラー・アセットが入りません。
-先に[洪水用の流路データ](image_service/README.md#指定河川洪水予報のプレビュー)を準備してください。
-このデータ本体は公開リポジトリに含まれず、準備時に取得・ハッシュ検証します。
+洪水の流路を含む固定アセットは `vendor/` からオフラインで配置します。
+通常配布とプレビューの両方で同じ準備コマンドを使います。
 
 ```sh
+python3 -B scripts/prepare_vendor_assets.py
 python3 scripts/prepare_image_service.py --include-preview dist/image-preview
 docker build -f image_service/Dockerfile -t shirasu-images:preview dist/image-preview
 docker run --rm --network none \

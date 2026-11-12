@@ -88,6 +88,9 @@ tests/test_ci_artifact.py
 tests/test_ci_publish.py
 tests/test_ci_restore.py
 tests/test_ci_restore_job.py
+tests/test_vercel*.py
+tests/test_vendor_assets.py
+tests/test_image_check_keys.py
 # These receiver tests need image fixtures and run with a read-only source mount in CI.
 tests/test_gallery_post_publication.py
 tests/test_public_qzqsm_publication.py
@@ -107,6 +110,9 @@ scripts/prepare_ci_artifact.py
 scripts/publish_ci_release.py
 scripts/restore_release_candidate.py
 scripts/verify_ci_restore.py
+scripts/*vercel*.py
+scripts/prepare_vendor_assets.py
 scripts/benchmark_html.py
+vendor
 dist
 .vercel

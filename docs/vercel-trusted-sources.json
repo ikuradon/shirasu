@@ -1,0 +1,24 @@
+{
+  "https://token.actions.githubusercontent.com": [
+    {
+      "claims": {
+        "aud": ["https://github.com/ikuradon"],
+        "repository": ["ikuradon/shirasu"],
+        "ref": ["refs/heads/main"],
+        "workflow": ["Tests"],
+        "event_name": ["push", "workflow_dispatch"]
+      },
+      "to": {"slugs": ["preview"]}
+    },
+    {
+      "claims": {
+        "aud": ["https://github.com/ikuradon"],
+        "repository": ["ikuradon/shirasu"],
+        "environment": ["vercel-production"],
+        "event_name": ["push", "workflow_dispatch"],
+        "workflow": ["Publish verified image release", "Deploy verified release to Vercel"]
+      },
+      "to": {"slugs": ["production"]}
+    }
+  ]
+}

@@ -8,6 +8,23 @@ from image_protocol import MAX_PATH_LENGTH, SUPPORTED_VERSIONS, load_keys, parse
 from image_versions import RENDERERS, WEBP_VERSIONS
 
 
+# Deployment tooling checks this protocol marker before injecting auxiliary keys.
+IMAGE_CHECK_KEYS_VERSION = 1
+
+
+def _runtime_keys():
+    # The receiver's normal keyring remains mandatory. A deployment may add
+    # random CI-only keys without exposing or replacing those publishing keys.
+    keys = load_keys(os.environ.get('SHIRASU_IMAGE_KEYS', ''))
+    check_config = os.environ.get('SHIRASU_IMAGE_CHECK_KEYS')
+    if check_config is not None:
+        check_keys = load_keys(check_config)
+        if any(not key_id.startswith('check-') or key_id in keys for key_id in check_keys):
+            raise ValueError('Invalid image check key configuration')
+        keys.update(check_keys)
+    return keys
+
+
 def app(environ, start_response):
     method = environ.get('REQUEST_METHOD', 'GET')
     path = environ.get('PATH_INFO', '')
@@ -29,7 +46,7 @@ def app(environ, start_response):
     if path != '/healthz' and not path.startswith(tuple(f'/{version}/' for version in SUPPORTED_VERSIONS)):
         return error('404 Not Found', 'not found')
     try:
-        keys = load_keys(os.environ.get('SHIRASU_IMAGE_KEYS', ''))
+        keys = _runtime_keys()
     except ValueError:
         return error('503 Service Unavailable', 'image service is not configured')
     if path == '/healthz':

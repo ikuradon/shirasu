@@ -1,0 +1,126 @@
+name: Deploy verified release to Vercel
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing verified GitHub Release tag (for example images-v5-r2)
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+    secrets:
+      VERCEL_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/images-v'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: vercel-production
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Check deployment credential availability
+        id: config
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -n "$VERCEL_TOKEN" ]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo 'Vercel production skipped: configure the VERCEL_TOKEN Actions secret once. GHCR retention is unaffected.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Check out deployment tooling
+        if: steps.config.outputs.enabled == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Validate the requested release tag
+        if: steps.config.outputs.enabled == 'true'
+        run: |
+          python3 -B -c 'import os; from scripts.release_identity import RELEASE_TAG_RE; assert RELEASE_TAG_RE.fullmatch(os.environ["RELEASE_TAG"]), "Invalid release tag"'
+      - name: Download the immutable release and restore evidence
+        if: steps.config.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist/vercel-release/metadata
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern release.json --pattern candidate-manifest.json \
+            --pattern restore-result.json --pattern public-verification.tar.gz \
+            --dir dist/vercel-release/metadata
+      - name: Restore the exact release without starting its ARM64 containers
+        if: steps.config.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 -B scripts/prepare_vercel_release.py
+          --metadata dist/vercel-release/metadata --release-tag "$RELEASE_TAG"
+          --output dist/vercel-release/verified
+      - name: Build the native HTTP checker from the fixed renderer dependencies
+        if: steps.config.outputs.enabled == 'true'
+        run: >-
+          docker build --pull=false -t shirasu-images:vercel-check
+          dist/vercel-release/verified/candidate/images
+      - name: Stage, verify, promote, and verify the production domain
+        id: publish
+        if: steps.config.outputs.enabled == 'true'
+        env:
+          VERCEL_RELEASE_ENABLED: 'true'
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID || 'team_lpgtJBIpMvlETDi41eFcTZnH' }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID || 'prj_dNNCX2HNDuIJ6Zn8l90BPLnqKCyH' }}
+          VERCEL_PRODUCTION_DOMAIN: ${{ vars.VERCEL_PRODUCTION_DOMAIN || 'shirasu-images.vercel.app' }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist/vercel-release/result
+          docker run --rm --pull never --volume "$PWD:/source:ro" \
+            --volume "$PWD/dist/vercel-release/result:/output" --workdir /source \
+            --env GITHUB_ACTIONS --env GITHUB_REF --env GITHUB_EVENT_NAME \
+            --env GITHUB_REPOSITORY --env GITHUB_SHA --env GITHUB_RUN_ID --env GITHUB_RUN_ATTEMPT \
+            --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+            --env RELEASE_TAG --env VERCEL_RELEASE_ENABLED \
+            --env VERCEL_ORG_ID --env VERCEL_PROJECT_ID --env VERCEL_TOKEN \
+            --env VERCEL_PRODUCTION_DOMAIN --env GH_TOKEN --env GITHUB_STEP_SUMMARY=/output/summary.md \
+            shirasu-images:vercel-check python -B scripts/publish_vercel_release.py \
+            --bundle dist/vercel-release/verified/candidate \
+            --public-artifact dist/vercel-release/verified/public \
+            --release dist/vercel-release/metadata/release.json \
+            --restore-result dist/vercel-release/metadata/restore-result.json \
+            --output /output/deployment.json
+          cat dist/vercel-release/result/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain the deployment identity in the formal release
+        if: steps.publish.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          result="vercel-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          cp dist/vercel-release/result/deployment.json "dist/vercel-release/result/$result"
+          gh release upload "$RELEASE_TAG" "dist/vercel-release/result/$result" --repo "$GITHUB_REPOSITORY"
+      - name: Retain public HTTP verification reports
+        if: always() && steps.publish.outcome != '' && steps.publish.outcome != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vercel-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/vercel-release/result/*.json
+          retention-days: 14
+          if-no-files-found: warn

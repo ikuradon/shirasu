@@ -1,0 +1,239 @@
+{
+  "files": [
+    {
+      "destination": "image_service/assets/preview/DCX_WARDS_NOTICE.txt",
+      "sha256": "efe481d727ca18884ccf292fdd2bfb8f8658c75882e4e4e66e21f6ecc1c69547",
+      "size_bytes": 2065,
+      "source": "vendor/jma/preview/DCX_WARDS_NOTICE.txt"
+    },
+    {
+      "destination": "image_service/assets/preview/FLOOD_NOTICE.txt",
+      "sha256": "730034340b6d5c50c2cefcfaa5ab1013566314e3cc4772fe270087ace042a726",
+      "size_bytes": 2733,
+      "source": "vendor/jma/preview/FLOOD_NOTICE.txt"
+    },
+    {
+      "destination": "image_service/assets/preview/MUNICIPALITIES_NOTICE.txt",
+      "sha256": "21810c349c66bdc8af24f077c86df8ab6a86c42aab205b9d21d9faaec2e221e2",
+      "size_bytes": 2240,
+      "source": "vendor/jma/preview/MUNICIPALITIES_NOTICE.txt"
+    },
+    {
+      "destination": "image_service/assets/preview/NWP_NOTICE.txt",
+      "sha256": "8211e9678bfecb23967d328541a1f7c110948d93bb00da4e10b5e5dea0037c76",
+      "size_bytes": 1691,
+      "source": "vendor/jma/preview/NWP_NOTICE.txt"
+    },
+    {
+      "destination": "image_service/assets/preview/PREFECTURE_BOUNDARIES_NOTICE.txt",
+      "sha256": "00d83f6c11fdb5d22fb08736c2fe0ba0951aca5a51fe2e2091af0daf7bd1fc55",
+      "size_bytes": 1506,
+      "source": "vendor/jma/preview/PREFECTURE_BOUNDARIES_NOTICE.txt"
+    },
+    {
+      "destination": "image_service/assets/preview/dcx_wards.geojson.zlib",
+      "sha256": "0f84cbb014b3a9585c898c86be72505c0d2b29191b6647a19ffefc3c0285388b",
+      "size_bytes": 197103,
+      "source": "vendor/jma/preview/dcx_wards.geojson.zlib"
+    },
+    {
+      "destination": "image_service/assets/preview/dcx_wards_manifest.json",
+      "sha256": "aa69da6bca3238a8f1acbbc34a56925bc034a1769404c948b16725544f2846a7",
+      "size_bytes": 58191,
+      "source": "vendor/jma/preview/dcx_wards_manifest.json"
+    },
+    {
+      "destination": "image_service/assets/preview/flood.geojson.zlib",
+      "sha256": "f7035fe8489e5d0b68baeb2ba3add5562d351413af8c5fdf436ef45c8fb55718",
+      "size_bytes": 285685,
+      "source": "vendor/jma/preview/flood.geojson.zlib"
+    },
+    {
+      "destination": "image_service/assets/preview/flood_manifest.json",
+      "sha256": "4dd6e6d43e45830445a690a3e8dbb70d99d1801444d2e7a34eb66fe21541fc24",
+      "size_bytes": 50421,
+      "source": "vendor/jma/preview/flood_manifest.json"
+    },
+    {
+      "destination": "image_service/assets/preview/municipalities.geojson.zlib",
+      "sha256": "5cdbc80c6a72a38472458a9b5c9da80583e6fe13512e90bf648f2ef7fe8a0f60",
+      "size_bytes": 8181869,
+      "source": "vendor/jma/preview/municipalities.geojson.zlib"
+    },
+    {
+      "destination": "image_service/assets/preview/municipalities_manifest.json",
+      "sha256": "96053749df46218afa0c171e0654b9800454c93f9fcd57bfe34805acc9d70749",
+      "size_bytes": 673136,
+      "source": "vendor/jma/preview/municipalities_manifest.json"
+    },
+    {
+      "destination": "image_service/assets/preview/nwp_manifest.json",
+      "sha256": "d5b847f5bb0c7d3545c46f0b3af392d01ca6077a9ded2198aa1e4f7ee479c2cd",
+      "size_bytes": 1156,
+      "source": "vendor/jma/preview/nwp_manifest.json"
+    },
+    {
+      "destination": "image_service/assets/preview/nwp_points.json",
+      "sha256": "69d8bc23a4cfc7c809ab46927323ad2b7819c2de75d06cfcefb2d70efeb7c46e",
+      "size_bytes": 10686,
+      "source": "vendor/jma/preview/nwp_points.json"
+    },
+    {
+      "destination": "image_service/assets/preview/prefecture_boundaries.geojson.zlib",
+      "sha256": "d4fbca0bc2224923180de7dfc61c514a82b207105263fca77e48d5782f3dd232",
+      "size_bytes": 131105,
+      "source": "vendor/jma/preview/prefecture_boundaries.geojson.zlib"
+    },
+    {
+      "destination": "image_service/assets/preview/prefecture_boundaries_manifest.json",
+      "sha256": "009bd18b39dc2532cf296104e613a76f4b2dbb682dcd62669d7b744530ee6cbf",
+      "size_bytes": 23063,
+      "source": "vendor/jma/preview/prefecture_boundaries_manifest.json"
+    },
+    {
+      "destination": "image_service/assets/v1/FONT_NOTICE.txt",
+      "sha256": "9a871ea4517d116357d3c29608d1125647537f558a876355021bd36aba183893",
+      "size_bytes": 380,
+      "source": "vendor/noto-cjk/2.004/FONT_NOTICE.txt"
+    },
+    {
+      "destination": "image_service/assets/v1/NATURAL_EARTH.txt",
+      "sha256": "7721ab3a771e81ba9d1df3505b4e3e52782c9e93d09dd52a7d56edbe8e1769c6",
+      "size_bytes": 410,
+      "source": "vendor/natural-earth/v1/NATURAL_EARTH.txt"
+    },
+    {
+      "destination": "image_service/assets/v1/NotoSansCJKjp-Bold.otf",
+      "sha256": "e53dcb0dcb2922e45d01aae1ebd2f382bb81d4229b18b6b883bd170678af1f76",
+      "size_bytes": 17032620,
+      "source": "vendor/noto-cjk/2.004/NotoSansCJKjp-Bold.otf"
+    },
+    {
+      "destination": "image_service/assets/v1/NotoSansCJKjp-Regular.otf",
+      "sha256": "68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5",
+      "size_bytes": 16467736,
+      "source": "vendor/noto-cjk/2.004/NotoSansCJKjp-Regular.otf"
+    },
+    {
+      "destination": "image_service/assets/v1/OFL.txt",
+      "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+      "size_bytes": 4301,
+      "source": "vendor/noto-cjk/2.004/OFL.txt"
+    },
+    {
+      "destination": "image_service/assets/v1/land.geojson",
+      "sha256": "e874b27a51d146452be360cafb3cc50c86001074a67d534113e6534682f9826b",
+      "size_bytes": 1636166,
+      "source": "vendor/natural-earth/v1/land.geojson"
+    },
+    {
+      "destination": "image_service/assets/v2/JMA_NOTICE.txt",
+      "sha256": "5b9e873f1a3ce2ed0fa12f4074536525c9749f60d610cdea907389b80c73ccbd",
+      "size_bytes": 3157,
+      "source": "vendor/jma/v2/JMA_NOTICE.txt"
+    },
+    {
+      "destination": "image_service/assets/v2/groups.json",
+      "sha256": "c3ac70f722e296f7d0d16f1d252048f444314f3a47e5fdf249d86cc3adb89100",
+      "size_bytes": 984,
+      "source": "vendor/jma/v2/groups.json"
+    },
+    {
+      "destination": "image_service/assets/v2/manifest.json",
+      "sha256": "d5a98c3fb5667a65036bc607e1e3c7db30261d5753b4d1830bd71538750cf7d0",
+      "size_bytes": 21901,
+      "source": "vendor/jma/v2/manifest.json"
+    },
+    {
+      "destination": "image_service/assets/v2/marine.geojson",
+      "sha256": "e1822013968c537f09b368fad2cbee4bf569c03be30e8d5b3a8de441805310e7",
+      "size_bytes": 15192453,
+      "source": "vendor/jma/v2/marine.geojson"
+    },
+    {
+      "destination": "image_service/assets/v2/prefectures.geojson",
+      "sha256": "9b818cfa7b79118413c3636595354abf8f2a49493a6e32a0cc9e72b29b935890",
+      "size_bytes": 20731984,
+      "source": "vendor/jma/v2/prefectures.geojson"
+    },
+    {
+      "destination": "image_service/assets/v2/tsunami.geojson",
+      "sha256": "37dd2016ee738c775ea6a81f2f96aaccc822da632b9e2e0aeefda59330f102e4",
+      "size_bytes": 120447,
+      "source": "vendor/jma/v2/tsunami.geojson"
+    },
+    {
+      "destination": "image_service/assets/v3/LAND_NOTICE.txt",
+      "sha256": "c2f2fca2be6fe30570c7f9121584c1cc3678c23fbc1acaa9778740e9e4757799",
+      "size_bytes": 1242,
+      "source": "vendor/natural-earth/v3/LAND_NOTICE.txt"
+    },
+    {
+      "destination": "image_service/assets/v3/REGIONAL_NOTICE.txt",
+      "sha256": "68297148f9e1d8d3031016c9658cacc7928a3a5f6a929108b2559b8e559219f0",
+      "size_bytes": 2537,
+      "source": "vendor/jma/v3/REGIONAL_NOTICE.txt"
+    },
+    {
+      "destination": "image_service/assets/v3/VOLCANO_NOTICE.txt",
+      "sha256": "cf371ef51f0554faf78502d047ed7a1dfdbf05bbbb135c1e394559eded989952",
+      "size_bytes": 1727,
+      "source": "vendor/jma/v3/VOLCANO_NOTICE.txt"
+    },
+    {
+      "destination": "image_service/assets/v3/eew.geojson.zlib",
+      "sha256": "feb1155e26e58b5f920aefe4ed7a6238b13d20c34b3433fd1a2c6e57a488eca5",
+      "size_bytes": 6624693,
+      "source": "vendor/jma/v3/eew.geojson.zlib"
+    },
+    {
+      "destination": "image_service/assets/v3/eew_groups.json",
+      "sha256": "a37d3f984eb75e7da4217a48e30af5c76d6d61bd5155f0dc1d7a93d8982fcbb7",
+      "size_bytes": 259,
+      "source": "vendor/jma/v3/eew_groups.json"
+    },
+    {
+      "destination": "image_service/assets/v3/land.geojson.zlib",
+      "sha256": "64ee1f5c8eba1916de4002dc170bdac9496c489dcc97d1626ac3fd0b12ca17e8",
+      "size_bytes": 4971606,
+      "source": "vendor/natural-earth/v3/land.geojson.zlib"
+    },
+    {
+      "destination": "image_service/assets/v3/land_manifest.json",
+      "sha256": "3bb5ab8fa49614c058d8d6bf61cd97496d55faecd589c6bcf5aa1e31d7ecbe2e",
+      "size_bytes": 1270,
+      "source": "vendor/natural-earth/v3/land_manifest.json"
+    },
+    {
+      "destination": "image_service/assets/v3/regional_manifest.json",
+      "sha256": "3c5b68d882212efbf127d0a2adca54d3af1e0c42d8c757ace4c8b96872b71e4c",
+      "size_bytes": 58687,
+      "source": "vendor/jma/v3/regional_manifest.json"
+    },
+    {
+      "destination": "image_service/assets/v3/volcano.json",
+      "sha256": "8fcaf0a5f568d5ab2587600c763f91252cecd9734703568b571edb957f9191b5",
+      "size_bytes": 7082,
+      "source": "vendor/jma/v3/volcano.json"
+    },
+    {
+      "destination": "image_service/assets/v3/volcano_manifest.json",
+      "sha256": "2435afbcdd3845e01bfb122f6c9722316500af2639b0fc987afb9c8934c9e948",
+      "size_bytes": 811,
+      "source": "vendor/jma/v3/volcano_manifest.json"
+    },
+    {
+      "destination": "image_service/assets/v3/weather.geojson.zlib",
+      "sha256": "f68bfc742578d30b037468915711d5ca3285ba720fd263584a34eccebe7dbe5f",
+      "size_bytes": 6663022,
+      "source": "vendor/jma/v3/weather.geojson.zlib"
+    },
+    {
+      "destination": "image_service/assets/v3/weather_groups.json",
+      "sha256": "599575ebe2bdde024327b342c1f3f1d8d5c883bfd0bd93c14a2b88286a76c453",
+      "size_bytes": 204,
+      "source": "vendor/jma/v3/weather_groups.json"
+    }
+  ],
+  "schema_version": 1
+}

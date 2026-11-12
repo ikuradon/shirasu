@@ -218,6 +218,20 @@ class CIPublishTests(unittest.TestCase):
             api.assert_not_called()
             run.assert_not_called()
 
+    def test_explicit_tag_cannot_redirect_a_tag_push_or_use_an_invalid_version(self):
+        root = self.fixture()
+        invalid = [({}, value) for value in ('', 'images-v6-r2', 'images-v5-r0', '../images-v5-r2')]
+        invalid.append(({'GITHUB_EVENT_NAME': 'push', 'GITHUB_REF': 'refs/tags/images-v5-r1'},
+                        'images-v5-r2'))
+        for environment, tag in invalid:
+            with self.subTest(environment=environment, tag=tag), \
+                    patch.dict(publish.os.environ, environment), \
+                    patch.object(publish, 'api') as api, patch.object(publish, 'run') as run:
+                with self.assertRaises(ValueError):
+                    publish.publish(root, 'receiver:test', 'renderer:test', release_tag=tag)
+                api.assert_not_called()
+                run.assert_not_called()
+
     def test_wrong_cpu_platform_cannot_publish_an_unusable_receiver(self):
         root = self.fixture()
         with patch.object(publish, 'run', side_effect=[RENDERER, 'linux/amd64']), \
@@ -227,13 +241,14 @@ class CIPublishTests(unittest.TestCase):
             api.assert_not_called()
 
     def simulate(self, root, *, fail_upload=False, tag_push=False, main_status='ahead',
-                 existing_image_tag=False, expected_error=None):
+                 existing_image_tag=False, existing_git_tag=False, expected_error=None, release_tag=None):
         calls, commands, uploads = [], [], []
+        expected_tag = 'images-v5-r1' if release_tag is None else release_tag
 
         def api(path, **kwargs):
             calls.append((path, kwargs))
             if '/git/ref/' in path:
-                return {'object': {'type': 'commit', 'sha': SOURCE}} if tag_push else None
+                return {'object': {'type': 'commit', 'sha': SOURCE}} if tag_push or existing_git_tag else None
             if '/releases/tags/' in path:
                 return None
             if '/compare/' in path:
@@ -241,7 +256,7 @@ class CIPublishTests(unittest.TestCase):
             if '/releases?' in path:
                 return []
             if '/versions?' in path:
-                return ([{'metadata': {'container': {'tags': ['images-v5-r1']}}}]
+                return ([{'metadata': {'container': {'tags': [expected_tag]}}}]
                         if existing_image_tag else [])
             if '/packages/' in path:
                 return {'visibility': 'public', 'repository': {'full_name': REPOSITORY}}
@@ -280,13 +295,13 @@ class CIPublishTests(unittest.TestCase):
                 patch.object(publish, 'run', side_effect=run):
             if fail_upload or expected_error:
                 with self.assertRaisesRegex(ValueError, expected_error or 'upload failure'):
-                    publish.publish(root, 'receiver:test', 'renderer:test')
+                    publish.publish(root, 'receiver:test', 'renderer:test', release_tag=release_tag)
             else:
-                result = publish.publish(root, 'receiver:test', 'renderer:test')
+                result = publish.publish(root, 'receiver:test', 'renderer:test', release_tag=release_tag)
                 self.assertEqual(result, uploads[0])
                 self.assertEqual(result['schema_version'], 2)
                 self.assertEqual(result['version'], 'v5')
-                self.assertEqual(result['release_tag'], 'images-v5-r1')
+                self.assertEqual(result['release_tag'], expected_tag)
                 self.assertEqual(result['platform'], 'linux/arm64')
                 self.assertNotEqual(result['images']['receiver']['reference'].split('@')[1], RECEIVER)
         return calls, commands
@@ -302,6 +317,32 @@ class CIPublishTests(unittest.TestCase):
                                       for role in ('receiver', 'images')
                                       for tag in ('run-123-1', 'images-v5-r1')])
         self.assertFalse(any(':latest' in command[-1] for command in commands))
+
+    def test_manual_run_publishes_the_requested_new_distribution_revision(self):
+        calls, commands = self.simulate(self.fixture(), release_tag='images-v5-r2')
+        draft = next(options['body'] for _, options in calls if options.get('method') == 'POST')
+        self.assertEqual(draft['tag_name'], 'images-v5-r2')
+        self.assertEqual(draft['target_commitish'], SOURCE)
+        pushed = [command[-1] for command in commands if command[:2] == ['docker', 'push']]
+        self.assertCountEqual(pushed, ['ghcr.io/example/shirasu-' + role + ':' + tag
+                                      for role in ('receiver', 'images')
+                                      for tag in ('run-123-1', 'images-v5-r2')])
+        self.assertFalse(any('images-v5-r1' in part for command in commands for part in command))
+        self.assertIn(('repos/' + REPOSITORY + '/git/ref/tags/images-v5-r2', {'missing': True}), calls)
+        uploaded = next(command for command in commands if command[:3] == ['gh', 'release', 'upload'])
+        self.assertEqual(uploaded[3], 'images-v5-r2')
+
+    def test_explicit_matching_tag_push_keeps_source_and_main_checks(self):
+        calls, _ = self.simulate(self.fixture(), tag_push=True, release_tag='images-v5-r1')
+        self.assertIn(('repos/' + REPOSITORY + '/compare/' + SOURCE + '...main', {}), calls)
+
+    def test_explicit_manual_revision_still_rejects_existing_git_and_container_tags(self):
+        for options in ({'existing_git_tag': True, 'expected_error': 'already has a release/tag'},
+                        {'existing_image_tag': True, 'expected_error': 'Fixed container tag already exists'}):
+            with self.subTest(options=options):
+                calls, commands = self.simulate(self.fixture(), release_tag='images-v5-r2', **options)
+                self.assertFalse(any(kwargs.get('method') in ('POST', 'PATCH') for _, kwargs in calls))
+                self.assertFalse(any(command[:2] == ['docker', 'push'] for command in commands))
 
     def test_tag_release_source_must_be_reachable_from_main_before_publication(self):
         for status in ('ahead', 'identical'):
@@ -334,6 +375,17 @@ class CIPublishTests(unittest.TestCase):
                 self.assertEqual(publish.main(['--check-root', directory, '--receiver-image', 'receiver',
                                                '--renderer-image', 'images']), 0)
             self.assertEqual(output.read_text(), 'release_tag=images-v5-r1\n')
+
+    def test_cli_passes_explicit_revision_and_reports_it_to_following_jobs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'outputs'
+            with patch.dict(publish.os.environ, {'GITHUB_OUTPUT': str(output)}), \
+                    patch.object(publish, 'publish', return_value={'release_tag': 'images-v5-r2'}) as called, \
+                    patch('builtins.print'):
+                self.assertEqual(publish.main(['--check-root', directory, '--receiver-image', 'receiver',
+                                              '--renderer-image', 'images', '--release-tag', 'images-v5-r2']), 0)
+            called.assert_called_once_with(Path(directory), 'receiver', 'images', release_tag='images-v5-r2')
+            self.assertEqual(output.read_text(), 'release_tag=images-v5-r2\n')
 
 
 if __name__ == '__main__':

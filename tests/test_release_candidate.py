@@ -162,7 +162,13 @@ print(json.dumps({'topics': [p.supports_nankai_topic for p in publishers],
         self.assertEqual(list(self.output.iterdir()), [])
         self.output.rmdir()
         (self.source / 'image_service/assets/preview/flood.geojson.zlib').unlink()
-        with self.assertRaisesRegex(ValueError, 'prepare_flood_assets.py'):
+        with self.assertRaisesRegex(ValueError, 'prepare_vendor_assets.py'):
+            self.make()
+        self.assertFalse(self.output.exists())
+
+    def test_missing_published_asset_explains_offline_preparation(self):
+        (self.source / 'image_service/assets/v1/land.geojson').unlink()
+        with self.assertRaisesRegex(ValueError, 'prepare_vendor_assets.py'):
             self.make()
         self.assertFalse(self.output.exists())
 

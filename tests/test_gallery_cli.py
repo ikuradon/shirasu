@@ -159,7 +159,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
     def test_missing_assets_leave_no_partial_gallery(self):
         with patch.object(render_gallery, 'ROOT', self.root), \
                 patch.object(render_gallery, '_render_with_decision') as render:
-            with self.assertRaisesRegex(FileNotFoundError, 'prepare_flood_assets.py'):
+            with self.assertRaisesRegex(FileNotFoundError, 'prepare_vendor_assets.py'):
                 render_gallery.generate(self.output, selected_cases=('marine',))
         render.assert_not_called()
         self.assertFalse(self.output.exists())

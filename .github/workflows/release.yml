@@ -4,6 +4,11 @@ name: Publish verified image release
 # Only an explicit release tag or a manual main run may publish.
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: New distribution tag (for example images-v5-r2)
+        required: true
+        type: string
   push:
     tags: ['images-v*']
 
@@ -63,15 +68,27 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           python3 -B scripts/publish_ci_release.py \
             --check-root dist/release-check \
             --receiver-image shirasu:rehearsal \
-            --renderer-image shirasu-images:rehearsal
+            --renderer-image shirasu-images:rehearsal \
+            --release-tag "$RELEASE_TAG"
       - name: Log out of GHCR
         if: always()
         shell: bash
         run: docker logout ghcr.io
+  vercel:
+    needs: [release, restore]
+    permissions:
+      contents: write
+      id-token: write
+    uses: ./.github/workflows/vercel-release.yml
+    with:
+      release_tag: ${{ needs.release.outputs.release_tag }}
+    secrets:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
   restore:
     needs: release
     runs-on: ubuntu-24.04-arm

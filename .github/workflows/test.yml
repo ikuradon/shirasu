@@ -15,8 +15,12 @@ concurrency:
 
 jobs:
   image-service:
+    needs: test
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -25,6 +29,61 @@ jobs:
           fetch-depth: 0
       - name: Check image service and candidate
         uses: ./.github/actions/check-images
+      - name: Check Preview credential availability
+        id: preview-config
+        if: >-
+          github.ref == 'refs/heads/main' &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -n "$VERCEL_TOKEN" ]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo 'Vercel Preview skipped: configure the VERCEL_TOKEN Actions secret once.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Configure GitHub Actions access to protected deployments
+        id: access
+        if: steps.preview-config.outputs.enabled == 'true'
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID || 'team_lpgtJBIpMvlETDi41eFcTZnH' }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID || 'prj_dNNCX2HNDuIJ6Zn8l90BPLnqKCyH' }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: >-
+          python3 -B scripts/configure_vercel_access.py
+          --output dist/vercel-preview/access.json
+      - name: Publish the verified HEAD as a Vercel Preview
+        id: preview
+        if: steps.preview-config.outputs.enabled == 'true'
+        env:
+          VERCEL_PREVIEW_ENABLED: 'true'
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID || 'team_lpgtJBIpMvlETDi41eFcTZnH' }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID || 'prj_dNNCX2HNDuIJ6Zn8l90BPLnqKCyH' }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          mkdir -p dist/vercel-preview
+          docker run --rm --pull never --volume "$PWD:/source:ro" \
+            --volume "$PWD/dist/vercel-preview:/output" --workdir /source \
+            --env GITHUB_ACTIONS --env GITHUB_REF --env GITHUB_EVENT_NAME \
+            --env GITHUB_REPOSITORY --env GITHUB_SHA --env GITHUB_RUN_ID --env GITHUB_RUN_ATTEMPT \
+            --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+            --env VERCEL_PREVIEW_ENABLED --env VERCEL_ORG_ID --env VERCEL_PROJECT_ID --env VERCEL_TOKEN \
+            --env GITHUB_STEP_SUMMARY=/output/summary.md \
+            shirasu-images:rehearsal python -B scripts/publish_vercel_preview.py \
+            --check-root dist/release-check --output /output/deployment.json
+          cat dist/vercel-preview/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain the Preview identity and HTTP verification
+        if: >-
+          always() &&
+          ((steps.access.outcome != '' && steps.access.outcome != 'skipped') ||
+          (steps.preview.outcome != '' && steps.preview.outcome != 'skipped'))
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vercel-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/vercel-preview/*.json
+          retention-days: 14
+          if-no-files-found: warn
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

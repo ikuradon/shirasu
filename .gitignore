@@ -178,5 +178,7 @@ config.py
 state/
 compose.override.yaml
 
-# JMA river geometry is bundled with attribution in GHCR, not tracked in Git.
-image_service/assets/preview/flood.geojson.zlib
+# Materialized from checksum-pinned vendor data. Keep the mixed-provider v1 index.
+image_service/assets/**/*
+!image_service/assets/v1/
+!image_service/assets/v1/manifest.json

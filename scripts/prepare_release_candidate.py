@@ -75,8 +75,10 @@ def _source_file(root, name):
         if path.is_symlink():
             raise ValueError('Linked source is not allowed: ' + name)
     if not path.is_file():
-        if name == 'image_service/assets/preview/flood.geojson.zlib':
-            raise ValueError('Prepare the flood asset first: python scripts/prepare_flood_assets.py')
+        if (not path.exists() and name.startswith('image_service/assets/')
+                and name != 'image_service/assets/v1/manifest.json'):
+            raise ValueError('Prepare vendor assets first: python3 -B scripts/prepare_vendor_assets.py'
+                             f' (missing: {name})')
         raise ValueError('Missing candidate source: ' + name)
     return path
 
