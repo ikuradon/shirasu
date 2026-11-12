@@ -1,8 +1,42 @@
 # 固定した公開候補を使うCompose設定
 
-公開前の残作業①として、検証済みの受信イメージへComposeを接続する準備を行います。
-この手順の準備・隔離検証では、本番の設定・DB・コンテナを変更しません。
-画像サービスの先行公開と実環境確認、直前バックアップが済んでから本番を切り替えます。
+2026-11-12 19:38（JST）に、稼働中の受信機を`images-v5-r2`の固定イメージと`v5/w1`へ切り替えました。
+通常の運用コマンドはリポジトリルートで実行します。`.env`の`COMPOSE_FILE`に公開用設定を保存済みです。
+
+```sh
+docker compose ps
+docker compose exec -T shirasu python main.py --status --format text
+docker compose logs --tail 50 shirasu
+```
+
+`state/releases/images-v5-r2/`は運用中の保持先です。`dist`とは異なり、掃除で削除しないでください。
+以降は別リリースの準備・切替にも使う手順です。準備・隔離検証だけでは本番を変更しません。
+
+## 本番切替の記録（2026-11-12）
+
+| 項目 | 結果 |
+| --- | --- |
+| 配布元 | [images-v5-r2](https://github.com/ikuradon/shirasu/releases/tag/images-v5-r2)、ソース`c15fe24` |
+| GHCR受信イメージ | `ghcr.io/ikuradon/shirasu-receiver@sha256:a57fa2a1a04642ed052b7f72326aba4b412f4ccb896f976733c3d27c730206bc` |
+| 3サービスの固定image ID | `sha256:2334bddf4b3bea7c2ff728dcde55f9f2fcfa246322eb2f2c58ff867ef6bc2b42` |
+| 候補manifest SHA-256 | `97e15966568f7729c38107ab5e0675c441032726d6774f531658c0f902c2311e` |
+| Compose設定 | `/root/shirasu/state/releases/images-v5-r2/compose.release.yaml` |
+| 直前バックアップ | `backups/before-images-v5-r2-20261112T103819Z/state.sqlite3`、送信済み15件の署名・ID・DB整合性を検証 |
+| DBバックアップ SHA-256 | `0e486a7f40d1cb39c4c56acea9be03d133f6de5dd5bad7e1d620b8d9fd05bc1d` |
+| 維持した設定 | project=`shirasu`、volume=`shirasu_shirasu-state`、configのread-only bind、画像鍵、GPSD・Prometheusネットワーク |
+| 起動後 | 3サービスhealthy、再起動0、実受信・Nostr接続・監視HTTP・自動バックアップhealth正常 |
+| 保存済み投稿 | 15件すべてのJSON・ID・署名が不変、送信待ち0、画像生成・受信・配送エラーなし |
+
+GHCRから両イメージを復元し、候補121ファイルと受信イメージを照合しました。Composeの変更は固定イメージと版・形式のみです。
+停止後の最新DBをバックアップし、同じvolumeで再起動しました。DBの復元・上書きは行っていません。
+`.env`・`config.py`・host overrideも上記バックアップディレクトリに保全し、ディレクトリは700、設定ファイルは600です。
+
+既存投稿の受信データと実運用の画像鍵で、本番の旧v4 PNG・v5 PNG・v5 WebPがHTTP 200になることを確認しました。
+v5のPNG／WebPは1920×1080で全画素一致し、この入力では327,035 bytesから116,050 bytesになりました。
+検証用のNostr投稿は行っていません。送信待ちは0件だったため、実機の再送対象はなく、再送・集約の動作検証は正式リリースのCIによります。
+切替後の新規投稿と実nostter上の表示確認は[TODOの⑤](../TODO.md)に残しています。
+
+ホストの復元・画像HTTP・切替結果は、保持先の`host-restore-result.json`、`primary-key-http-check.json`、`switch-result.json`に保存しています。
 
 ## 生成する設定
 

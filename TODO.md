@@ -3,16 +3,16 @@
 ## 一括公開までの残作業（2026-11-11整理・実施順）
 
 WebP統合までを`21209e5`でcommit済み。ローカルの164テスト、49入力の描画比較、実46投稿・45入力のHTTP確認は完了しています。
-以下は公開工程の完了状況です。2026-11-12に画像サービスの本番公開まで完了し、受信機の切替とSNS上の確認が残っています。
+以下は公開工程の完了状況です。2026-11-12に画像サービスの本番公開と受信機のv5／WebP切替を完了し、新規投稿とSNS上の確認が残っています。
 
 2026-11-12の方針: 洪水流路は出典・加工者を明記した現行の気象庁データを使用する。OSM代替の試作は採用せず撤去済み。②は出典・ライセンス文書を同梱したpublic GHCRへ変更し、非公開初回作成用PATは不要とする。出典表示の採用を、GIS本体の再配布条件が確認済みになったという意味にはしない。
 
 正式配布は受信機に合わせて`linux/arm64`に固定する。正式workflowの受信検証・保管・復元はARM64 runnerで行い、実イメージのOS／Architectureと`release.json`の`platform`を照合する。Vercelのデプロイjobと通常CIはAMD64で行う。
 
-1. [x] **固定した受信イメージを使うCompose設定を用意する。** [手順と結果](docs/release-compose.md)。候補とイメージ内の全配布ファイル・起動設定を照合し、完全なimage IDへ固定したoverrideを生成する。受信・監視・バックアップのbuildを削除してpullも禁止し、既存のproject・DB volume・config bind・ネットワーク・healthcheck等を継承。生成・実Composeマージ13テストと、一時DBでの本物の受信プロセスの起動・正常停止・再起動を確認した。v5/w1→v4/pngで保存済みイベントのJSON・ID・署名を維持し、新規投稿だけPNGになる。COMPOSE_FILEで通常の運用コマンドにも適用する手順とCIを追加（本番未反映）。
+1. [x] **固定した受信イメージを使うCompose設定を用意する。** [手順と結果](docs/release-compose.md)。候補とイメージ内の全配布ファイル・起動設定を照合し、完全なimage IDへ固定したoverrideを生成する。受信・監視・バックアップのbuildを削除してpullも禁止し、既存のproject・DB volume・config bind・ネットワーク・healthcheck等を継承。生成・実Composeマージ13テストと、一時DBでの本物の受信プロセスの起動・正常停止・再起動を確認した。v5/w1→v4/pngで保存済みイベントのJSON・ID・署名を維持し、新規投稿だけPNGになる。COMPOSE_FILEで通常の運用コマンドにも適用する手順とCIを追加。本番適用は④で完了。
 2. [x] **GitHub Actionsで正式候補と検証記録を保管する。** [手順と実績](docs/ci-release.md#正式保管復元の実績2026-11-12)。`241ee4b`の[通常AMD64 CI](https://github.com/ikuradon/shirasu/actions/runs/43174098113)と[正式ARM64 workflow](https://github.com/ikuradon/shirasu/actions/runs/43174832148)が成功。[Release `images-v5-r1`](https://github.com/ikuradon/shirasu/releases/tag/images-v5-r1)とpublic GHCRに出典・ライセンス文書付きで正式保管した。描画版は`v5`、旧Gitタグ`images-v5`は維持。別runnerで匿名・固定digestのpull、121ファイル照合、Compose生成を確認してから両`latest`を同じdigestへ更新し、復元結果8項目すべて成功。このホストでも匿名復元・121ファイル・ARM64・固定タグとlatestのdigest／image ID一致・隔離Compose生成を確認した。両runのartifact各201ファイルを検証し、40ケース・46投稿・48種類のPNGが承認済みプレビューと本文・ALT・原入力・画像bytesまで一致。公開Releaseの検証tarも正式artifactと全ファイル一致。非公開初回用PATは不要で、初期化用のremote・local branchと一時worktreeも削除済み。本番Vercel／受信側切替は次項。
 3. [x] **画像サービスを先に検証・公開する。** [操作手順](docs/vercel-release.md)、[公開記録](docs/vercel-release-reference.md)。2026-11-12: `c15fe24`をmainへ反映し、[通常CI＋Preview](https://github.com/ikuradon/shirasu/actions/runs/43190896423)と[正式workflow](https://github.com/ikuradon/shirasu/actions/runs/43193783044)が成功。`images-v5-r2`をpublic GHCRへ保管し、別runnerで匿名・固定digestの復元、121ファイルと8項目を確認。本番候補95画像・114リクエストをGitHub OIDCで検証後、同じdeploymentを昇格。本番ドメインでも匿名95画像・114リクエスト、旧v1〜v4代表・PNG/WebPのbytes／画素・署名・MIME・ETag・HEAD／304・不正拒否・両形式CDN HITを確認した。AMD64/ARM64両artifactの40ケース・46投稿が承認済みプレビューと一致。Preview／本番のerror・fatalログなし。既存設定を保持したTrusted Sourcesの自動追加も成功。配布元・復元・deployment記録をGitHub Releaseに保存した。詳細メモリ計測はプラン制約で未取得。受信機切替は次項。
-4. [ ] **バックアップを検証して受信側を切り替える。** 直前のDBバックアップを作成・検証し、①の固定イメージと`SHIRASU_IMAGE_VERSION=v5`・`SHIRASU_IMAGE_ENCODING=w1`へ切り替える。既存DBを引き継ぎ、受信・集約・配送・画像URL生成エラーと、保存済みイベントの再送を確認する。
+4. [x] **バックアップを検証して受信側を切り替える。** [切替記録](docs/release-compose.md#本番切替の記録2026-11-12)。2026-11-12 19:38 JST、GHCRから`images-v5-r2`を復元・照合し、直前のDBバックアップ15件の署名・ID・整合性を検証。受信・監視・バックアップを同じ固定image IDへ揃え、`v5/w1`へ切替。`.env`の`COMPOSE_FILE`へ保持先のoverrideを保存し、既存DB・設定・鍵・ネットワークを維持。全3サービスhealthy、実受信・Nostr接続・監視・自動バックアップhealth正常、保存済み15件のJSON・ID・署名が不変。実運用鍵で旧v4／v5 PNG／WebPのHTTP 200とv5全画素一致を確認。送信・集約待ちは0件で実機再送の対象はなく、再送・集約は正式CIで検証済み。新規投稿の実確認は⑤。
 5. [ ] **本番URLでSNS表示と運用を確認し、公開記録を残す。** 実nostterの通常表示・拡大、新規投稿の本文URL・`imeta`・ALT、既存投稿画像の取得を確認する。前段のnostter確認は応答を差し替えた表示検証まで。新規投稿だけを`v4/png`または画像無効へ戻す手順を用意し、公開済みv5/w1の画像経路と検証鍵を維持する。公開先・配布物・受信イメージ・確認結果を記録し、運用説明とTODOを更新する。
 
 公開を待たせず継続できる課題は、B4追加震央の公式根拠調査、取消と元報の自動確定照合、ユーザー指示で保留中の外部異常通知です。

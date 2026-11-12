@@ -1,12 +1,12 @@
 # QZQSM画像の運用
 
 受信機は通報をまとめて署名付きURLを作り、画像はVercel側で描画します。
-PNGの永続保存やBlob/R2は使いません。受信機にMatplotlib・地図・フォントは入りません。
+PNG／WebPの永続保存やBlob/R2は使いません。受信機にMatplotlib・地図・フォントは入りません。
 表示内容とHTTP仕様は [画像サービス](image_service/README.md) を参照してください。
 
 運用先は [shirasu-images](https://shirasu-images.vercel.app/healthz)（Vercelの `g-s-n` チーム）です。
 プロジェクトは受信機のGitリポジトリには直接接続せず、検証済み候補の画像パッケージをデプロイします。
-[GHAによる検証・公開](docs/vercel-release.md)を有効化済みです。mainはPreview URL、正式タグはGHCR復元・候補のHTTPS検証後に本番へ接続します。2026-11-12に`images-v5-r2`を公開し、候補・本番とも95画像の検証に成功しました。受信機のv5/w1への切替は次の作業です。
+[GHAによる検証・公開](docs/vercel-release.md)を有効化済みです。mainはPreview URL、正式タグはGHCR復元・候補のHTTPS検証後に本番へ接続します。2026-11-12に`images-v5-r2`を公開し、候補・本番とも95画像の検証に成功しました。同日に受信機も同じ固定配布版のv5/w1へ切り替えました。[受信機の切替記録](docs/release-compose.md)を参照してください。
 
 ## 投稿の動き
 
@@ -20,7 +20,7 @@ PNGの永続保存やBlob/R2は使いません。受信機にMatplotlib・地図
 該当する未送信の集約を抑制して即時に配送キューへ入ります。すでに署名して配送キューへ
 入れた投稿や公開済み投稿は変更しません。
 
-台風・南海トラフ以外は集約待ちをせず従来の配送キューへ入ります。画像を添える通報では本文とPNGのURLを併記し、
+台風・南海トラフ以外は集約待ちをせず従来の配送キューへ入ります。画像を添える通報では本文と画像URLを併記し、
 対応するNostrクライアント用に `imeta` も付けます。画像表示に未対応のクライアントでも
 本文を読めます。
 
@@ -30,9 +30,9 @@ PNGの永続保存やBlob/R2は使いません。受信機にMatplotlib・地図
 画像の描画方法に依存しない文面で、地図・要旨・トピックへ切り替わる場合も使えます。
 代替テキストの生成だけが失敗した場合は従来の説明に戻し、本文と画像の投稿を続けます。
 代替テキストも署名イベントに保存するため、再送時には作り直しません。
-この変更は本番未反映です。PNG・署名付き画像URLの仕様や版は変更しません。
+本番の固定配布版に反映済みです。保存済み投稿の代替テキストは変更しません。
 
-南海トラフは、ページをまとめてテキスト主体の1投稿にする変更を実装済みです。画像の有効／無効に
+南海トラフは、ページをまとめてテキスト主体の1投稿にします。画像の有効／無効に
 関係なく受信したページを独自にSQLiteへ保存し、全ページが揃えばすぐに全文を配送キューへ入れます。
 完成後に180秒待つことはなく、受信途中のページごとの投稿もしません。途中のページと締切は再起動後も
 引き継ぎ、通常のDBバックアップに含まれます。
@@ -43,17 +43,15 @@ PNGの永続保存やBlob/R2は使いません。受信機にMatplotlib・地図
 訂正では未確定の古い組立を置き換え、取消では該当する組立を抑制して即時にメタ情報を通知します。
 同じページ番号で本文が変わった場合は、それまでの断片を破棄して集め直し、待ち時間も新たに計ります。
 
-訓練／訂正／取消も本文で明示します。未公開プレビューでは、完成した全文と取消報に
+訓練／訂正／取消も本文で明示します。v5では、完成した全文と取消報に
 16:9の見出しカードを添えます。見出し・情報種別・JSTの発表日時・訓練／訂正／取消だけを
 表示し、本文・ページ数・地理的範囲は画像に補いません。「調査終了」は解除として扱いません。
 画像用URLには代表の原電文1ページを従来のJSON＋zlib形式で渡し、投稿本文には全ページのNMEAを残します。
 未完了通知やUTF-8として読めない完成本文には画像を付けず、後着で本文が完成すれば画像付きの全文を追加投稿します。
 公開済みv1〜v4は見出しカードに未対応です。通常配布の`ImagePublisher.supports_nankai_topic`は無効で、
-新しい集約処理からそれらのURL・`imeta`は付けません。[公開前の候補パッケージ](docs/image-release-rehearsal.md)内の
-v5だけで有効にし、一括公開に向けて本文・署名URL・画像・ALTを通し検証します。
+新しい集約処理からそれらのURL・`imeta`は付けません。[固定した候補パッケージ](docs/image-release-rehearsal.md)内の
+v5で有効にし、本文・署名URL・画像・ALTを通し検証して本番へ反映しています。
 すでに配送キューへ保存した署名イベントと公開済み画像URLは維持します。
-この変更は本番未反映で、運用反映は画像変更の一括公開時に行います。現在の本番では従来どおり、
-単一受信ページの状態を示す要旨画像を添えています。
 
 画像URLは署名済みイベントとともに保存し、再送で作り直しません。画像URL生成に
 失敗したときも本文を配送し、`--status` の「画像URL生成エラー」に記録します。
@@ -62,10 +60,11 @@ Vercelへの問い合わせは受信・配送経路では行いません。描�
 
 ## 公開するソースの準備
 
-リポジトリ全体ではなく、次のコマンドで作る新しいディレクトリをデプロイします。
-既存のディレクトリには出力しません。必要なファイルを列挙してコピーするため、
+本番には、GitHub Actionsで検証した候補の画像パッケージだけをデプロイします。
+必要なファイルを列挙してコピーするため、
 `config.py`、Nostr鍵、SQLite、バックアップ、`.env` が混入しません。
-この通常パッケージは公開済みv1〜v4用です。未公開画像一式を確認する候補パッケージは
+下のコマンドで作る通常パッケージはv1〜v4のローカル確認用です。既存の出力先は上書きしません。
+v5を含む候補パッケージは
 [一括公開前の通し検証](docs/image-release-rehearsal.md)で別途作成します。
 候補v5の受信側には[公開用Compose設定](docs/release-compose.md)を使います。
 正式な候補は[GitHub Actionsで検証・保管](docs/ci-release.md)し、GHCRの固定digestから復元した`images/`を公開に使います。
@@ -79,12 +78,9 @@ manifestのSHA-256とサイズを照合して従来の `image_service/assets/` �
 ```sh
 python3 -B scripts/prepare_vendor_assets.py
 python3 scripts/prepare_image_service.py dist/image-service
-# Vercel CLIを使う場合: 対象プロジェクトとチームを確認してから実行
-cd dist/image-service
-vercel --prod
 ```
 
-VercelはPython 3.12、Framework PresetはOther、Root Directoryはこの出力先です。
+VercelはPython 3.12、Framework PresetはOtherで、固定候補の`images/`をデプロイします。
 `requirements.txt` は描画用依存をハッシュ付きで固定しています。
 `api/image.py` がWSGIを公開し、`vercel.json` が署名パスをその関数へ振り分けます。
 全国の区域を含む通報の配置判定と要旨への切替に余裕を持たせ、関数の実行上限は60秒です。
@@ -103,7 +99,8 @@ Previewでも確認する場合は同じ環境変数が必要です。
 SHIRASU_IMAGE_KEYS={"k1":"<64桁のhex鍵>"}
 ```
 
-受信機のリポジトリ直下の `.env` に次を設定し、ファイルの権限を600にします。
+受信機は[固定イメージのCompose設定](docs/release-compose.md)を先に適用します。
+リポジトリ直下の `.env` に次を設定し、ファイルの権限を600にします。
 このファイルと `state/` はGitの対象外です。鍵を含むCompose設定全体を画面へ出さず、
 設定確認には `docker compose config --quiet` を使います。
 
@@ -111,8 +108,8 @@ SHIRASU_IMAGE_KEYS={"k1":"<64桁のhex鍵>"}
 SHIRASU_IMAGE_BASE_URL=https://<本番ドメイン>
 SHIRASU_IMAGE_KEY_ID=k1
 SHIRASU_IMAGE_SIGNING_KEY=<同じ64桁のhex鍵>
-SHIRASU_IMAGE_VERSION=v4
-SHIRASU_IMAGE_ENCODING=png
+SHIRASU_IMAGE_VERSION=v5
+SHIRASU_IMAGE_ENCODING=w1
 SHIRASU_TYPHOON_WAIT_SECONDS=180
 SHIRASU_NANKAI_WAIT_SECONDS=180
 ```
@@ -129,8 +126,8 @@ v3では気象・緊急地震速報・火山の地図、v4では気象の情報�
 保存済みの署名イベントや投稿済みURLを作り直しません。受信入力形式は各版で共通ですが、
 版もHMACに含めるため、パスの版だけを書き換えたURLは拒否します。
 
-公開後はまず `/healthz`、正規署名URLのPNG、改変URLの拒否を確認します。
-その後 `docker compose up -d --build shirasu` で受信側の設定を反映し、
+公開後はまず `/healthz`、正規署名URLのPNG／WebP、改変URLの拒否を確認します。
+固定イメージを使う`COMPOSE_FILE`を維持して、`docker compose up -d --no-build --pull never shirasu` で受信側の設定を反映し、
 `docker compose exec -T shirasu python main.py --status --format text` を確認します。
 画像を停止するときは先頭3項目を全て空にして再作成します。既存の台風の集約は締切後に
 テキストで配送し、新規の台風は従来の即時キュー投入に戻ります。南海トラフのページ集約は
@@ -138,18 +135,17 @@ v3では気象・緊急地震速報・火山の地図、v4では気象の情報�
 
 ## キャッシュと世代管理
 
-WebPへの接続は[隔離した公開候補](docs/webp-integration.md)で実装・検証します。
-候補の受信側と画像側だけで`v5`＋`SHIRASU_IMAGE_ENCODING=w1`を選べます。
+WebPへの接続は[固定した公開候補](docs/webp-integration.md)で検証済みです。
+本番はその配布版を使い、`v5`＋`SHIRASU_IMAGE_ENCODING=w1`で運用しています。
 通常配布の対応はv1〜v4のPNGで、形式の既定値も`png`です。形式設定だけでは画像は有効になりません。
 通常配布やv1〜v4で`w1`を指定すると起動時の設定エラーになります。
-WebPへの切替を稼働環境へ反映したわけではありません。
 
-URLは `/v1/<key-id>/<payload>.<signature>.png`、`/v2/...`、`/v3/...`、`/v4/...` です。
+PNGのURLは `/v1/<key-id>/<payload>.<signature>.png`、`/v2/...`、`/v3/...`、`/v4/...`、固定配布版では`/v5/...`です。
 payloadはキー順を固定したJSON、zlib、paddingなしbase64urlの順に変換します。
 元のNMEAと元の受信Unixミリ秒を含め、復号の年月補完も再現します。HMACはバージョン・
 key-id・payloadを対象にします。署名確認後にサイズ上限付きで展開・復号します。
 
-候補のWebPは`/v5/<key-id>/<payload>.<signature>.w1.webp`です。PNGとは別の署名ドメインで
+本番のWebPは`/v5/<key-id>/<payload>.<signature>.w1.webp`です。PNGとは別の署名ドメインで
 描画版・key-id・payload・`w1`・`webp`を認証し、形式や設定を書き換えたURLを拒否します。
 `w1`は可逆・quality 100・method 4・exactを固定し、Pillow 13.0.0／libwebp 1.6.0以外では
 生成を拒否します。符号器を変えるときは別プロファイルを追加し、公開済み`w1`は残します。
@@ -173,7 +169,7 @@ CDNはこのパス全体でキャッシュし、保持されていれば再描�
 旧版を同時に残せない大きな依存変更では、旧サービスを維持した上で新版を別サービスへ
 切り出してください。Vercelの再デプロイはCDNキャッシュを持ち越す保証にはなりません。
 
-公開前の候補では、専用パッケージ内だけでv5を登録し、全ファイルのハッシュをmanifestに保存します。
+v5は専用の候補パッケージ内で登録し、全ファイルのハッシュをmanifestに保存します。
 検証済みの配布物を固定して公開し、後日の作業版を同じv5へ重ねません。
 受信側の新規投稿をv4へ切り戻しても、保存・投稿済みのv5 URLを維持するため画像サービスと検証鍵は残します。
 候補の作成・照合・切り戻し条件は[通し検証の手順](docs/image-release-rehearsal.md)を参照してください。
@@ -215,7 +211,7 @@ docker run --rm --network none \
 降灰予報の訓練例は、同じコマンドの入力を `--records /samples/ash_fall.json`、
 出力を `--output /output/ash-preview.png` にして確認できます。
 指定河川洪水予報は `--records /samples/flood.json`、`--output /output/flood-preview.png` です。
-いずれも未公開で、通常のデプロイパッケージには含めません。
+これらは固定配布版v5に収録済みです。通常checkoutのv1〜v4用パッケージには含めません。
 台風・震源・火山・気象・緊急地震速報・海上警報・震度・津波の拡大図も、
 プレビューでは県境と右下のミニマップを使います。公開済みの描画経路は維持します。
 
