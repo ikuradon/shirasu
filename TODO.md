@@ -3,7 +3,7 @@
 ## 一括公開までの残作業（2026-11-11整理・実施順）
 
 WebP統合までを`21209e5`でcommit済み。ローカルの164テスト、49入力の描画比較、実46投稿・45入力のHTTP確認は完了しています。
-以下は公開工程の完了状況です。2026-11-12に画像サービスの本番公開と受信機のv5／WebP切替を完了し、新規投稿とSNS上の確認が残っています。
+以下は公開工程の完了状況です。2026-11-12に画像サービスの本番公開と受信機のv5／WebP切替、11月13日に新規投稿と実nostter上の確認を完了しました。
 
 2026-11-12の方針: 洪水流路は出典・加工者を明記した現行の気象庁データを使用する。OSM代替の試作は採用せず撤去済み。②は出典・ライセンス文書を同梱したpublic GHCRへ変更し、非公開初回作成用PATは不要とする。出典表示の採用を、GIS本体の再配布条件が確認済みになったという意味にはしない。
 
@@ -13,7 +13,7 @@ WebP統合までを`21209e5`でcommit済み。ローカルの164テスト、49�
 2. [x] **GitHub Actionsで正式候補と検証記録を保管する。** [手順と実績](docs/ci-release.md#正式保管復元の実績2026-11-12)。`241ee4b`の[通常AMD64 CI](https://github.com/ikuradon/shirasu/actions/runs/43174098113)と[正式ARM64 workflow](https://github.com/ikuradon/shirasu/actions/runs/43174832148)が成功。[Release `images-v5-r1`](https://github.com/ikuradon/shirasu/releases/tag/images-v5-r1)とpublic GHCRに出典・ライセンス文書付きで正式保管した。描画版は`v5`、旧Gitタグ`images-v5`は維持。別runnerで匿名・固定digestのpull、121ファイル照合、Compose生成を確認してから両`latest`を同じdigestへ更新し、復元結果8項目すべて成功。このホストでも匿名復元・121ファイル・ARM64・固定タグとlatestのdigest／image ID一致・隔離Compose生成を確認した。両runのartifact各201ファイルを検証し、40ケース・46投稿・48種類のPNGが承認済みプレビューと本文・ALT・原入力・画像bytesまで一致。公開Releaseの検証tarも正式artifactと全ファイル一致。非公開初回用PATは不要で、初期化用のremote・local branchと一時worktreeも削除済み。本番Vercel／受信側切替は次項。
 3. [x] **画像サービスを先に検証・公開する。** [操作手順](docs/vercel-release.md)、[公開記録](docs/vercel-release-reference.md)。2026-11-12: `c15fe24`をmainへ反映し、[通常CI＋Preview](https://github.com/ikuradon/shirasu/actions/runs/43190896423)と[正式workflow](https://github.com/ikuradon/shirasu/actions/runs/43193783044)が成功。`images-v5-r2`をpublic GHCRへ保管し、別runnerで匿名・固定digestの復元、121ファイルと8項目を確認。本番候補95画像・114リクエストをGitHub OIDCで検証後、同じdeploymentを昇格。本番ドメインでも匿名95画像・114リクエスト、旧v1〜v4代表・PNG/WebPのbytes／画素・署名・MIME・ETag・HEAD／304・不正拒否・両形式CDN HITを確認した。AMD64/ARM64両artifactの40ケース・46投稿が承認済みプレビューと一致。Preview／本番のerror・fatalログなし。既存設定を保持したTrusted Sourcesの自動追加も成功。配布元・復元・deployment記録をGitHub Releaseに保存した。詳細メモリ計測はプラン制約で未取得。受信機切替は次項。
 4. [x] **バックアップを検証して受信側を切り替える。** [切替記録](docs/release-compose.md#本番切替の記録2026-11-12)。2026-11-12 19:38 JST、GHCRから`images-v5-r2`を復元・照合し、直前のDBバックアップ15件の署名・ID・整合性を検証。受信・監視・バックアップを同じ固定image IDへ揃え、`v5/w1`へ切替。`.env`の`COMPOSE_FILE`へ保持先のoverrideを保存し、既存DB・設定・鍵・ネットワークを維持。全3サービスhealthy、実受信・Nostr接続・監視・自動バックアップhealth正常、保存済み15件のJSON・ID・署名が不変。実運用鍵で旧v4／v5 PNG／WebPのHTTP 200とv5全画素一致を確認。送信・集約待ちは0件で実機再送の対象はなく、再送・集約は正式CIで検証済み。新規投稿の実確認は⑤。
-5. [ ] **本番URLでSNS表示と運用を確認し、公開記録を残す。** 実nostterの通常表示・拡大、新規投稿の本文URL・`imeta`・ALT、既存投稿画像の取得を確認する。前段のnostter確認は応答を差し替えた表示検証まで。新規投稿だけを`v4/png`または画像無効へ戻す手順を用意し、公開済みv5/w1の画像経路と検証鍵を維持する。公開先・配布物・受信イメージ・確認結果を記録し、運用説明とTODOを更新する。
+5. [x] **本番URLでSNS表示と運用を確認し、公開記録を残す。** [実投稿の確認記録](docs/release-compose.md#新規投稿とnostterの確認2026-11-13)。2026-11-13、自然受信の新規10投稿すべてで署名・本文URL／`imeta`一致・具体ALT・WebP HTTP 200／復号／ETagを確認。実nostterでは気象・海上警報をPC／スマホ幅の4画面で開き、実2リレーからのイベントと画像bytesの一致、通常表示・拡大・閉じるを確認した。応答差し替え・ログイン・検証用投稿なし。未ログイン時のぼかしと、nostterが投稿ALTをDOMへ反映しない制約を記録。既存v4画像の取得は④で確認済み。新規投稿だけを`v4/png`または画像無効へ戻し、公開済みv5/w1の画像経路・鍵を維持する手順と、公開先・配布物・受信イメージの記録も完了。
 
 公開を待たせず継続できる課題は、B4追加震央の公式根拠調査、取消と元報の自動確定照合、ユーザー指示で保留中の外部異常通知です。
 現状のトピック／取消表示を維持します。画像専用4例はHTTP比較の条件が異なるため直接描画で検証済みで、実投稿46件の確認漏れではありません。

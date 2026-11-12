@@ -34,9 +34,30 @@ GHCRから両イメージを復元し、候補121ファイルと受信イメー�
 既存投稿の受信データと実運用の画像鍵で、本番の旧v4 PNG・v5 PNG・v5 WebPがHTTP 200になることを確認しました。
 v5のPNG／WebPは1920×1080で全画素一致し、この入力では327,035 bytesから116,050 bytesになりました。
 検証用のNostr投稿は行っていません。送信待ちは0件だったため、実機の再送対象はなく、再送・集約の動作検証は正式リリースのCIによります。
-切替後の新規投稿と実nostter上の表示確認は[TODOの⑤](../TODO.md)に残しています。
+切替後の新規投稿と実nostter上の表示は、翌11月13日に下記のとおり確認しました。
 
 ホストの復元・画像HTTP・切替結果は、保持先の`host-restore-result.json`、`primary-key-http-check.json`、`switch-result.json`に保存しています。
+
+## 新規投稿とnostterの確認（2026-11-13）
+
+切替後の自然受信で投稿された10件（気象6件・海上警報4件、11月12日23:35〜13日06:33 JST）を確認しました。
+全件が送信済みで署名が有効、本文と`imeta`のURLが一致し、`m=image/webp`と情報種別・発表日時を含む`alt`が入っています。
+全10画像がHTTP 200、WebP・1920×1080として復号でき、ETagと実画像のSHA-256も一致しました。
+
+実nostterでは、[気象情報](https://nostter.app/note1d7cvj4ydx32znzj8km02kcd8wfmnnjc0x86v5vvw0qqgtfwf2uyqhptw20)と
+[海上警報](https://nostter.app/note1dyn07uvdlsl00agrg3nxc66lglk87ff6pkdp5dp0zyn72tq6g27q852qdl)を、
+Chromium 158.0.8127.18のPC幅1440×1000・スマホ幅390×844で確認しました。
+ブラウザ用プラグインがないため一時Playwrightを使用し、投稿・画像・リレー応答の差し替えは行っていません。
+
+- 4画面とも本文・画像の読み込み、「表示」から拡大、閉じる、画像クリックからの再拡大が成功。横はみ出し・ページ例外なし。
+- `yabu.me`と`r.kojira.io`から届いた実イベントが保存済みJSONと一致。ブラウザが取得したWebPも直接HTTP検証とバイト一致。
+- 未ログイン・未フォロー時の通常画像はnostterがぼかす。「表示」でぼかしのない拡大画像が開く。通常画像のblurクラスを解除する操作ではない。
+- 投稿のALTは有効だが、nostterの通常・拡大画像のDOM `alt`はいずれも画像URL。これは[通常画像](https://github.com/SnowCait/nostter/blob/78e22b7a7e79825290ee779a958a368eb90833f7/web/src/lib/components/content/Img.svelte)・[拡大画像](https://github.com/SnowCait/nostter/blob/78e22b7a7e79825290ee779a958a368eb90833f7/web/src/lib/components/content/Thumbnail.svelte)の実装とも整合する。投稿形式は[NIP-92](https://github.com/nostr-protocol/nips/blob/master/92.md)に沿っており、クライアント側のALT利用は別の対応になる。
+- consoleにはCloudflareの計測scriptの証明書エラー、言語検出モデルの警告、一部画面で`relay.damus.io`の503があった。証明書検証は有効のまま。対象投稿は上記2リレーから取得でき、本番画像の通信エラーはなかった。
+
+ログイン・検証用投稿は行わず、ブラウザからリレーへ送ったコマンドは`REQ`と`CLOSE`だけでした。
+他の通報種別・Safari・Firefox・ログイン後の表示は、この実投稿確認には含みません。
+証跡は`state/releases/images-v5-r2/live-post-check-20261113/`のJSON・検証スクリプト・スクリーンショット8枚に保持しています。
 
 ## 生成する設定
 
