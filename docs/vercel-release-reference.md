@@ -45,7 +45,7 @@ mainのGHAが後述のTrusted SourcesをVercelへ追加し、既存ルールを�
 
 画像HMAC鍵のGitHub登録は不要です。後述の検証専用鍵をデプロイごとに生成します。
 Preview URLと候補manifestはActions summaryと`vercel-preview-<run>-<attempt>` artifactへ、
-秘密情報を除いたHTTP結果も同artifactへ保存します。現時点では実装済み・有効化前です。
+秘密情報を除いたHTTP結果も同artifactへ保存します。2026-11-12に有効化・実行確認済みです。
 
 外部データは`vendor/jma/`、`vendor/natural-earth/`、`vendor/noto-cjk/`へ取得元別に保存します。
 GHAの最初に`prepare_vendor_assets.py`でSHA-256とサイズを照合し、従来のruntimeパスへ配置します。
@@ -173,7 +173,7 @@ python3 -B scripts/check_vercel_release.py \
 | 実HTTPS | 95画像・115リクエスト成功、画像bytes／WebP画素一致 |
 | HTTPとキャッシュ | HEAD／304・各種拒否・PNG／WebPのrepeat HITを確認 |
 | 実行時エラー | 対象Previewの直近30分のerror／fatalログなし |
-| 本番公開 | 未実施。新しいGHA自動化は実装・ローカル検証まで。token登録・Trusted Sources設定・新配布タグでの実行は後続 |
+| 本番公開 | r1のこの検証時点では未実施。後述のr2で自動公開を完了 |
 
 検証用Previewは[このdeployment](https://shirasu-images-pd4apnx3h-g-s-n.vercel.app)です。
 保護認証が必要です。共有tokenを文書へ載せません。
@@ -191,7 +191,7 @@ Observability Plusの契約は変更していません。したがって、Verce
 
 vendor配置・配布パッケージ・CI保管・Vercelの復元／公開／OIDC／HTTPをローカルで検証しました。
 Vercel API・GitHub OIDCの新しい自動化部分は模擬応答によるテストであり、
-上記r1の実HTTPS検証と区別します。新しいGHA workflowの実実行は初期設定後です。
+上記r1の実HTTPS検証と区別します。新しいGHA workflowの実行結果は下記に記録します。
 
 固定依存のDockerイメージを使い、vendor移行後の40ケースを再描画しました。
 描画失敗0件、前のプレビューとの画像比較・46投稿の比較は全て変更なしです。
@@ -199,3 +199,50 @@ Vercel API・GitHub OIDCの新しい自動化部分は模擬応答によるテ�
 Vercel関連57件、CI保管69件、vendor11件のテストが成功し、受信機コンテナは439件中5件skipで成功しました。
 workflowはactionlint 1.7.12でも検査済みです。一時候補・重複する描画出力・検証専用Dockerイメージは削除し、
 ローカルの集計だけを`dist/autodeploy-check/verification.json`へ保存しています。
+
+## 自動Previewの実行結果（2026-11-12）
+
+commit `c15fe249175e5ea4b3ac7b3d5f8f37efbce82583`の
+[通常CI](https://github.com/ikuradon/shirasu/actions/runs/43190896423)が成功しました。
+GHAが既存設定を保持してTrusted Sourcesの2ルールを追加し、GitHub OIDCで保護されたPreviewへアクセスしました。
+
+| 項目 | 結果 |
+| --- | --- |
+| Preview | [deployment固有URL](https://shirasu-images-3416i8wa1-g-s-n.vercel.app)、`dpl_Cf37fHdS4BQjcsMrYnETNLR5QFmn` |
+| 固定候補 | `97e15966568f7729c38107ab5e0675c441032726d6774f531658c0f902c2311e`、画像99ファイル |
+| 実HTTPS | 95画像・114リクエスト成功、旧版・PNG/WebPのバイト列と画素一致 |
+| HTTP | HEAD／304、署名・query・method・世代・profile・拡張子の不正を拒否 |
+| CDN | PNG/WebPともrepeat HIT、合計6 HIT |
+| 承認済みプレビューとの比較 | 40ケース・46投稿の本文・ALT・入力・PNGが一致 |
+
+取得した公開artifactは200ファイルのチェックサムを検証済みです。
+証跡は`dist/github-actions/43190896423/`に保持しています。
+
+## 正式公開の実行結果（2026-11-12）
+
+同じcommitに`images-v5-r2`を付けてpushし、
+[正式workflow](https://github.com/ikuradon/shirasu/actions/runs/43193783044)が全job成功しました。
+ARM64での保管・別runnerでの復元後、Vercelのproduction候補をドメイン未割当で作成しました。
+候補検証後、再ビルドせず同じdeploymentを本番ドメインへ昇格しています。
+
+| 項目 | 結果 |
+| --- | --- |
+| 配布タグ | [images-v5-r2](https://github.com/ikuradon/shirasu/releases/tag/images-v5-r2) |
+| source／候補 | 上記Previewと同じ`c15fe24`／`97e15966568f7729c38107ab5e0675c441032726d6774f531658c0f902c2311e` |
+| GHCR復元 | 匿名・固定digest、121ファイル、起動・Compose、latest整合など8項目成功 |
+| 本番deployment | `dpl_6B4Y8mCUTZmZkPFoZeuvWWezFvVw`、`READY` |
+| 切替前deployment | `dpl_91LJo29zJXcmvX7DZQpbqgmee25V` |
+| 本番URL | [shirasu-images.vercel.app](https://shirasu-images.vercel.app/healthz) |
+| 本番候補 | GitHub OIDC認証、95画像・114リクエスト成功 |
+| 切替後の本番 | 匿名で95画像・114リクエスト成功 |
+| 画像／HTTP／CDN | 旧v1〜v4代表、PNG/WebPのbytes・RGBA、MIME・ETag・HEAD／304・不正拒否。両形式のrepeat HIT、合計6 HIT |
+| 実行時エラー | Previewと本番の対象deploymentで直近30分のerror／fatalログなし |
+
+正式ARM64 artifactの40ケース・46投稿も、承認済みプレビューと本文・ALT・入力・PNGが一致しました。
+ホストからも本番`/healthz`を匿名HTTPSで確認し、200・`ok`・no-storeを確認しています。
+
+配布・復元・公開記録は同じGitHub Releaseへ保存済みです。
+`vercel-43193783044-1.json`はActions artifactのdeployment記録とバイト一致し、
+候補／本番HTTPレポートのSHA-256も一致しています。
+ローカル証跡は`dist/github-actions/43193783044/`に保持しています。
+受信機の本番切替と実SNS表示の確認は次の作業です。

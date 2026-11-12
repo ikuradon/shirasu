@@ -27,7 +27,7 @@ Vercel候補の保護されたURLへのアクセス用に、対象jobだけ`id-t
 
 地図・フォントは取得元別の`vendor/`で固定し、最初にチェックサム付きでruntimeパスへ配置します。
 通常CI・正式保管とも上流からのデータ取得やGIS変換は行いません。
-Vercel自動化は初期設定後に有効になります。現時点で新workflowの実行と本番公開は未実施です。
+Vercel自動化は初期設定済みで、`images-v5-r2`の公開まで実行・検証しました。受信機の本番切替は未実施です。
 
 通常の`Tests`（AMD64）と正式workflow（ARM64）は、同じcommitで並行実行できます。
 正式workflowは自身の受信・画像・HTTP・Composeの検証を通してから保管し、
@@ -53,7 +53,7 @@ git push origin refs/tags/images-v5-r2
 
 | 指定 | 意味 |
 | --- | --- |
-| `:images-v5-r1` | 今回の配布改訂版。同名Gitタグに対応し、既存のイメージタグは上書きしない |
+| `:images-v5-r2` | 今回の配布改訂版。同名Gitタグに対応し、既存のイメージタグは上書きしない |
 | `:latest` | 別runnerでの復元確認まで成功した最新の正式版 |
 | `:run-<run-id>-<attempt>` | そのActions実行で検証・保存したイメージ |
 | `@sha256:...` | `release.json`に記録した内容の識別子。復元と本番運用ではこれを使う |
@@ -62,8 +62,8 @@ HEADを追いかける開発用イメージを追加するなら`:main`と分け
 `latest`には自動的にHEADを意味する性質はなく、このworkflowが復元成功後に付け替える名前です。
 タグごとに用途を分ける方式は[Docker Metadata actionのタグ設定](https://github.com/docker/metadata-action#tags-input)でも使えます。
 
-描画URLの世代と配布版を分けます。今回の描画版は`v5`のまま、配布タグは`images-v5-r1`です。
-`-r1`は同梱文書や保管設定を改訂した配布版を表し、画像URLへは入りません。
+描画URLの世代と配布版を分けます。今回の描画版は`v5`のまま、配布タグは`images-v5-r2`です。
+`-rN`は同梱文書・配布設定・互換性を維持するHTTP処理などの改訂を表し、画像URLへは入りません。
 既存Gitタグ`images-v5`は`8b156d5`を指したまま残します。
 後日の配布内容変更でも同じタグを付け替えず、新しい配布タグを使います。
 描画結果や署名URLの互換性に影響する変更では、別途描画版を更新します。
@@ -90,7 +90,7 @@ remote・localとも削除し、`/tmp/shirasu-ghcr-bootstrap-check`のworktree�
 | --- | --- |
 | `ghcr.io/<owner>/<repo>-receiver`（public） | 固定依存とライセンス文書を含む受信イメージ |
 | `ghcr.io/<owner>/<repo>-images`（public） | レンダラー、固定依存、フォント、GIS、出典・ライセンス文書を含む画像サービスのイメージ |
-| GitHub Release `images-v5-r1` | `release.json`、元の`candidate-manifest.json`、`public-verification.tar.gz`、成功後の`restore-result.json` |
+| GitHub Release `images-v5-r2` | `release.json`、元の`candidate-manifest.json`、`public-verification.tar.gz`、成功後の`restore-result.json` |
 | Actions artifact `image-checks-<run-id>-<attempt>` | 検証JSON、PNG/WebP、投稿ギャラリー、候補manifest、全公開ファイルのSHA-256とサイズ |
 
 洪水流路は、ユーザーが選択した出典付きの現行気象庁データを使用します。
@@ -157,9 +157,9 @@ workflow outputで受け取った配布タグのReleaseへ`restore-result.json`�
 復元先は`dist`の一時領域ではなく、運用上保持する新規ディレクトリにします。
 
 ```sh
-release_dir=/absolute/retained/path/images-v5-r1
+release_dir=/absolute/retained/path/images-v5-r2
 mkdir -p "$release_dir/metadata"
-gh release download images-v5-r1 --repo OWNER/REPO \
+gh release download images-v5-r2 --repo OWNER/REPO \
   --pattern release.json --pattern candidate-manifest.json \
   --pattern public-verification.tar.gz --dir "$release_dir/metadata"
 ```
@@ -266,3 +266,26 @@ registry digest・image IDが上記と一致しています。隔離したCompos
 
 ここで完了したのはGitHub／GHCRへの正式保管と復元確認です。
 Vercelの本番公開と受信側の切替はまだ実施していません。
+
+
+## 自動公開版r2の保管・復元（2026-11-12）
+
+[Release `images-v5-r2`](https://github.com/ikuradon/shirasu/releases/tag/images-v5-r2)を、
+commit `c15fe249175e5ea4b3ac7b3d5f8f37efbce82583`から公開しました。
+[正式workflow](https://github.com/ikuradon/shirasu/actions/runs/43193783044)では、ARM64検証・GHCR保管・
+別runnerでの匿名復元・Vercel候補検証・本番公開がすべて成功しました。
+復元は121ファイルと8項目を確認し、両`latest`もr2の固定digestと一致しています。
+
+| イメージ | 固定digest |
+| --- | --- |
+| `ghcr.io/ikuradon/shirasu-receiver` | `sha256:a57fa2a1a04642ed052b7f72326aba4b412f4ccb896f976733c3d27c730206bc` |
+| `ghcr.io/ikuradon/shirasu-images` | `sha256:97bcec97349d404d52e785c2db6e82bccdd25025ac0c52de9d45be19f0d038b3` |
+
+候補manifestは`97e15966568f7729c38107ab5e0675c441032726d6774f531658c0f902c2311e`です。
+通常AMD64 CIと正式ARM64 workflowの候補が一致し、両artifactの40ケース・46投稿は
+承認済みプレビューと本文・ALT・入力・画像まで一致しました。
+Releaseには配布・復元記録に加え`vercel-43193783044-1.json`を保存しています。
+[本番公開の詳細](vercel-release-reference.md#正式公開の実行結果2026-11-12)を参照してください。
+
+ローカルには`dist/github-actions/43193783044/`へ公開artifact、比較結果、配布・復元・Vercelの証跡を保持しています。
+r2の受信機ホストへの本番切替はまだ行っていません。

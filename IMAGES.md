@@ -6,7 +6,7 @@ PNGの永続保存やBlob/R2は使いません。受信機にMatplotlib・地図
 
 運用先は [shirasu-images](https://shirasu-images.vercel.app/healthz)（Vercelの `g-s-n` チーム）です。
 プロジェクトは受信機のGitリポジトリには直接接続せず、検証済み候補の画像パッケージをデプロイします。
-[GHAによる検証・公開](docs/vercel-release.md)を実装済みです。mainはPreview URL、正式タグはGHCR復元・候補のHTTPS検証後に本番へ接続します。新しい自動化の有効化と本番公開は未実施です。
+[GHAによる検証・公開](docs/vercel-release.md)を有効化済みです。mainはPreview URL、正式タグはGHCR復元・候補のHTTPS検証後に本番へ接続します。2026-11-12に`images-v5-r2`を公開し、候補・本番とも95画像の検証に成功しました。受信機のv5/w1への切替は次の作業です。
 
 ## 投稿の動き
 

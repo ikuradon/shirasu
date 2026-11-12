@@ -78,9 +78,9 @@ python3 -B scripts/prepare_vendor_assets.py
 ```
 
 一括公開に向け、画像・受信側の候補パッケージを固定して署名URL、実PNG、投稿添付・ALT、旧URL、切り戻しを確認する
-[通し検証の手順](docs/image-release-rehearsal.md)を用意しています。候補内だけでv5を登録し、通常配布と本番設定はv1〜v4のままです。
+[通し検証の手順](docs/image-release-rehearsal.md)を用意しています。候補内でv5を登録し、2026-11-12に`images-v5-r2`をVercelへ公開しました。通常パッケージと受信機の現行設定はv1〜v4のままです。
 候補を使う受信側の起動は[公開用Compose設定](docs/release-compose.md)で準備します。検証したイメージへ固定し、既存DB・設定を引き継ぎます。本番への切替はまだ行っていません。
-候補の正式なビルド・検証・保管は[GitHub Actionsの手順](docs/ci-release.md)へ集約します。正式タグの検証済みイメージを出典付きでpublic GHCRへ保存し、digestで復元します。[Vercel自動化](docs/vercel-release.md)はmainをPreview、正式タグを本番候補へ接続し、HTTPS検証後に公開する実装です（初期設定・新workflowの実行前）。
+候補の正式なビルド・検証・保管は[GitHub Actionsの手順](docs/ci-release.md)へ集約します。正式タグの検証済みイメージを出典付きでpublic GHCRへ保存し、digestで復元します。[Vercel自動化](docs/vercel-release.md)はmainをPreview、正式タグを本番候補へ接続し、HTTPS検証後に公開します。r2で保管・復元・候補検証・本番公開まで成功済みです。
 
 ## 通報の再生・投稿プレビュー
 

@@ -1,7 +1,7 @@
 # Vercel公開手順
 
-**今、ユーザーが行うのは「1. token登録」だけです。2以降はCodexが担当します。**
-現在の実装は未commit・未pushで、新しい自動デプロイはまだ実行していません。
+**2026-11-12: 初期設定と`images-v5-r2`の本番公開を完了しました。**
+次回の更新は手順2から進めます。手順1はtokenを作り直す場合だけ必要です。
 
 ## 1. tokenをGitHubへ登録する（ユーザー・初回のみ）
 
@@ -26,12 +26,13 @@ GHAがVercelの現在の設定を読み、[アクセスルール2件](vercel-tru
 **この操作は検証成功後に本番ドメインを切り替えます。**
 
 1. [Publish verified image release](https://github.com/ikuradon/shirasu/actions/workflows/release.yml)を開き、**Run workflow**を押す。
-2. Branchを`main`、`release_tag`を未使用の配布タグにする。今回は`images-v5-r2`を使う（既存の`images-v5-r1`は再利用しない）。
+2. Branchを`main`、`release_tag`を未使用の配布タグにする。同じ描画版の次の改訂なら`images-v5-r3`（公開済みの`images-v5-r2`は再利用しない）。
 3. **Run workflow**で開始し、`verify-receiver` → `release` → `restore` → `vercel`の成功を確認する。
 4. Vercel公開jobのSummaryで、候補95画像・匿名の本番95画像の検証成功を確認する。
 5. [GitHub Release](https://github.com/ikuradon/shirasu/releases)に配布タグと`vercel-<run>-<attempt>.json`が追加されたことを確認する。
 
 Gitタグ作成・GHCR保管・復元・Vercel候補作成・本番切替はworkflowが行います。受信機の切替は別作業です。
+手動実行の代わりに、検証済みcommitへ新しい配布タグを付けてpushしても同じworkflowが動きます。今回のr2はタグpushで公開しました。
 `Deploy verified release to Vercel`の単独実行は、既に保管済みの対応Releaseを再デプロイするときだけ使います。
 
 仕組み、検証範囲、過去の結果は[設計と検証記録](vercel-release-reference.md)を参照してください。
