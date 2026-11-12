@@ -49,6 +49,22 @@ HEADを追いかける開発用イメージを追加するなら`:main`と分け
 `images-v5`は描画URLの世代に対応した今回の固定候補です。アプリ全体のSemVerではありません。
 後日の受信アプリ更新やデザイン変更で同じタグを付け替えず、別の配布版として扱います。
 
+## 非公開packageの初回作成
+
+公開repositoryの`GITHUB_TOKEN`で新しいpackageを作った場合、非公開になるとは限りません。
+[Actionsから作成するpackageの既定設定](https://docs.github.com/en/packages/managing-github-packages-using-github-actions-workflows/publishing-and-installing-a-package-with-github-actions#default-permissions-and-access-settings-for-packages-modified-through-workflows)
+には、実行元repositoryのvisibilityと権限モデルを継承する旨が記載されています。
+2026-11-12の初回実行でも、空のreceiver bootstrapがpublicになり、実データを送る前に停止しました。
+
+初回だけ所有者のPAT（classic、`write:packages`と付随する`read:packages`）で空のpackageを用意し、
+privateかつ同じrepositoryへリンクされていることを確認します。`repo`権限は不要です。
+作成後は別のDocker認証設定に切り替え、通常の`GITHUB_TOKEN`でもdigest指定のpullが成功することを確認します。
+以後の保管・復元には`GITHUB_TOKEN`を使い、初回用PATは失効させ、登録したActions secretも削除します。
+
+一度publicになったpackageはprivateへ戻せません。今回の空bootstrapについては、既知のタグ・digestだけで
+ファイル層がないことを照合した場合に限り、packageを削除して作り直します。
+実データや未知のversionを含む既存packageの削除・公開設定変更は行いません。
+
 ## 保存するもの
 
 | 保存先 | 内容 |
@@ -162,6 +178,11 @@ python3 -B scripts/prepare_release_compose.py \
 この復元試験のregistry pull/inspectは代替し、cleanなCI記録は合成しています。
 後続の[通常CI](https://github.com/ikuradon/shirasu/actions/runs/43122044922)は`b9b5f23`で成功し、
 実artifactの200ファイルを検証しました。40ケース・46投稿の本文・ALT・画像も承認済みプレビューと一致しています。
+続いて`8b156d5`の[通常CI](https://github.com/ikuradon/shirasu/actions/runs/43129666692)も成功しました。
+[正式保管の初回実行](https://github.com/ikuradon/shirasu/actions/runs/43129666472)では、受信・画像・HTTP・Composeの検証が成功し、
+取得した公開artifactの200ファイルと、40ケース・46投稿の本文・ALT・画像が承認済みプレビューと一致しました。
+候補manifestは`5c6bb92f451606499a1a5931bdab6e8863031a41dedb58c3d0e78be8caac1d38`です。
+ただし空bootstrapのprivate確認で停止したため、実イメージの正式保管・別runnerでの復元はまだ完了していません。
 実装後のCI実行結果は[GitHub ActionsのTests](https://github.com/ikuradon/shirasu/actions/workflows/test.yml)で確認します。
 正式保管と実registryからの復元結果は、[公開workflow](https://github.com/ikuradon/shirasu/actions/workflows/release.yml)と
 GitHub Releaseの`restore-result.json`で確認します。
