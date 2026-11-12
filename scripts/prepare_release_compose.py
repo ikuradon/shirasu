@@ -25,10 +25,19 @@ VERIFY_IMAGE = '''import hashlib, json, pathlib, sys
 expected = json.load(sys.stdin)
 root = pathlib.Path('/app')
 actual = {}
+directories = {parent.as_posix() for name in expected
+               for parent in pathlib.PurePosixPath(name).parents
+               if parent.as_posix() != '.'}
 for path in root.rglob('*'):
-    if path.is_symlink() or not path.is_file():
+    if path.is_symlink():
         raise SystemExit('Receiver image contains unexpected entries')
     name = path.relative_to(root).as_posix()
+    if path.is_dir():
+        if name not in directories:
+            raise SystemExit('Receiver image contains unexpected directories')
+        continue
+    if not path.is_file():
+        raise SystemExit('Receiver image contains unexpected entries')
     if name not in expected:
         raise SystemExit('Receiver image contains unexpected files')
     actual[name] = hashlib.sha256(path.read_bytes()).hexdigest()

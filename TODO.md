@@ -5,10 +5,12 @@
 WebP統合までを`21209e5`でcommit済み。ローカルの164テスト、49入力の描画比較、実46投稿・45入力のHTTP確認は完了しています。
 以下は公開用の接続と実環境の確認です。本番の設定・状態・Vercelを今回改めて調査した結果ではなく、コードと検証記録に基づく未実施項目です。
 
-2026-11-12の方針: 洪水流路は出典・加工者を明記した現行の気象庁データを使用する。OSM代替の試作は採用せず撤去済み。②のprivate GHCRと初回作成用PATは従来の実装前提なので、正式保管の再開時に整理する。出典表示の採用を、GIS本体の再配布条件が確認済みになったという意味にはしない。
+2026-11-12の方針: 洪水流路は出典・加工者を明記した現行の気象庁データを使用する。OSM代替の試作は採用せず撤去済み。②は出典・ライセンス文書を同梱したpublic GHCRへ変更し、非公開初回作成用PATは不要とする。出典表示の採用を、GIS本体の再配布条件が確認済みになったという意味にはしない。
+
+正式配布は受信機に合わせて`linux/arm64`に固定する。正式workflowは全jobをARM64 runnerで検証し、実イメージのOS／Architectureと`release.json`の`platform`を照合する。通常のAMD64 CIは継続する。
 
 1. [x] **固定した受信イメージを使うCompose設定を用意する。** [手順と結果](docs/release-compose.md)。候補とイメージ内の全配布ファイル・起動設定を照合し、完全なimage IDへ固定したoverrideを生成する。受信・監視・バックアップのbuildを削除してpullも禁止し、既存のproject・DB volume・config bind・ネットワーク・healthcheck等を継承。生成・実Composeマージ13テストと、一時DBでの本物の受信プロセスの起動・正常停止・再起動を確認した。v5/w1→v4/pngで保存済みイベントのJSON・ID・署名を維持し、新規投稿だけPNGになる。COMPOSE_FILEで通常の運用コマンドにも適用する手順とCIを追加（本番未反映）。
-2. [ ] **GitHub Actionsで正式候補と検証記録を保管する。** [手順](docs/ci-release.md)。mainの手動実行／`images-v*`タグpushで検証した両イメージをprivate GHCRへ保管し、別runnerでdigest指定の復元・全119ファイル照合・Compose設定生成を確認してから`latest`を更新する仕組みを実装。関連47テストが成功。`8b156d5`の[通常CI](https://github.com/ikuradon/shirasu/actions/runs/43129666692)は成功し、[正式保管の初回実行](https://github.com/ikuradon/shirasu/actions/runs/43129666472)でも受信・画像・HTTP・Composeの検証は成功。取得した公開artifactの200ファイルと、40ケース・46投稿の本文・ALT・画像も承認済みプレビューと一致した。ただし新規の空bootstrapがpublicになったため実データ送信前に停止。非公開packageの初回作成用認証を用意し、正式保管と別runnerでの復元を完了させる。既存119ファイルのローカル候補（manifest `bbe56252eb30f1972abc8dffe7c77679f19bc5783d1146870ee8ed30aaf6ff1d`）とDocker exportは移行が済むまで保持する。
+2. [ ] **GitHub Actionsで正式候補と検証記録を保管する。** [手順](docs/ci-release.md)。検証した両イメージを出典・ライセンス文書付きでpublic GHCRへ保存し、別runnerの空Docker認証設定で匿名・digest指定の復元、全121ファイル照合、Compose生成を確認してから同じdigestの`latest`へ更新する。配布タグは`images-v5-r1`、描画版は`v5`を維持し、既存Gitタグ`images-v5`は動かさない。schema 2の`release.json`に配布タグを記録してworkflow outputで復元jobへ渡す。既存publicの空receiver bootstrapは再利用し、新規images packageもpublicとrepositoryリンクを確認する。非公開初回用PATは不要。以前の[通常CI](https://github.com/ikuradon/shirasu/actions/runs/43129666692)と[初回正式実行](https://github.com/ikuradon/shirasu/actions/runs/43129666472)の検証は成功したが、旧privateガードで実データ送信前に停止した。新方針の正式保管・復元成功は未確認。既存119ファイル候補・Docker export・承認済みプレビューを成功まで保持し、非公開初期化用の一時branch／worktreeも成功後に整理する。
 3. [ ] **画像サービスを先に検証・公開する。** 通常の画像パッケージではなく、同じ候補の`images/`をVercelの検証デプロイへ渡す。固定Pillow／libwebp・地理データ・フォント、初回と再描画の時間・メモリを実環境で確認してから本番へ反映する。本番ドメインのTLS・認証不要の取得・`/healthz`・既存鍵での署名検証、v5 WebP／PNGと旧v1〜v4の代表URLを照合し、MIME・画素・ETag・HEAD／304・改ざん拒否・CDNのキャッシュと再描画を確認する。この段階では受信側を切り替えない。
 4. [ ] **バックアップを検証して受信側を切り替える。** 直前のDBバックアップを作成・検証し、①の固定イメージと`SHIRASU_IMAGE_VERSION=v5`・`SHIRASU_IMAGE_ENCODING=w1`へ切り替える。既存DBを引き継ぎ、受信・集約・配送・画像URL生成エラーと、保存済みイベントの再送を確認する。
 5. [ ] **本番URLでSNS表示と運用を確認し、公開記録を残す。** 実nostterの通常表示・拡大、新規投稿の本文URL・`imeta`・ALT、既存投稿画像の取得を確認する。前段のnostter確認は応答を差し替えた表示検証まで。新規投稿だけを`v4/png`または画像無効へ戻す手順を用意し、公開済みv5/w1の画像経路と検証鍵を維持する。公開先・配布物・受信イメージ・確認結果を記録し、運用説明とTODOを更新する。

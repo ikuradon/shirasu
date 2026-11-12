@@ -16,6 +16,7 @@ if __package__ in (None, ''):
     sys.path.insert(0, str(ROOT))
 
 from scripts.prepare_release_candidate import CANDIDATE_VERSION, MANIFEST_NAME, MAX_MANIFEST_BYTES, verify_bundle
+from scripts.release_identity import RELEASE_PLATFORM, receipt_tag
 
 
 DIGEST = re.compile(r'sha256:[0-9a-f]{64}')
@@ -54,9 +55,9 @@ def validate_receipt(receipt, manifest_bytes):
     Registry manifest digests and Docker image IDs are separate identities.
     Both are required; mutable tags or other repositories are never accepted.
     """
-    require(isinstance(receipt, dict)
-            and type(receipt.get('schema_version')) is int and receipt['schema_version'] == 1,
-            'Unsupported release receipt')
+    receipt_tag(receipt)
+    if receipt['schema_version'] == 2:
+        require(receipt.get('platform') == RELEASE_PLATFORM, 'Unsupported release platform')
     require(receipt.get('version') == CANDIDATE_VERSION, 'Unsupported release version')
     source = receipt.get('source_commit')
     require(isinstance(source, str) and COMMIT.fullmatch(source), 'Invalid release source commit')

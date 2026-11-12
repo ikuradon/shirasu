@@ -8,6 +8,7 @@ import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = (
+    'licenses/pyserial-3.5-LICENSE.txt',
     'image_versions.py',
     'image_protocol.py',
     'image_service/__init__.py',
@@ -115,7 +116,7 @@ def prepare(destination, *, include_preview=False):
         source = ROOT / name
         if source.is_symlink() or not source.is_file():
             if name == 'image_service/assets/preview/flood.geojson.zlib':
-                raise ValueError('Prepare the private flood asset first: python scripts/prepare_flood_assets.py')
+                raise ValueError('Prepare the flood asset first: python scripts/prepare_flood_assets.py')
             raise ValueError(f'Missing or linked source: {name}')
     # A fresh directory prevents accidental inclusion of old deployments or keys.
     destination.mkdir(parents=True, exist_ok=False)

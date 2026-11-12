@@ -38,6 +38,7 @@ RECEIVER_FILES = (
     'image_versions.py', 'image_protocol.py', 'image_publication.py',
     'image_alt.py', 'nankai_image.py', 'backup.py', 'backup_worker.py', 'metrics.py',
     'requirements.txt', 'requirements-test.txt', 'Dockerfile', '.dockerignore',
+    'licenses/pyserial-3.5-LICENSE.txt',
 )
 IMAGE_GENERATED_FILES = ('requirements.txt', 'api/image.py', '.python-version', 'vercel.json')
 CANDIDATE_PROFILE = '''"""Frozen release-candidate profile; generated only in isolated artifacts."""
@@ -75,7 +76,7 @@ def _source_file(root, name):
             raise ValueError('Linked source is not allowed: ' + name)
     if not path.is_file():
         if name == 'image_service/assets/preview/flood.geojson.zlib':
-            raise ValueError('Prepare the private flood asset first: python scripts/prepare_flood_assets.py')
+            raise ValueError('Prepare the flood asset first: python scripts/prepare_flood_assets.py')
         raise ValueError('Missing candidate source: ' + name)
     return path
 
@@ -119,7 +120,9 @@ def prepare(destination):
     shutil.copyfile(ROOT / 'image_service/Dockerfile', destination / 'images/Dockerfile')
     (destination / 'receiver').mkdir()
     for name in RECEIVER_FILES:
-        shutil.copyfile(ROOT / name, destination / 'receiver' / name)
+        target = destination / 'receiver' / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / name, target)
     for package in ('images', 'receiver'):
         (destination / package / 'image_versions.py').write_text(CANDIDATE_PROFILE, encoding='utf-8')
     files = {name: _digest(destination / name)[0] for name in sorted(_names())}

@@ -1,4 +1,4 @@
-"""Only tested images from trusted release runs may reach private storage."""
+"""Only tested images from trusted release runs may reach public storage."""
 
 import hashlib
 import json
@@ -26,6 +26,8 @@ class CIPublishTests(unittest.TestCase):
         self.assertIsNone(publish.context(ENV)['tag'])
         tagged = dict(ENV, GITHUB_EVENT_NAME='push', GITHUB_REF='refs/tags/images-v5')
         self.assertEqual(publish.context(tagged)['tag'], 'images-v5')
+        self.assertEqual(publish.context(dict(tagged, GITHUB_REF='refs/tags/images-v5-r1'))['tag'],
+                         'images-v5-r1')
         for changed in ({'GITHUB_EVENT_NAME': 'pull_request'}, {'GITHUB_EVENT_NAME': 'push'},
                         {'GITHUB_REF': 'refs/heads/topic'}, {'GITHUB_ACTIONS': 'false'},
                         {'GITHUB_REPOSITORY': 'owner/repo;command'}, {'GITHUB_RUN_ID': '../1'}):
@@ -36,14 +38,14 @@ class CIPublishTests(unittest.TestCase):
             with self.subTest(ref=ref), self.assertRaises(ValueError):
                 publish.context(dict(tagged, GITHUB_REF=ref))
 
-    def test_public_or_unlinked_packages_are_rejected_before_any_docker_operation(self):
-        for info in ({'visibility': 'public', 'repository': {'full_name': REPOSITORY}},
-                     {'visibility': 'private', 'repository': None},
+    def test_private_or_unlinked_packages_are_rejected_before_any_docker_operation(self):
+        for info in ({'visibility': 'private', 'repository': {'full_name': REPOSITORY}},
+                     {'visibility': 'public', 'repository': None},
                      {'visibility': 'internal', 'repository': {'full_name': REPOSITORY}}):
             with self.subTest(info=info), patch.object(publish, 'api', return_value=info), \
                     patch.object(publish, 'run') as run:
                 with self.assertRaises(ValueError):
-                    publish.ensure_private(REPOSITORY, 'User', 'shirasu-images', '123-1')
+                    publish.ensure_public(REPOSITORY, 'User', 'shirasu-images', '123-1')
                 run.assert_not_called()
 
     def test_new_package_is_checked_using_only_an_empty_bootstrap_image(self):
@@ -62,29 +64,29 @@ class CIPublishTests(unittest.TestCase):
                                           'ghcr.io/example/shirasu-images:bootstrap-123-1'])
             return ''
 
-        private = {'visibility': 'private', 'repository': {'full_name': REPOSITORY}}
-        with patch.object(publish, 'api', side_effect=[None, private]), patch.object(publish, 'run', side_effect=run):
-            publish.ensure_private(REPOSITORY, 'User', 'shirasu-images', '123-1')
+        public = {'visibility': 'public', 'repository': {'full_name': REPOSITORY}}
+        with patch.object(publish, 'api', side_effect=[None, public]), patch.object(publish, 'run', side_effect=run):
+            publish.ensure_public(REPOSITORY, 'User', 'shirasu-images', '123-1')
         self.assertEqual(len(operations), 2)
 
     def test_bootstrap_waits_briefly_only_for_package_visibility_404s(self):
-        private = {'visibility': 'private', 'repository': {'full_name': REPOSITORY}}
-        with patch.object(publish, 'api', side_effect=[None, None, private]) as api, \
+        public = {'visibility': 'public', 'repository': {'full_name': REPOSITORY}}
+        with patch.object(publish, 'api', side_effect=[None, None, public]) as api, \
                 patch.object(publish, 'run'), patch.object(publish.time, 'sleep') as sleep:
-            publish.ensure_private(REPOSITORY, 'User', 'shirasu-images', '123-1')
+            publish.ensure_public(REPOSITORY, 'User', 'shirasu-images', '123-1')
         self.assertEqual(api.call_count, 3)
         self.assertTrue(all(call.kwargs == {'missing': True} for call in api.call_args_list))
         sleep.assert_called_once_with(1)
         with patch.object(publish, 'api', return_value=None) as api, \
                 patch.object(publish, 'run'), patch.object(publish.time, 'sleep') as sleep:
-            with self.assertRaisesRegex(ValueError, 'must be private'):
-                publish.ensure_private(REPOSITORY, 'User', 'shirasu-images', '123-1')
+            with self.assertRaisesRegex(ValueError, 'must be public'):
+                publish.ensure_public(REPOSITORY, 'User', 'shirasu-images', '123-1')
         self.assertEqual(api.call_count, 6)
         self.assertEqual(sleep.call_count, 4)
         with patch.object(publish, 'api', side_effect=[None, ValueError('HTTP 403')]), \
                 patch.object(publish, 'run'), patch.object(publish.time, 'sleep') as sleep:
             with self.assertRaisesRegex(ValueError, 'HTTP 403'):
-                publish.ensure_private(REPOSITORY, 'User', 'shirasu-images', '123-1')
+                publish.ensure_public(REPOSITORY, 'User', 'shirasu-images', '123-1')
         sleep.assert_not_called()
 
     def test_existing_tag_or_draft_cannot_be_overwritten(self):
@@ -211,10 +213,18 @@ class CIPublishTests(unittest.TestCase):
         root = self.fixture()
         with patch.dict(publish.os.environ, {'GITHUB_EVENT_NAME': 'push', 'GITHUB_REF': 'refs/tags/images-v6'}), \
                 patch.object(publish, 'api') as api, patch.object(publish, 'run') as run:
-            with self.assertRaisesRegex(ValueError, 'differs from the candidate version'):
+            with self.assertRaisesRegex(ValueError, 'candidate version'):
                 publish.publish(root, 'receiver:test', 'renderer:test')
             api.assert_not_called()
             run.assert_not_called()
+
+    def test_wrong_cpu_platform_cannot_publish_an_unusable_receiver(self):
+        root = self.fixture()
+        with patch.object(publish, 'run', side_effect=[RENDERER, 'linux/amd64']), \
+                patch.object(publish, 'api') as api:
+            with self.assertRaisesRegex(ValueError, 'receiver platform'):
+                publish.publish(root, 'receiver:test', 'renderer:test')
+            api.assert_not_called()
 
     def simulate(self, root, *, fail_upload=False, tag_push=False, main_status='ahead',
                  existing_image_tag=False, expected_error=None):
@@ -231,10 +241,10 @@ class CIPublishTests(unittest.TestCase):
             if '/releases?' in path:
                 return []
             if '/versions?' in path:
-                return ([{'metadata': {'container': {'tags': ['images-v5']}}}]
+                return ([{'metadata': {'container': {'tags': ['images-v5-r1']}}}]
                         if existing_image_tag else [])
             if '/packages/' in path:
-                return {'visibility': 'private', 'repository': {'full_name': REPOSITORY}}
+                return {'visibility': 'public', 'repository': {'full_name': REPOSITORY}}
             if kwargs.get('method') == 'POST':
                 self.assertTrue(kwargs['body']['draft'])
                 return {'id': 42}
@@ -246,6 +256,8 @@ class CIPublishTests(unittest.TestCase):
         def run(command, **kwargs):
             commands.append(command)
             if command[:3] == ['docker', 'image', 'inspect']:
+                if command[-2] == '{{.Os}}/{{.Architecture}}':
+                    return 'linux/arm64'
                 return RECEIVER if '-receiver@' in command[-1] else RENDERER
             if command[:2] == ['docker', 'run']:
                 self.assertIn('--read-only', command)
@@ -263,7 +275,7 @@ class CIPublishTests(unittest.TestCase):
                     raise ValueError('fixture upload failure')
             return ''
 
-        environment = {'GITHUB_EVENT_NAME': 'push', 'GITHUB_REF': 'refs/tags/images-v5'} if tag_push else {}
+        environment = {'GITHUB_EVENT_NAME': 'push', 'GITHUB_REF': 'refs/tags/images-v5-r1'} if tag_push else {}
         with patch.dict(publish.os.environ, environment), patch.object(publish, 'api', side_effect=api), \
                 patch.object(publish, 'run', side_effect=run):
             if fail_upload or expected_error:
@@ -272,6 +284,10 @@ class CIPublishTests(unittest.TestCase):
             else:
                 result = publish.publish(root, 'receiver:test', 'renderer:test')
                 self.assertEqual(result, uploads[0])
+                self.assertEqual(result['schema_version'], 2)
+                self.assertEqual(result['version'], 'v5')
+                self.assertEqual(result['release_tag'], 'images-v5-r1')
+                self.assertEqual(result['platform'], 'linux/arm64')
                 self.assertNotEqual(result['images']['receiver']['reference'].split('@')[1], RECEIVER)
         return calls, commands
 
@@ -284,7 +300,7 @@ class CIPublishTests(unittest.TestCase):
         pushed = [command[-1] for command in commands if command[:2] == ['docker', 'push']]
         self.assertCountEqual(pushed, ['ghcr.io/example/shirasu-' + role + ':' + tag
                                       for role in ('receiver', 'images')
-                                      for tag in ('run-123-1', 'images-v5')])
+                                      for tag in ('run-123-1', 'images-v5-r1')])
         self.assertFalse(any(':latest' in command[-1] for command in commands))
 
     def test_tag_release_source_must_be_reachable_from_main_before_publication(self):
@@ -308,6 +324,16 @@ class CIPublishTests(unittest.TestCase):
     def test_failed_upload_keeps_reserved_draft_and_does_not_publish(self):
         calls, _ = self.simulate(self.fixture(), fail_upload=True)
         self.assertFalse(any(options.get('method') == 'PATCH' for _, options in calls))
+
+    def test_published_revision_is_passed_to_the_restore_job(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'outputs'
+            receipt = {'release_tag': 'images-v5-r1'}
+            with patch.dict(publish.os.environ, {'GITHUB_OUTPUT': str(output)}), \
+                    patch.object(publish, 'publish', return_value=receipt), patch('builtins.print'):
+                self.assertEqual(publish.main(['--check-root', directory, '--receiver-image', 'receiver',
+                                               '--renderer-image', 'images']), 0)
+            self.assertEqual(output.read_text(), 'release_tag=images-v5-r1\n')
 
 
 if __name__ == '__main__':

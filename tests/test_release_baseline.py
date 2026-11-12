@@ -13,10 +13,11 @@ from scripts import prepare_release_baseline as baseline
 class ReleaseBaselineTests(unittest.TestCase):
     def test_export_reads_only_committed_allowlist_without_executing_old_builder(self):
         blobs = {
-            'scripts/prepare_image_service.py': b"FILES = ('image_protocol.py', 'image_service/render.py')\nraise RuntimeError('never execute')\n",
+            'scripts/prepare_image_service.py': b"FILES = ('image_protocol.py', 'image_service/render.py', 'licenses/pyserial-3.5-LICENSE.txt')\nraise RuntimeError('never execute')\n",
             'image_protocol.py': b'SUPPORTED_VERSIONS = ("v1",)\n',
             'image_service/render.py': b'# renderer\n',
             'image_service/requirements.txt': b'# locked requirements\n',
+            'licenses/pyserial-3.5-LICENSE.txt': b'upstream license fixture\n',
         }
         reads = []
         def git(*args):
@@ -32,6 +33,8 @@ class ReleaseBaselineTests(unittest.TestCase):
             baseline.prepare(output)
             self.assertEqual(set(reads), set(blobs))
             self.assertEqual((output / 'image_service/render.py').read_bytes(), blobs['image_service/render.py'])
+            self.assertEqual((output / 'licenses/pyserial-3.5-LICENSE.txt').read_bytes(),
+                             blobs['licenses/pyserial-3.5-LICENSE.txt'])
             self.assertFalse((output / 'config.py').exists())
             with self.assertRaises(FileExistsError):
                 baseline.prepare(output)
@@ -74,7 +77,8 @@ class ReleaseBaselineTests(unittest.TestCase):
                 baseline.compare_sources(legacy, candidate)
 
     def test_unsafe_allowlist_and_symlinks_are_rejected(self):
-        for value in ('../config.py', 'config.py', '/image_protocol.py', 'image_service/../config.py'):
+        for value in ('../config.py', 'config.py', '/image_protocol.py', 'image_service/../config.py',
+                      'licenses/other.txt', 'licenses/../config.py'):
             self.assertFalse(baseline._allowed(value))
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

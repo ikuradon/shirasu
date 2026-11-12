@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 if __package__ in (None, ''):
@@ -16,6 +17,7 @@ from scripts import publish_ci_release as publication
 from scripts.prepare_release_candidate import MAX_MANIFEST_BYTES, verify_bundle
 from scripts.prepare_release_compose import prepare as prepare_compose
 from scripts.restore_release_candidate import read_json, restore, validate_receipt
+from scripts.release_identity import receipt_tag
 
 
 def require(condition, message):
@@ -52,6 +54,16 @@ def current_release(repository, tag, source):
     return release
 
 
+def verify_anonymous_pull(images):
+    """Prove the fixed public images can be pulled with an empty client config."""
+    with tempfile.TemporaryDirectory(prefix='shirasu-anonymous-ghcr-') as directory:
+        for image in images.values():
+            publication.run(['docker', '--config', directory, 'pull', image['reference']])
+            actual = publication.run(['docker', 'image', 'inspect', '--format', '{{.Id}}',
+                                      image['reference']]).strip()
+            require(actual == image['image_id'], 'Anonymous pull returned a different image ID')
+
+
 def verify(release_path, manifest_path, output):
     ctx = publication.context(os.environ)
     output = Path(output).absolute()
@@ -67,7 +79,7 @@ def verify(release_path, manifest_path, output):
             and receipt['run']['id'] == ctx['id']
             and int(receipt['run']['attempt']) <= int(ctx['attempt']),
             'Stored release must belong to this Actions run and source commit')
-    tag = 'images-' + receipt['version']
+    tag = receipt_tag(receipt)
     require(ctx.get('tag') in (None, tag), 'Actions Git tag differs from the candidate version')
     repository = ctx['repository']
     published = current_release(repository, tag, ctx['sha'])
@@ -89,6 +101,7 @@ def verify(release_path, manifest_path, output):
 
     status('running')
     try:
+        verify_anonymous_pull(receipt['images'])
         restored = restore(release_path, manifest_path, output / 'candidate')
         require(restored['candidate_manifest_sha256'] == receipt['candidate_manifest_sha256']
                 and restored['source_commit'] == ctx['sha']
@@ -114,7 +127,7 @@ def verify(release_path, manifest_path, output):
         status('running')
         package_name = repository.lower().split('/')[1]
         for suffix in ('receiver', 'images'):
-            publication.ensure_private(repository, repo['owner']['type'], package_name + '-' + suffix,
+            publication.ensure_public(repository, repo['owner']['type'], package_name + '-' + suffix,
                                        ctx['id'] + '-' + ctx['attempt'])
         require(current_release(repository, tag, ctx['sha'])['id'] == published['id'],
                 'Published release changed during verification')
@@ -127,6 +140,7 @@ def verify(release_path, manifest_path, output):
         result = {
             'schema_version': 1, 'mode': 'ci-restore', 'version': receipt['version'],
             'source_commit': ctx['sha'], 'release_tag': tag,
+            'platform': receipt.get('platform'),
             'candidate_manifest_sha256': receipt['candidate_manifest_sha256'],
             'run': {key: ctx[key] for key in ('repository', 'id', 'attempt')},
             'publication_run': {key: receipt['run'][key] for key in ('repository', 'id', 'attempt')},
@@ -135,7 +149,8 @@ def verify(release_path, manifest_path, output):
             'file_count': len(checked['files']), 'aliases': completed_aliases,
             'checks': {'release_metadata_matches_run': True, 'fixed_digest_pull_and_image_ids': True,
                        'all_candidate_files_match': True, 'receiver_startup_and_compose': True,
-                       'private_linked_packages': True, 'latest_release_guard': True,
+                       'anonymous_digest_pull': True, 'public_linked_packages': True,
+                       'latest_release_guard': True,
                        'latest_aliases_match': True},
         }
         with (output / 'restore-result.json').open('x', encoding='utf-8') as stream:

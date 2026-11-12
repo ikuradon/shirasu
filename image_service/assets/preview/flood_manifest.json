@@ -1,11 +1,12 @@
 {
   "FLOOD_NOTICE.txt": {
-    "bytes": 2592,
-    "sha256": "ac87c213d667053ec719cd2fd363b5c36d2235f49c8e2eb68bedc086f1cbae8a"
+    "bytes": 2722,
+    "sha256": "9936bd33a76e7477b580815c1eb5ed9d45647b966fc98e4a1b1d788e31ce3dfc"
   },
   "flood.geojson.zlib": {
     "bytes": 285685,
     "compression": "zlib; level=9",
+    "distribution_policy": "Project decision on 2026-11-12: retain this attributed geometry and include it with FLOOD_NOTICE.txt in the renderer image; geometry is not checked into the public repository.",
     "excluded_non_specific_codes": [
       "019999999999",
       "029999999999",
@@ -2098,7 +2099,7 @@
         "source_points": 44
       }
     },
-    "individual_redistribution_license": "Not established; geometry is private renderer input, not a public data download.",
+    "individual_redistribution_license": "Not established; attribution and the project distribution decision do not establish an unrestricted redistribution grant.",
     "processing": "TYPE=2 only; exact 12-digit FAREACODE/DCR-017 match; preserve leading zeros and all PolyLine parts and coordinates; no simplification, joining or inferred regions.",
     "retrieved": "2026-11-10",
     "sha256": "f7035fe8489e5d0b68baeb2ba3add5562d351413af8c5fdf436ef45c8fb55718",

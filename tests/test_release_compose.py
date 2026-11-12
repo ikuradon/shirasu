@@ -1,20 +1,23 @@
 """Exercise the release override with Compose's actual merge/interpolation rules.
 
-These tests only run ``docker compose config``; they neither contact the Docker
-daemon nor read the checkout's private settings. All Compose inputs other than
-the tracked base file are synthetic files in a temporary directory.
+Compose tests run only ``docker compose config``; file checks execute the
+container verifier against temporary fixtures. Neither contacts the Docker
+daemon nor reads the checkout's private settings. All Compose inputs other
+than the tracked base file are synthetic files in a temporary directory.
 """
 
+import hashlib
 import json
 import os
 from pathlib import Path
 import runpy
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
-from scripts.prepare_release_compose import render_override
+from scripts.prepare_release_compose import VERIFY_IMAGE, render_override
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +25,63 @@ IMAGE_ID = 'sha256:' + 'a' * 64
 MANIFEST_SHA256 = 'b' * 64
 PROJECT = 'shirasu-release-compose-fixture'
 SERVICES = ('shirasu', 'metrics', 'backup')
+
+
+class ReceiverNoticeVerificationTests(unittest.TestCase):
+    """Execute the container verifier itself against isolated file trees."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix='shirasu-receiver-notices-')
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.app = self.root / 'app'
+        self.license = self.app / 'licenses/pyserial-3.5-LICENSE.txt'
+        self.license.parent.mkdir(parents=True)
+        self.license.write_bytes((ROOT / 'licenses/pyserial-3.5-LICENSE.txt').read_bytes())
+        main = self.app / 'main.py'
+        main.write_text('raise RuntimeError("must never import application")\n')
+        self.expected = {path.relative_to(self.app).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                         for path in (main, self.license)}
+        self.code = VERIFY_IMAGE.replace("pathlib.Path('/app')", 'pathlib.Path(' + repr(str(self.app)) + ')')
+
+    def verify(self, success):
+        result = subprocess.run([sys.executable, '-I', '-B', '-c', self.code],
+                                input=json.dumps(self.expected), text=True,
+                                capture_output=True, timeout=10, check=False)
+        self.assertEqual(result.returncode == 0, success, result.stderr)
+        if success:
+            self.assertEqual(json.loads(result.stdout), {'verified_files': 2})
+
+    def test_declared_license_directory_is_accepted_and_contents_are_verified(self):
+        self.verify(True)
+        self.license.write_text('truncated license')
+        self.verify(False)
+        self.license.unlink()
+        self.verify(False)
+
+    def test_extra_empty_directories_and_files_are_rejected(self):
+        for name in ('unexpected', 'licenses/unexpected'):
+            with self.subTest(directory=name):
+                path = self.app / name
+                path.mkdir()
+                self.verify(False)
+                path.rmdir()
+        extra = self.app / 'licenses/unknown.txt'
+        extra.write_text('undeclared')
+        self.verify(False)
+
+    def test_expected_file_or_parent_replaced_with_a_symlink_is_rejected(self):
+        outside = self.root / 'outside'
+        outside.mkdir()
+        target = outside / self.license.name
+        target.write_bytes(self.license.read_bytes())
+        self.license.unlink()
+        self.license.symlink_to(target)
+        self.verify(False)
+        self.license.unlink()
+        self.license.parent.rmdir()
+        self.license.parent.symlink_to(outside, target_is_directory=True)
+        self.verify(False)
 
 
 def compose_environment():

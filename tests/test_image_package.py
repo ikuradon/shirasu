@@ -16,6 +16,8 @@ class ImagePackageTests(unittest.TestCase):
             self.assertNotIn('config.py', actual)
             self.assertNotIn('main.py', actual)
             self.assertTrue((destination / 'image_service/assets/v1/OFL.txt').is_file())
+            self.assertEqual((destination / 'licenses/pyserial-3.5-LICENSE.txt').read_bytes(),
+                             (Path(__file__).resolve().parents[1] / 'licenses/pyserial-3.5-LICENSE.txt').read_bytes())
             with self.assertRaises(FileExistsError):
                 prepare(destination)
 

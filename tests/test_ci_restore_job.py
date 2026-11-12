@@ -63,15 +63,16 @@ class RestoreJobTests(unittest.TestCase):
         self.api = self.enterContext(patch.object(check.publication, 'api', side_effect=self.read_api))
         self.tag_commit = self.enterContext(patch.object(check.publication, 'resolve_tag_commit',
                                                          return_value=SOURCE))
+        self.anonymous = self.enterContext(patch.object(check, 'verify_anonymous_pull'))
         self.restore = self.enterContext(patch.object(check, 'restore', side_effect=self.extract))
         self.compose = self.enterContext(patch.object(check, 'prepare_compose', side_effect=self.make_compose))
-        self.private = self.enterContext(patch.object(check.publication, 'ensure_private',
-                                                      side_effect=lambda *args: self.operations.append('private')))
+        self.public = self.enterContext(patch.object(check.publication, 'ensure_public',
+                                                      side_effect=lambda *args: self.operations.append('public')))
         self.alias = self.enterContext(patch.object(check.publication, 'tag_image', side_effect=self.tag_image))
 
     def read_api(self, path):
         self.operations.append('api:' + path)
-        if path.endswith('/releases/tags/images-v5'):
+        if '/releases/tags/' in path:
             return self.release
         if path.endswith('/releases/latest'):
             return self.latest
@@ -97,7 +98,7 @@ class RestoreJobTests(unittest.TestCase):
         self.operations.append('alias')
         self.assertEqual(tag, 'latest')
         self.assertIn('compose', self.operations)
-        self.assertEqual(self.operations.count('private'), 2)
+        self.assertEqual(self.operations.count('public'), 2)
         self.assertEqual(self.operations.count('api:repos/' + REPOSITORY + '/releases/latest'), 2)
         return image
 
@@ -126,6 +127,24 @@ class RestoreJobTests(unittest.TestCase):
         self.assertNotIn('fixture ', json.dumps(result))
         self.assertEqual(candidate.verify_bundle(self.output / 'candidate')['files'], self.manifest['files'])
         self.assertEqual(self.alias.call_count, 2)
+        self.anonymous.assert_called_once_with(self.receipt['images'])
+
+    def test_distribution_revision_restores_without_changing_renderer_version(self):
+        self.receipt.update(schema_version=2, release_tag='images-v5-r1', platform='linux/arm64')
+        self.receipt_path.write_text(json.dumps(self.receipt))
+        self.ctx['tag'] = self.release['tag_name'] = self.latest['tag_name'] = 'images-v5-r1'
+        result = self.verify()
+        self.assertEqual(result['version'], 'v5')
+        self.assertEqual(result['release_tag'], 'images-v5-r1')
+        self.tag_commit.assert_called_with(REPOSITORY, 'images-v5-r1')
+
+    def test_anonymous_pull_failure_never_restores_or_promotes(self):
+        self.anonymous.side_effect = ValueError('anonymous pull denied')
+        with self.assertRaisesRegex(ValueError, 'anonymous pull denied'):
+            self.verify()
+        self.failed_status('restore')
+        self.restore.assert_not_called()
+        self.alias.assert_not_called()
 
     def test_context_and_metadata_mismatches_fail_before_network_or_output(self):
         for changed in ({'sha': 'b' * 40}, {'repository': 'Someone/Shirasu'}, {'id': '124'},
@@ -203,18 +222,18 @@ class RestoreJobTests(unittest.TestCase):
             self.verify()
         self.failed_status('compose')
         self.assertEqual(candidate.verify_bundle(self.output / 'candidate')['manifest_sha256'], self.digest)
-        self.private.assert_not_called()
+        self.public.assert_not_called()
         self.alias.assert_not_called()
 
-    def test_privacy_or_newer_release_change_during_restore_blocks_both_aliases(self):
-        self.private.side_effect = ValueError('package became public')
-        with self.assertRaisesRegex(ValueError, 'became public'):
+    def test_visibility_or_newer_release_change_during_restore_blocks_both_aliases(self):
+        self.public.side_effect = ValueError('package became private')
+        with self.assertRaisesRegex(ValueError, 'became private'):
             self.verify()
         self.failed_status('latest')
         self.alias.assert_not_called()
         second_output = self.root / 'another-verification'
         self.output = second_output
-        self.private.side_effect = lambda *args: self.operations.append('private')
+        self.public.side_effect = lambda *args: self.operations.append('public')
         def superseded(*args):
             result = self.make_compose(*args)
             self.latest = {'id': 43, 'tag_name': 'images-v6'}
@@ -249,6 +268,33 @@ class RestoreJobTests(unittest.TestCase):
             check.verify(metadata_link, self.manifest_path, self.root / 'new-output')
         self.api.assert_not_called()
         self.restore.assert_not_called()
+
+
+class AnonymousPullTests(unittest.TestCase):
+    def test_pull_uses_a_new_empty_config_and_compares_the_recorded_image_id(self):
+        image = {'reference': 'ghcr.io/example/shirasu-images@sha256:' + 'a' * 64,
+                 'image_id': IDS['renderer']}
+        paths = []
+
+        def run(command):
+            if command[1] == '--config':
+                directory = Path(command[2])
+                self.assertTrue(directory.is_dir())
+                self.assertEqual(list(directory.iterdir()), [])
+                self.assertEqual(command[3:], ['pull', image['reference']])
+                paths.append(directory)
+                return ''
+            self.assertEqual(command, ['docker', 'image', 'inspect', '--format', '{{.Id}}',
+                                       image['reference']])
+            return image['image_id']
+
+        with patch.object(check.publication, 'run', side_effect=run):
+            check.verify_anonymous_pull({'renderer': image})
+        self.assertEqual(len(paths), 1)
+        self.assertFalse(paths[0].exists())
+        with patch.object(check.publication, 'run', side_effect=['', IDS['receiver']]):
+            with self.assertRaisesRegex(ValueError, 'different image ID'):
+                check.verify_anonymous_pull({'renderer': image})
 
 
 if __name__ == '__main__':

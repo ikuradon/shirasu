@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep the images tested by a release Actions run in private GHCR packages."""
+"""Keep the images tested by a release Actions run in public GHCR packages."""
 
 import argparse
 import json
@@ -23,6 +23,7 @@ from scripts.prepare_ci_artifact import verify_public
 from scripts.prepare_release_candidate import verify_bundle
 from scripts.prepare_release_compose import inspect_image
 from scripts.restore_release_candidate import validate_receipt
+from scripts.release_identity import DEFAULT_RELEASE_TAG, RELEASE_PLATFORM, RELEASE_TAG_RE, validate_release_tag
 
 
 IMAGE_ID = re.compile(r'sha256:[0-9a-f]{64}')
@@ -73,9 +74,9 @@ def context(environment):
     event, ref = environment.get('GITHUB_EVENT_NAME'), environment.get('GITHUB_REF', '')
     tag = ref.removeprefix('refs/tags/') if ref.startswith('refs/tags/') else None
     manual = event == 'workflow_dispatch' and ref == 'refs/heads/main'
-    tagged = event == 'push' and tag is not None and re.fullmatch(r'images-v[1-9][0-9]*', tag)
+    tagged = event == 'push' and tag is not None and RELEASE_TAG_RE.fullmatch(tag)
     require(environment.get('GITHUB_ACTIONS') == 'true' and (manual or tagged),
-            'Releases require a manual run on main or an images-vN tag push')
+            'Releases require a manual run on main or an images-vN[-rN] tag push')
     repository = environment.get('GITHUB_REPOSITORY', '')
     sha = environment.get('GITHUB_SHA', '')
     run_id, attempt = environment.get('GITHUB_RUN_ID', ''), environment.get('GITHUB_RUN_ATTEMPT', '')
@@ -92,13 +93,13 @@ def package_endpoint(repository, owner_type, package):
     return prefix + '/' + repository.split('/')[0] + '/packages/container/' + quote(package, safe='')
 
 
-def ensure_private(repository, owner_type, package, run_id):
+def ensure_public(repository, owner_type, package, run_id):
     owner = repository.split('/')[0]
     endpoint = package_endpoint(repository, owner_type, package)
     info = api(endpoint, missing=True)
     if info is None:
-        # Establish and inspect package visibility using an empty image FIRST.
-        # No source, GIS, credentials or other payload can be exposed here.
+        # Establish the repository link and inspect visibility before payloads.
+        # Existing packages are never deleted or have their visibility changed.
         bootstrap = 'ghcr.io/' + owner.lower() + '/' + package + ':bootstrap-' + run_id
         with tempfile.TemporaryDirectory(prefix='shirasu-ghcr-bootstrap-') as directory:
             Path(directory, 'Dockerfile').write_text(
@@ -114,8 +115,8 @@ def ensure_private(repository, owner_type, package, run_id):
                 break
             if attempt < 4:
                 time.sleep(1)
-    require(isinstance(info, dict) and info.get('visibility') == 'private',
-            'GHCR package must be private before uploading release payloads: ' + package)
+    require(isinstance(info, dict) and info.get('visibility') == 'public',
+            'GHCR package must be public before uploading release payloads: ' + package)
     linked = (info.get('repository') or {}).get('full_name', '')
     require(linked.lower() == repository.lower(), 'GHCR package must be linked to this repository: ' + package)
 
@@ -170,7 +171,7 @@ def tag_image(image, tag):
 
 def resolve_tag_commit(repository, tag):
     """Resolve a lightweight or at most five nested annotated release tags."""
-    require(isinstance(tag, str) and re.fullmatch(r'images-v[1-9][0-9]*', tag),
+    require(isinstance(tag, str) and RELEASE_TAG_RE.fullmatch(tag),
             'Invalid release tag')
     ref = api('repos/' + repository + '/git/ref/tags/' + tag, missing=True)
     require(isinstance(ref, dict), 'Release tag is missing')
@@ -215,8 +216,7 @@ def publish(check_root, receiver_image, renderer_image):
     public = root / 'public'
     manifest = verify_bundle(bundle)
     evidence = verify_public(public)
-    tag = 'images-' + manifest['candidate_version']
-    require(ctx['tag'] in (None, tag), 'Release tag differs from the candidate version')
+    tag = validate_release_tag(ctx['tag'] or DEFAULT_RELEASE_TAG, manifest['candidate_version'])
     require(manifest['source'] == {'commit': ctx['sha'], 'working_tree': False},
             'Only the clean Actions checkout can become a formal release')
     require(evidence['candidate_manifest_sha256'] == manifest['manifest_sha256'],
@@ -229,6 +229,8 @@ def publish(check_root, receiver_image, renderer_image):
     compose = json.loads((root / 'results/compose.json').read_text())
     require(compose['image_id'] == receiver_id, 'Receiver differs from the tested Compose image')
     for package, image_id in [('receiver', receiver_id), ('images', renderer_id)]:
+        platform = run(['docker', 'image', 'inspect', '--format', '{{.Os}}/{{.Architecture}}', image_id]).strip()
+        require(platform == RELEASE_PLATFORM, 'Release image must match the receiver platform: ' + RELEASE_PLATFORM)
         expected = {name.split('/', 1)[1]: value for name, value in manifest['files'].items()
                     if name.startswith(package + '/')}
         result = run(['docker', 'run', '--rm', '--pull', 'never', '--network', 'none', '--read-only',
@@ -247,7 +249,7 @@ def publish(check_root, receiver_image, renderer_image):
     owner, name = repository.lower().split('/')
     packages = {'receiver': name + '-receiver', 'renderer': name + '-images'}
     for package in packages.values():
-        ensure_private(repository, repo['owner']['type'], package, ctx['id'] + '-' + ctx['attempt'])
+        ensure_public(repository, repo['owner']['type'], package, ctx['id'] + '-' + ctx['attempt'])
         require_unused_image_tag(repository, repo['owner']['type'], package, tag)
 
     # Reserve the version before pushing payloads. Keep a failed draft visible;
@@ -262,10 +264,11 @@ def publish(check_root, receiver_image, renderer_image):
     for image in pinned.values():
         tag_image(image, tag)
     for package in packages.values():
-        ensure_private(repository, repo['owner']['type'], package, ctx['id'] + '-' + ctx['attempt'])
+        ensure_public(repository, repo['owner']['type'], package, ctx['id'] + '-' + ctx['attempt'])
     require(verify_bundle(bundle) == manifest and verify_public(public) == evidence,
             'Candidate or public evidence changed during upload')
-    receipt = {'schema_version': 1, 'version': manifest['candidate_version'],
+    receipt = {'schema_version': 2, 'version': manifest['candidate_version'], 'release_tag': tag,
+               'platform': RELEASE_PLATFORM,
                'source_commit': ctx['sha'], 'candidate_manifest_sha256': manifest['manifest_sha256'],
                'run': {key: ctx[key] for key in ('repository', 'id', 'attempt')}, 'images': pinned}
     validate_receipt(receipt, (bundle / 'candidate-manifest.json').read_bytes())
@@ -292,6 +295,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         receipt = publish(args.check_root, args.receiver_image, args.renderer_image)
+        output = os.environ.get('GITHUB_OUTPUT')
+        if output:
+            with Path(output).open('a', encoding='utf-8') as stream:
+                stream.write('release_tag=' + receipt['release_tag'] + '\n')
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         print('CI release failed: ' + str(error), file=sys.stderr)
         return 1

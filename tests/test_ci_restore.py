@@ -125,6 +125,13 @@ class RestoreReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Duplicate'):
             release.read_json(b'{"schema_version":1,"schema_version":1}')
 
+    def test_revision_receipt_keeps_renderer_version_and_requires_receiver_platform(self):
+        receipt = dict(self.receipt, schema_version=2, release_tag='images-v5-r1', platform='linux/arm64')
+        self.assertEqual(release.validate_receipt(receipt, self.raw), self.manifest)
+        for platform in (None, '', 'linux/amd64'):
+            with self.subTest(platform=platform), self.assertRaisesRegex(ValueError, 'platform'):
+                release.validate_receipt(dict(receipt, platform=platform), self.raw)
+
     def test_wrong_pulled_image_id_fails_without_creating_a_container(self):
         with patch.object(release, 'docker', side_effect=['', 'sha256:' + '9' * 64]) as docker:
             with self.assertRaisesRegex(ValueError, 'image ID differs'):

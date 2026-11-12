@@ -1,6 +1,7 @@
 name: Publish verified image release
 
-# Only an explicit renderer release tag or a manual main run may publish.
+# Distribution revisions (images-v5-r1) keep the renderer URL version unchanged.
+# Only an explicit release tag or a manual main run may publish.
 on:
   workflow_dispatch:
   push:
@@ -18,7 +19,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/images-v') && !github.event.deleted)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     permissions:
       contents: read
@@ -35,8 +36,10 @@ jobs:
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/images-v') && !github.event.deleted)
     needs: verify-receiver
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
+    outputs:
+      release_tag: ${{ steps.publish.outputs.release_tag }}
     permissions:
       contents: write
       packages: write
@@ -56,21 +59,22 @@ jobs:
           GHCR_USERNAME: ${{ github.actor }}
         run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
       - name: Publish the checked images and release metadata
+        id: publish
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >-
-          python3 -B scripts/publish_ci_release.py
-          --check-root dist/release-check
-          --receiver-image shirasu:rehearsal
-          --renderer-image shirasu-images:rehearsal
+        run: |
+          python3 -B scripts/publish_ci_release.py \
+            --check-root dist/release-check \
+            --receiver-image shirasu:rehearsal \
+            --renderer-image shirasu-images:rehearsal
       - name: Log out of GHCR
         if: always()
         shell: bash
         run: docker logout ghcr.io
   restore:
     needs: release
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     # The runner starts without the publishing job's images or workspace.
     # Writes are needed only for latest aliases and the public restore report.
@@ -87,10 +91,10 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.release.outputs.release_tag }}
         run: |
-          release_tag=$(python3 -B -c 'from scripts.prepare_release_candidate import CANDIDATE_VERSION; print("images-" + CANDIDATE_VERSION)')
           mkdir -p dist/registry-restore/metadata
-          gh release download "$release_tag" --repo "$GITHUB_REPOSITORY" \
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --pattern release.json --pattern candidate-manifest.json \
             --dir dist/registry-restore/metadata
       - name: Authenticate to GHCR
@@ -112,9 +116,9 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.release.outputs.release_tag }}
         run: |
-          release_tag=$(python3 -B -c 'from scripts.prepare_release_candidate import CANDIDATE_VERSION; print("images-" + CANDIDATE_VERSION)')
-          gh release upload "$release_tag" --repo "$GITHUB_REPOSITORY" \
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             dist/registry-restore/verified/restore-result.json
       - name: Log out of GHCR
         if: always()

@@ -15,10 +15,12 @@ https://www.data.jma.go.jp/suishin/oshirase/pdf/20260807k.pdf
 仕様書は流路データの地図表示への使用を想定している。気象庁の気象データ利用の
 一般方針は次を参照:
 https://www.jma.go.jp/jma/kishou/books/hakusho/2019/index3.html#toc-173
-当該ZIP固有の利用許諾文書は確認できておらず、一般方針だけを根拠に、原典由来の
-GISデータ自体の無条件な公開再配布を許諾されたものとは扱わない。
-生成した flood.geojson.zlib はサーバー内部の描画用。公開リポジトリには含めず、
-公開HTTP経路も設けない。公開する画像に上記の出典と加工者を表示する。
+当該ZIP固有の利用許諾文書は確認できていない。出典表示や配布方針の採用を、
+原典由来のGISデータ自体について無条件の再配布許諾を確認した意味にはしない。
+Shirasuの配布方針（2026年11月12日）として、生成した flood.geojson.zlib は
+この出典・加工内容の文書とともに描画用イメージへ同梱する。公開リポジトリには
+データ本体を含めず、描画時に配布物内の固定データを使用する。
+公開する画像にも上記の出典と加工者を表示する。
 
 TYPE=2 の338予報区間のみを選択。FAREACODEをDCR-017の12桁予報区域コードと
 完全照合し、先頭ゼロを保持する。名称は azarashi 0.17.1 のDCR表から取得する。
@@ -31,4 +33,4 @@ TYPE=2 の338予報区間のみを選択。FAREACODEをDCR-017の12桁予報区�
 再生成（azarashi 0.17.1 に加え scripts/requirements-flood-assets.txt を導入）:
   python scripts/prepare_flood_assets.py --source /path/to/flow-20260520.zip
 --sourceを省略すると固定URLを取得。--outputで出力先を指定できる。
-データは未公開プレビュー用。描画時には外部データを取得しない。
+描画時には外部データを取得しない。

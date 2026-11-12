@@ -131,6 +131,22 @@ print(json.dumps({'topics': [p.supports_nankai_topic for p in publishers],
         self.assertEqual((self.source / 'image_versions.py').read_bytes(), (ROOT / 'image_versions.py').read_bytes())
         candidate.verify_bundle(self.output)  # Isolated imports created no bytecode or mutable state.
 
+    def test_both_images_include_the_complete_upstream_pyserial_license(self):
+        # Exact v3.5 LICENSE.txt, upstream Git blob:
+        # https://github.com/pyserial/pyserial/blob/v3.5/LICENSE.txt
+        name = 'licenses/pyserial-3.5-LICENSE.txt'
+        raw = (ROOT / name).read_bytes()
+        self.assertEqual(hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest(),
+                         '8920d4ee89b8e7ad5ea54eb91d48e33473c3a9a1')
+        (self.source / name).write_bytes(raw)
+        self.make()
+        manifest = candidate.verify_bundle(self.output)
+        for package in ('receiver', 'images'):
+            path = package + '/' + name
+            self.assertEqual((self.output / path).read_bytes(), raw)
+            self.assertEqual(manifest['files'][path],
+                             'f91cb9813de6a5b142b8f7f2dede630b5134160aedaeaf55f4d6a7e2593ca3f3')
+
     def test_later_working_tree_edits_cannot_change_the_saved_artifact(self):
         self.make()
         before = candidate.verify_bundle(self.output)
