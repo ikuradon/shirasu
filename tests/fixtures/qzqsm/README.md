@@ -40,7 +40,7 @@
 一方、manifest の `expected_types` は azarashi 0.17.1 で確認した種別数を固定した
 回帰テストの基準です。この件数だけでデコーダーの全フィールドの正しさは証明できません。
 
-DCXのVnについては[独立した互換性調査](../../../docs/dcx-vn-compatibility.md)を実施しました。
+DCXのVnについては[DCXの対応条件](../../../docs/dcx.md#国内vn0)を実施しました。
 211電文中209電文がVn=0、2電文がVn=1で、全件のpayloadと送信衛星が公式L1S原本に一致します。
 公開仕様と試験資料は国内の非NULL通報をVn=1としているため、ログ中のVn=0を対応済みの旧仕様とは
 扱いません。元電文と固定チェックサムは維持しています。
@@ -51,7 +51,7 @@ DCXのVnについては[独立した互換性調査](../../../docs/dcx-vn-compat
 
 ```sh
 python -B -m unittest discover -s tests -p 'test_public_qzqsm*.py' -v
-python -B main.py --preview tests/fixtures/qzqsm/qzqsm_260924.log \
+python -B -m shirasu --preview tests/fixtures/qzqsm/qzqsm_260924.log \
   --received-at 2026-09-24T09:57:00+09:00
 ```
 

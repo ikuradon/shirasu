@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from nankai_image import NankaiHeader
+from shirasu.images.nankai import NankaiHeader
 from image_service import preview_wide_layout as wide
 from image_service import render as base
 

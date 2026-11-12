@@ -51,7 +51,7 @@ jobs:
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID || 'prj_dNNCX2HNDuIJ6Zn8l90BPLnqKCyH' }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: >-
-          python3 -B scripts/configure_vercel_access.py
+          python3 -B -m tools.release.configure_vercel_access
           --output dist/vercel-preview/access.json
       - name: Publish the verified HEAD as a Vercel Preview
         id: preview
@@ -70,7 +70,7 @@ jobs:
             --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN \
             --env VERCEL_PREVIEW_ENABLED --env VERCEL_ORG_ID --env VERCEL_PROJECT_ID --env VERCEL_TOKEN \
             --env GITHUB_STEP_SUMMARY=/output/summary.md \
-            shirasu-images:rehearsal python -B scripts/publish_vercel_preview.py \
+            shirasu-images:rehearsal python -B -m tools.release.publish_vercel_preview \
             --check-root dist/release-check --output /output/deployment.json
           cat dist/vercel-preview/summary.md >> "$GITHUB_STEP_SUMMARY"
       - name: Retain the Preview identity and HTTP verification

@@ -4,8 +4,8 @@ import hashlib
 from importlib import import_module
 import os
 
-from image_protocol import MAX_PATH_LENGTH, SUPPORTED_VERSIONS, load_keys, parse_path, path_encoding, path_version
-from image_versions import RENDERERS, WEBP_VERSIONS
+from shirasu.images.protocol import MAX_PATH_LENGTH, SUPPORTED_VERSIONS, load_keys, parse_path, path_encoding, path_version
+from shirasu.images.versions import RENDERERS, WEBP_VERSIONS
 
 
 # Deployment tooling checks this protocol marker before injecting auxiliary keys.

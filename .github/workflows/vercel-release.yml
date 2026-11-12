@@ -57,7 +57,7 @@ jobs:
       - name: Validate the requested release tag
         if: steps.config.outputs.enabled == 'true'
         run: |
-          python3 -B -c 'import os; from scripts.release_identity import RELEASE_TAG_RE; assert RELEASE_TAG_RE.fullmatch(os.environ["RELEASE_TAG"]), "Invalid release tag"'
+          python3 -B -c 'import os; from tools.release.release_identity import RELEASE_TAG_RE; assert RELEASE_TAG_RE.fullmatch(os.environ["RELEASE_TAG"]), "Invalid release tag"'
       - name: Download the immutable release and restore evidence
         if: steps.config.outputs.enabled == 'true'
         env:
@@ -73,7 +73,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          python3 -B scripts/prepare_vercel_release.py
+          python3 -B -m tools.release.prepare_vercel_release
           --metadata dist/vercel-release/metadata --release-tag "$RELEASE_TAG"
           --output dist/vercel-release/verified
       - name: Build the native HTTP checker from the fixed renderer dependencies
@@ -101,7 +101,7 @@ jobs:
             --env RELEASE_TAG --env VERCEL_RELEASE_ENABLED \
             --env VERCEL_ORG_ID --env VERCEL_PROJECT_ID --env VERCEL_TOKEN \
             --env VERCEL_PRODUCTION_DOMAIN --env GH_TOKEN --env GITHUB_STEP_SUMMARY=/output/summary.md \
-            shirasu-images:vercel-check python -B scripts/publish_vercel_release.py \
+            shirasu-images:vercel-check python -B -m tools.release.publish_vercel_release \
             --bundle dist/vercel-release/verified/candidate \
             --public-artifact dist/vercel-release/verified/public \
             --release dist/vercel-release/metadata/release.json \

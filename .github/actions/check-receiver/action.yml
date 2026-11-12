@@ -6,13 +6,13 @@ runs:
     - name: Validate Compose configuration
       shell: bash
       run: |
-        cp config.py.sample config.py
+        cp config/config.py.example config.py
         docker compose config --quiet
         docker compose -f compose.yaml -f monitoring/compose.observer.yaml config --quiet
 
     - name: Build application image
       shell: bash
-      run: docker build --pull --tag shirasu:test .
+      run: docker build --pull --target test --tag shirasu:test .
 
     - name: Check installed dependencies
       shell: bash
@@ -20,14 +20,13 @@ runs:
 
     - name: Run regression tests
       shell: bash
-      run: docker run --rm --network none shirasu:test python -B -m unittest discover -s tests -v
+      run: docker run --rm --network none shirasu:test python -B -m unittest discover -s tests/receiver -v
 
-    - name: Check receiver publication against gallery fixtures
+    - name: Check publication from the release artifact
       shell: bash
       run: >-
         docker run --rm --network none --volume "$PWD:/source:ro" --workdir /source
-        shirasu:test sh -c 'for suite in public_qzqsm_publication gallery_post_publication timeline_publication release_receiver; do
-        python -B -m unittest discover -s tests -p "test_${suite}.py" -v || exit 1; done'
+        shirasu:test python -B -m unittest -v tests.release.test_release_receiver
 
     - name: Build integration test image
       shell: bash

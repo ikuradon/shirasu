@@ -70,7 +70,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
-          python3 -B scripts/publish_ci_release.py \
+          python3 -B -m tools.release.publish_ci_release \
             --check-root dist/release-check \
             --receiver-image shirasu:rehearsal \
             --renderer-image shirasu-images:rehearsal \
@@ -125,7 +125,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >-
-          python3 -B scripts/verify_ci_restore.py
+          python3 -B -m tools.release.verify_ci_restore
           --release dist/registry-restore/metadata/release.json
           --manifest dist/registry-restore/metadata/candidate-manifest.json
           --output dist/registry-restore/verified

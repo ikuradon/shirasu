@@ -25,7 +25,7 @@ from nostr_sdk import Event, Keys
 from websockets.asyncio.server import serve
 from websockets.exceptions import ConnectionClosed
 
-from backup import create_backup, verify_backup
+from shirasu.backup import create_backup, verify_backup
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -141,10 +141,8 @@ class DeliveryIntegrationTests(unittest.IsolatedAsyncioTestCase):
         await self.relay.start()
         self.addAsyncCleanup(self.relay.close)
         self.addAsyncCleanup(self.stop_daemon)
-        for filename in ('main.py', 'receiver.py', 'outbox.py', 'message_format.py', 'dcx_instructions.py',
-                         'image_publication.py', 'image_protocol.py', 'image_versions.py', 'image_alt.py', 'nankai_image.py',
-                         'typhoon.py', 'nankai.py'):
-            shutil.copyfile(ROOT / filename, self.directory_path / filename)
+        shutil.copytree(ROOT / 'shirasu', self.directory_path / 'shirasu',
+                        ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
         self.keys = Keys.generate()
         (self.directory_path / 'config.py').write_text(
             f'SECRET_KEY = {self.keys.secret_key().to_bech32()!r}\n'
@@ -188,7 +186,7 @@ class DeliveryIntegrationTests(unittest.IsolatedAsyncioTestCase):
                'PYTHONDONTWRITEBYTECODE': '1', 'SHIRASU_STATE_PATH': str(self.path)}
         with self.log_path.open('ab') as output:
             self.process = await asyncio.create_subprocess_exec(
-                sys.executable, '-B', 'main.py', cwd=self.directory_path, env=env,
+                sys.executable, '-B', '-m', 'shirasu', cwd=self.directory_path, env=env,
                 stdout=output, stderr=asyncio.subprocess.STDOUT,
             )
         writer = await asyncio.wait_for(self.gpsd.accepted.get(), timeout=10)

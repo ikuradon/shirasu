@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from azarashi.reports import dcr, dcx
 from matplotlib import patheffects
 from matplotlib.text import Text
-from nankai_image import header as nankai_header, is_nankai_entry
+from shirasu.images.nankai import header as nankai_header, is_nankai_entry
 
 from image_service import render as base
 from image_service import render_v4 as published

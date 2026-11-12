@@ -20,7 +20,7 @@ from azarashi.definitions.qzss.dcx.ex1_target_area_code import ex1_target_area_c
 from azarashi.definitions.qzss.dcx.ex9_target_area_code import ex9_target_area_code_ja
 from azarashi.reports import dcx
 
-from dcx_instructions import MtInfoEvacuationError, is_evacuation_destination, mtinfo_evacuation
+from shirasu.reports.dcx import MtInfoEvacuationError, is_evacuation_destination, mtinfo_evacuation
 from image_service.preview_diagnostics import PreviewFallback, Reason, error_reason, unique_reasons
 
 
