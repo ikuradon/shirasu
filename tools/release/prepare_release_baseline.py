@@ -70,7 +70,8 @@ def _allowed(name):
     return (isinstance(name, str) and not PurePosixPath(name).is_absolute()
             and re.fullmatch(r'[A-Za-z0-9_./-]+', name) is not None
             and all(part not in ('', '.', '..') for part in name.split('/'))
-            and (name in ('image_protocol.py', 'image_versions.py', 'licenses/pyserial-3.5-LICENSE.txt',
+            and (name in ('image_protocol.py', 'image_versions.py', 'LICENSE',
+                         'licenses/README.md', 'licenses/ACKNOWLEDGEMENTS.txt', 'licenses/pyserial-3.5-LICENSE.txt',
                          'shirasu/images/protocol.py', 'shirasu/images/versions.py', *PACKAGE_INITS)
                  or name.startswith('image_service/')))
 

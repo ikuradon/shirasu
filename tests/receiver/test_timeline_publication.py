@@ -18,6 +18,7 @@ from shirasu import service as main
 from shirasu.images.alt import image_alt_text
 from shirasu.images.publication import ImagePublisher
 from shirasu.outbox import Outbox
+from shirasu.reports.format import ATTRIBUTION
 from tools.preview.gallery_catalog import _field_variant, load_cases
 from tools.preview.gallery_timeline import plan_timeline
 from tools.preview.timeline_catalog import load_scenarios
@@ -104,6 +105,8 @@ class TimelinePublicationTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(event.kind().as_u16(), 1)
                     self.assertEqual(event.author().to_hex(), nostr.identity)
                     content = event.content()
+                    self.assertEqual(content.count(ATTRIBUTION), 1)
+                    self.assertEqual(post.text.count(ATTRIBUTION), 1)
                     urls = [url for url in image_inputs if '\n\n' + url + '\n---\n' in content]
                     self.assertEqual(len(urls), int(post.image_enabled))
                     imeta = [tag.to_vec() for tag in event.tags() if tag.to_vec()[0] == 'imeta']

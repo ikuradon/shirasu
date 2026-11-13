@@ -32,7 +32,7 @@ class RestoreJobTests(unittest.TestCase):
                        else ('fixture ' + name).encode())
             path.write_bytes(content)
             files[name] = hashlib.sha256(content).hexdigest()
-        self.manifest = {'schema_version': 1, 'candidate_version': 'v5', 'rollback_version': 'v4',
+        self.manifest = {'schema_version': candidate.MANIFEST_SCHEMA, 'candidate_version': 'v5', 'rollback_version': 'v4',
                          'source': {'commit': SOURCE, 'working_tree': False}, 'files': files}
         self.raw = (json.dumps(self.manifest, sort_keys=True) + '\n').encode()
         self.digest = hashlib.sha256(self.raw).hexdigest()

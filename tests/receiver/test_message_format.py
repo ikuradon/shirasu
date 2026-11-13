@@ -11,7 +11,7 @@ from azarashi.definitions.qzss.dcr.marine_warning_code import marine_warning_cod
 from azarashi.definitions.qzss.dcr.report_classification import report_classification
 from azarashi.reports import dcr
 
-from shirasu.reports.format import report_message
+from shirasu.reports.format import ATTRIBUTION, post_message, report_message
 from tests.qzqsm_samples import decode_reports, manifest
 from tests.receiver.test_dcx_instructions import evacuation_report, mtinfo_report
 
@@ -20,6 +20,19 @@ MARINE = '$QZQSM,58,53ADF5A111800283FC5083541042820D5047EA17994309A8622000113240
 DCR = '$QZQSM,55,C6AF89A820000324000050400548C5E2C000000003DFF8001C00001185443FC*05'
 DCX = '$QZQSM,55,53B0000DE000000000000000000000000000000000000000000000000E41D10*04'
 RECEIVED_AT = datetime(2026, 11, 8, 3, tzinfo=timezone.utc)
+
+
+class PostMessageTests(unittest.TestCase):
+    def test_notice_preserves_body_whitespace_separators_and_original_frame_order(self):
+        body = '通報本文\n---\n引用内の NMEA: 例\n\n'
+        notice = '出典・利用条件：https://github.com/ikuradon/shirasu/blob/main/licenses/README.md'
+        text = post_message(body, iter((DCX, DCR)))
+        self.assertEqual(text, body + '\n\n' + notice +
+                         f'\n---\nNMEA: {DCX}\nNMEA: {DCR}')
+
+    def test_existing_final_notice_is_not_added_twice(self):
+        body = '通報本文\n\n' + ATTRIBUTION
+        self.assertEqual(post_message(body, (DCR,)), body + f'\n---\nNMEA: {DCR}')
 
 
 class MessageFormatTests(unittest.TestCase):
@@ -53,7 +66,7 @@ class MessageFormatTests(unittest.TestCase):
             '・関東海域南部\n'
             '・沿海州南部沖\n'
             '・能登沖\n'
-            f'---\nNMEA: {MARINE}'
+            f'\n{ATTRIBUTION}\n---\nNMEA: {MARINE}'
         )
         self.assertEqual(report_message(self.report), expected)
 
@@ -124,7 +137,7 @@ class MessageFormatTests(unittest.TestCase):
         self.assertEqual(report_message(self.report),
                          '【海上警報】発表（通常）\n'
                          '発表時刻：11月8日 17:35 JST\n'
-                         f'---\nNMEA: {MARINE}')
+                         f'\n{ATTRIBUTION}\n---\nNMEA: {MARINE}')
 
     def test_jst_conversion_handles_a_utc_date_boundary(self):
         self.report.report_time = datetime(2026, 12, 31, 16, 5, tzinfo=timezone.utc)
@@ -152,11 +165,11 @@ class MessageFormatTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'timezone-aware'):
                     report_message(self.report)
 
-    def test_other_report_types_keep_their_existing_post_text(self):
+    def test_other_report_types_keep_their_existing_text_before_attribution(self):
         for sentence in (DCR, DCX):
             with self.subTest(sentence=sentence):
                 report = azarashi.decode(sentence, timestamp=RECEIVED_AT)
-                self.assertEqual(report_message(report), f'{report}\n---\nNMEA: {report.nmea}')
+                self.assertEqual(report_message(report), f'{report}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}')
 
 
 class DcxEvacuationMessageTests(unittest.TestCase):
@@ -199,7 +212,7 @@ class DcxEvacuationMessageTests(unittest.TestCase):
         original_camf = copy.deepcopy(report.camf.get_params())
         camf = report.camf
         text = report_message(report)
-        self.assertTrue(text.endswith(f'{original_text}\n---\nNMEA: {report.nmea}'))
+        self.assertTrue(text.endswith(f'{original_text}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}'))
         for attribute in ('a11_international_library_a', 'a11_international_library_b'):
             instruction = getattr(report, attribute)
             self.assertTrue(instruction)
@@ -217,21 +230,21 @@ class DcxEvacuationMessageTests(unittest.TestCase):
                 report = evacuation_report(*fields)
                 self.assertIn('主範囲内の人への既定指示（IC-A-03）', report_message(report))
 
-    def test_unreviewed_libraries_and_other_secondary_configurations_remain_byte_identical(self):
+    def test_unreviewed_libraries_and_other_secondary_configurations_preserve_received_text(self):
         for fields in (((66, 1, 1),), ((67, 3, 1),), ((141, 5, 1),),
                        ((141, 5, 17),), ((141, 5, 31),), ((129, 2, 3),)):
             with self.subTest(fields=fields):
                 report = evacuation_report(*fields)
-                self.assertEqual(report_message(report), f'{report}\n---\nNMEA: {report.nmea}')
+                self.assertEqual(report_message(report), f'{report}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}')
 
-    def test_public_recording_keeps_all_other_posts_byte_identical(self):
+    def test_public_recording_preserves_all_other_received_text(self):
         checked = 0
         for recording in manifest()['recordings']:
             for report in decode_reports(recording):
                 if isinstance(report, (dcr.Marine, dcr.NankaiTroughEarthquake)):
                     continue  # These already have separate formatters.
                 with self.subTest(recording=recording, nmea=report.nmea):
-                    self.assertEqual(report_message(report), f'{report}\n---\nNMEA: {report.nmea}')
+                    self.assertEqual(report_message(report), f'{report}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}')
                     checked += 1
         self.assertGreater(checked, 200)
 
@@ -271,7 +284,7 @@ class MtInfoEvacuationMessageTests(unittest.TestCase):
         before = copy.deepcopy({k: v for k, v in report.get_params().items() if k != 'camf'})
         before_camf = copy.deepcopy(report.camf.get_params())
         text = report_message(report)
-        self.assertTrue(text.endswith(f'{original_text}\n---\nNMEA: {report.nmea}'))
+        self.assertTrue(text.endswith(f'{original_text}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}'))
         self.assertTrue(report.a11_japanese_library)
         self.assertIn(report.a11_japanese_library, text)
         self.assertEqual({k: v for k, v in report.get_params().items() if k != 'camf'}, before)
@@ -286,7 +299,7 @@ class MtInfoEvacuationMessageTests(unittest.TestCase):
         self.assertIn('追加楕円の範囲へ向かう', text)
         self.assertIn('中心 南緯90.000000°・東経45.000000°', text)
         self.assertIn('半長軸0.216km・半短軸0.216km、方位-90°', text)
-        self.assertTrue(text.endswith(f'{report}\n---\nNMEA: {report.nmea}'))
+        self.assertTrue(text.endswith(f'{report}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}'))
         extreme = report_message(mtinfo_report((163, 17, 131071), (180, 17, 131071),
                                                (197, 5, 31), (202, 5, 31), (207, 7, 127)))
         self.assertIn('中心 北緯90.000000°・西経135.000000°', extreme)
@@ -297,10 +310,10 @@ class MtInfoEvacuationMessageTests(unittest.TestCase):
                        ((129, 2, 2),), ((197, 5, 0), (202, 5, 1))):
             with self.subTest(fields=fields):
                 report = mtinfo_report(*fields)
-                self.assertEqual(report_message(report), f'{report}\n---\nNMEA: {report.nmea}')
+                self.assertEqual(report_message(report), f'{report}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}')
         report = mtinfo_report()
         report.ex3_additional_ellipse_centre_latitude = float('nan')
-        self.assertEqual(report_message(report), f'{report}\n---\nNMEA: {report.nmea}')
+        self.assertEqual(report_message(report), f'{report}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}')
 
 
 if __name__ == '__main__':

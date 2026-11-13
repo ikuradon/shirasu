@@ -19,6 +19,7 @@ from shirasu import service as main
 from shirasu.images.publication import ImagePublisher
 from shirasu.images.alt import image_alt_text
 from shirasu.outbox import Outbox
+from shirasu.reports.format import ATTRIBUTION
 from tools.preview.gallery_catalog import load_cases
 from tools.preview.gallery_posts import plan_posts
 from tests.qzqsm_samples import decode_reports, expected_nankai_text
@@ -84,6 +85,8 @@ class GalleryPostPublicationTests(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(post=index, kind=post.kind):
                     self.assertTrue(event.verify())
                     content = event.content()
+                    self.assertEqual(content.count(ATTRIBUTION), 1)
+                    self.assertEqual(post.text.count(ATTRIBUTION), 1)
                     urls = [url for url in image_inputs if '\n\n' + url + '\n---\n' in content]
                     self.assertLessEqual(len(urls), 1)
                     self.assertEqual(bool(urls), post.image_enabled)
@@ -182,7 +185,7 @@ class GalleryPostPublicationTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(len(posts[0].image_record_indexes), int(nankai_topics))
                     self.assertEqual(set(posts[0].record_indexes), set(range(27)))
                     body = posts[0].text.partition('\n---\n')[0].split('\n\n', 1)[1]
-                    self.assertEqual(body, expected_nankai_text())
+                    self.assertEqual(body, expected_nankai_text() + '\n\n' + ATTRIBUTION)
                     self.assertNotIn('本文未受信', posts[0].text)
                     self.assertNotIn('受信中', posts[0].text)
 

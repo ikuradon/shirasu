@@ -21,13 +21,15 @@ if __package__ in (None, ''):
     sys.path.insert(0, str(ROOT))
 
 from tools.release import prepare_image_service as images
-from tools.release.layout import (LEGACY_IMAGE_FILES, LEGACY_RECEIVER_FILES, MOVED_FILES, PACKAGE_INITS,
-                                  PROFILE_PATH, profile_path)
+from tools.release.layout import (LEGACY_IMAGE_FILES, LEGACY_RECEIVER_FILES,
+                                  LEGACY_PACKAGED_IMAGE_FILES, LEGACY_PACKAGED_RECEIVER_FILES,
+                                  MOVED_FILES, PACKAGE_INITS, PROFILE_PATH, profile_path)
 
 
 CANDIDATE_VERSION = 'v5'
 ROLLBACK_VERSION = 'v4'
 MANIFEST_NAME = 'candidate-manifest.json'
+MANIFEST_SCHEMA = 2
 MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_FILE_BYTES = 128 * 1024 * 1024
 MAX_BUNDLE_BYTES = 512 * 1024 * 1024
@@ -38,6 +40,7 @@ RECEIVER_FILES = (
     *PACKAGE_INITS, 'shirasu/__main__.py', 'shirasu/cli.py', 'shirasu/health.py',
     *MOVED_FILES.values(),
     'requirements/receiver.txt', 'requirements/test.txt', 'Dockerfile', '.dockerignore',
+    'LICENSE', 'licenses/README.md', 'licenses/ACKNOWLEDGEMENTS.txt',
     'licenses/pyserial-3.5-LICENSE.txt',
 )
 IMAGE_GENERATED_FILES = ('requirements.txt', 'api/image.py', '.python-version', 'vercel.json')
@@ -53,12 +56,15 @@ CANDIDATE_VERSION = 'v5'
 '''
 
 
-def _names(*, legacy=False):
+def _names(*, legacy=False, schema_version=MANIFEST_SCHEMA):
     image_names = (*images.FILES, *images.PREVIEW_FILES, *IMAGE_GENERATED_FILES, 'Dockerfile')
     receiver_names = RECEIVER_FILES
     if legacy:
         image_names = LEGACY_IMAGE_FILES
         receiver_names = LEGACY_RECEIVER_FILES
+    elif schema_version == 1:
+        image_names = LEGACY_PACKAGED_IMAGE_FILES
+        receiver_names = LEGACY_PACKAGED_RECEIVER_FILES
     return {*(f'images/{name}' for name in image_names),
             *(f'receiver/{name}' for name in receiver_names)}
 
@@ -132,7 +138,7 @@ def prepare(destination):
     for package in ('images', 'receiver'):
         (destination / package / PROFILE_PATH).write_text(CANDIDATE_PROFILE, encoding='utf-8')
     files = {name: _digest(destination / name)[0] for name in sorted(_names())}
-    manifest = {'schema_version': 1, 'candidate_version': CANDIDATE_VERSION,
+    manifest = {'schema_version': MANIFEST_SCHEMA, 'candidate_version': CANDIDATE_VERSION,
                 'rollback_version': ROLLBACK_VERSION, 'source': provenance, 'files': files}
     with (destination / MANIFEST_NAME).open('x', encoding='utf-8') as stream:
         json.dump(manifest, stream, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False)
@@ -178,7 +184,7 @@ def verify_bundle(directory):
         raise ValueError('Candidate manifest is not valid JSON') from error
     if (not isinstance(manifest, dict)
             or set(manifest) != {'schema_version', 'candidate_version', 'rollback_version', 'source', 'files'}
-            or type(manifest['schema_version']) is not int or manifest['schema_version'] != 1
+            or type(manifest['schema_version']) is not int or manifest['schema_version'] not in (1, MANIFEST_SCHEMA)
             or manifest['candidate_version'] != CANDIDATE_VERSION
             or manifest['rollback_version'] != ROLLBACK_VERSION):
         raise ValueError('Candidate manifest version fields are invalid')
@@ -197,7 +203,9 @@ def verify_bundle(directory):
         _safe_name(name)
         if not isinstance(digest, str) or re.fullmatch(r'[0-9a-f]{64}', digest) is None:
             raise ValueError('Candidate file hash is invalid')
-    if set(declared) not in (_names(), _names(legacy=True)):
+    allowed = ((_names(schema_version=1), _names(legacy=True))
+               if manifest['schema_version'] == 1 else (_names(),))
+    if set(declared) not in allowed:
         raise ValueError('Candidate manifest differs from the distribution allowlist')
     expected = set(declared) | {MANIFEST_NAME}
     directories = {str(parent) for name in declared for parent in PurePosixPath(name).parents

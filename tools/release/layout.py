@@ -141,6 +141,18 @@ LEGACY_IMAGE_FILES = (
     'vercel.json',
 )
 
+# The first packaged preview retained schema 1. Derive its fixed paths only
+# from the historical flat lists, never from today's distribution allowlist.
+LEGACY_PACKAGED_IMAGE_FILES = (
+    *(MOVED_FILES.get(name, name) for name in LEGACY_IMAGE_FILES), *PACKAGE_INITS,
+)
+LEGACY_PACKAGED_RECEIVER_FILES = (
+    *(MOVED_FILES.get(name, {'requirements.txt': 'requirements/receiver.txt',
+                           'requirements-test.txt': 'requirements/test.txt'}.get(name, name))
+      for name in LEGACY_RECEIVER_FILES),
+    *PACKAGE_INITS, 'shirasu/__main__.py', 'shirasu/cli.py', 'shirasu/health.py',
+)
+
 
 def is_legacy(manifest):
     return 'receiver/main.py' in manifest['files']

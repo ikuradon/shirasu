@@ -13,7 +13,7 @@ from azarashi.reports import dcr
 
 from shirasu import service as main
 from shirasu.images.publication import ImagePublisher, image_entry, with_image
-from shirasu.reports.format import report_message
+from shirasu.reports.format import ATTRIBUTION, report_message
 from shirasu.outbox import Outbox
 from tests.receiver import test_main as service_helpers
 from tests.receiver import test_typhoon as encoded_fixtures
@@ -52,7 +52,7 @@ class NankaiTextTests(unittest.TestCase):
                          '【南海トラフ地震関連情報】発表（通常）\n'
                          '情報種別：巨大地震注意\n'
                          '発表時刻：11月10日 09:10 JST\n\n'
-                         '訓練です。\n---\nNMEA: ' + report.nmea)
+                         f'訓練です。\n\n{ATTRIBUTION}\n---\nNMEA: ' + report.nmea)
 
     def test_training_correction_cancellation_and_priority_remain_explicit(self):
         cases = (
@@ -69,7 +69,7 @@ class NankaiTextTests(unittest.TestCase):
                                      information=information)
                 text = report_message(report)
                 self.assertEqual(text.splitlines()[0], header)
-                self.assertIn('\n\noriginal\n---\n', text)
+                self.assertIn(f'\n\noriginal\n\n{ATTRIBUTION}\n---\n', text)
                 if information == 2:
                     self.assertNotIn('発表されました', text)
 
@@ -93,7 +93,7 @@ class NankaiTextTests(unittest.TestCase):
             if count < len(chunks):
                 self.assertIn(f'受信中 ({index + 1}) [{count}/{len(chunks)}]', text)
                 self.assertNotIn(original, text)
-        self.assertIn('\n\n' + original + '\n---\n', text)
+        self.assertIn('\n\n' + original + f'\n\n{ATTRIBUTION}\n---\n', text)
         self.assertNotIn('受信中', text)
         self.assertNotIn('\ufffd', text)
         self.assertTrue(text.endswith('NMEA: ' + report.nmea))
@@ -184,7 +184,7 @@ class NankaiPublicationTests(unittest.IsolatedAsyncioTestCase):
             else:
                 self.assertTrue(await self.service.publish_one())
                 event = self.nostr.send.await_args.args[0]
-                self.assertIn('\n\n' + original + '\n---\n', event.content())
+                self.assertIn('\n\n' + original + f'\n\n{ATTRIBUTION}\n---\n', event.content())
                 self.assertEqual(event.tags(), [])
                 self.assertTrue(event.verify())
                 self.assertNotIn('受信中', event.content())
@@ -230,7 +230,7 @@ class NankaiPublicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self.service.publish_one())
         completed = self.nostr.send.await_args.args[0]
         self.assertIn('【追加更新】', completed.content())
-        self.assertIn('\n\nPARTIAL_TEXT_ONLYCOMPLETED\n---\n', completed.content())
+        self.assertIn(f'\n\nPARTIAL_TEXT_ONLYCOMPLETED\n\n{ATTRIBUTION}\n---\n', completed.content())
         self.assertNotIn('【本文未受信】', completed.content())
         for report in (first, last):
             self.assertIn('NMEA: ' + report.nmea, completed.content())

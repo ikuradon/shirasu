@@ -12,7 +12,10 @@ class ImagePackageTests(unittest.TestCase):
         for name, error in (
                 ('image_service/assets/v1/land.geojson', 'prepare_vendor_assets.py'),
                 ('image_service/assets/v1/manifest.json', 'Missing or linked source'),
-                ('image_service/render.py', 'Missing or linked source')):
+                ('image_service/render.py', 'Missing or linked source'),
+                ('LICENSE', 'Missing or linked source'),
+                ('licenses/README.md', 'Missing or linked source'),
+                ('licenses/ACKNOWLEDGEMENTS.txt', 'Missing or linked source')):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 destination = Path(directory) / 'deploy'
                 with patch('tools.release.prepare_image_service.ROOT', Path(directory) / 'checkout'), \
@@ -44,6 +47,9 @@ class ImagePackageTests(unittest.TestCase):
             self.assertNotIn('config.py', actual)
             self.assertNotIn('shirasu/service.py', actual)
             self.assertTrue((destination / 'image_service/assets/v1/OFL.txt').is_file())
+            for name in ('LICENSE', 'licenses/README.md', 'licenses/ACKNOWLEDGEMENTS.txt'):
+                self.assertEqual((destination / name).read_bytes(),
+                                 (Path(__file__).resolve().parents[2] / name).read_bytes())
             self.assertEqual((destination / 'licenses/pyserial-3.5-LICENSE.txt').read_bytes(),
                              (Path(__file__).resolve().parents[2] / 'licenses/pyserial-3.5-LICENSE.txt').read_bytes())
             with self.assertRaises(FileExistsError):

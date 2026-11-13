@@ -32,7 +32,7 @@ class RestoreReleaseTests(unittest.TestCase):
                        else ('fixture ' + name).encode())
             path.write_bytes(content)
             files[name] = hashlib.sha256(content).hexdigest()
-        self.manifest = {'schema_version': 1, 'candidate_version': candidate.CANDIDATE_VERSION,
+        self.manifest = {'schema_version': candidate.MANIFEST_SCHEMA, 'candidate_version': candidate.CANDIDATE_VERSION,
                          'rollback_version': candidate.ROLLBACK_VERSION,
                          'source': {'commit': SOURCE, 'working_tree': False}, 'files': files}
         self.raw = (json.dumps(self.manifest, sort_keys=True, indent=2) + '\n').encode()

@@ -1,0 +1,12 @@
+Third-party acknowledgements for shirasu image distributions
+
+This software is based in part on the work of the FreeType Team.
+https://freetype.org/
+
+This software is based in part on the work of the Independent JPEG Group.
+
+The FreeType Project License (FTL) is selected for the included FreeType
+components. The original copyright notices, license texts and disclaimers
+remain in the installed Pillow and Matplotlib distributions. The Pillow
+license file also contains the terms for the included JPEG components.
+See README.md in this directory for their locations and other notices.

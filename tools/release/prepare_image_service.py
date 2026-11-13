@@ -8,6 +8,9 @@ import shutil
 
 ROOT = Path(__file__).resolve().parents[2]
 FILES = (
+    'LICENSE',
+    'licenses/README.md',
+    'licenses/ACKNOWLEDGEMENTS.txt',
     'shirasu/__init__.py',
     'shirasu/images/__init__.py',
     'licenses/pyserial-3.5-LICENSE.txt',

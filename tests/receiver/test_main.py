@@ -14,6 +14,7 @@ from nostr_sdk import Event, Keys, RelayUrl
 
 from shirasu import service as main
 from shirasu.health import healthy
+from shirasu.reports.format import ATTRIBUTION
 from shirasu.images.protocol import ProtocolError, parse_path
 from shirasu.images.publication import ImagePublisher, image_entry
 from shirasu.images.alt import DEFAULT_IMAGE_ALT, image_alt_text
@@ -91,7 +92,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(event.verify())
         self.assertEqual(event.kind().as_u16(), 1)
         self.assertEqual(event.author().to_hex(), self.nostr.identity)
-        self.assertEqual(event.content(), f'{self.report}\n---\nNMEA: {DCR_NMEA}')
+        self.assertEqual(event.content(), f'{self.report}\n\n{ATTRIBUTION}\n---\nNMEA: {DCR_NMEA}')
         self.assertEqual(event.id().to_hex(), record['event_id'])
 
         self.assertTrue(await self.service.publish_one())
@@ -114,7 +115,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
             '・関東海域南部\n'
             '・沿海州南部沖\n'
             '・能登沖\n'
-            f'---\nNMEA: {MARINE_NMEA}'
+            f'\n{ATTRIBUTION}\n---\nNMEA: {MARINE_NMEA}'
         )
         self.assertEqual(await self.service.accept(self.marine), 'queued')
         record = self.outbox.next_due(self.clock())

@@ -18,6 +18,13 @@ runs:
       shell: bash
       run: docker run --rm --network none shirasu:test python -m pip check
 
+    - name: Check retained application and dependency licenses
+      shell: bash
+      run: >-
+        docker run --rm --network none shirasu:test
+        python -B -m tools.release.check_licenses
+        --requirements /app/requirements/receiver.txt --requirements /app/requirements/test.txt
+
     - name: Run regression tests
       shell: bash
       run: docker run --rm --network none shirasu:test python -B -m unittest discover -s tests/receiver -v

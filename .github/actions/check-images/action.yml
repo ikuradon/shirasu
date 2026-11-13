@@ -12,6 +12,9 @@ runs:
         python3 -B -m tools.release.prepare_image_service dist/image-service
         docker build --pull -f image_service/Dockerfile -t shirasu-images:test dist/image-service
         docker run --rm --network none shirasu-images:test python -m pip check
+        docker run --rm --network none --volume "$PWD:/checks:ro" \
+          shirasu-images:test python -B /checks/tools/release/check_licenses.py \
+          --requirements /app/requirements.txt
         docker run --rm --network none shirasu-images:test python -B -c \
           'from image_service.render_v4 import verify_assets; verify_assets()'
     - name: Build the development renderer package
@@ -43,6 +46,12 @@ runs:
         mkdir dist/release-check/results
         docker build --pull=false -t shirasu-images:rehearsal dist/release-check/candidate/images
         docker build --pull=false -t shirasu:rehearsal dist/release-check/candidate/receiver
+        docker run --rm --network none --volume "$PWD:/checks:ro" \
+          shirasu:rehearsal python -B /checks/tools/release/check_licenses.py \
+          --requirements /app/requirements/receiver.txt
+        docker run --rm --network none --volume "$PWD:/checks:ro" \
+          shirasu-images:rehearsal python -B /checks/tools/release/check_licenses.py \
+          --requirements /app/requirements.txt
     - name: Verify release Compose merge, startup and PNG cutback
       shell: bash
       run: |

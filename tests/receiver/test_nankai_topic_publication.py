@@ -17,6 +17,7 @@ from shirasu.images.alt import image_alt_text
 from shirasu.images.protocol import MAX_REPORTS, ProtocolError, parse_path
 from shirasu.images.publication import ImagePublisher, image_entry
 from shirasu.outbox import Outbox
+from shirasu.reports.format import ATTRIBUTION
 from tests.receiver import test_main as service_helpers
 from tests.receiver.test_nankai_publication import isolate_assembly, nankai_page
 
@@ -73,7 +74,7 @@ class NankaiTopicPublicationTests(unittest.IsolatedAsyncioTestCase):
     def assert_full_text(self, text, body, reports):
         message, separator, originals = text.partition('\n---\n')
         self.assertEqual(separator, '\n---\n')
-        self.assertEqual(message.split('\n\n', 1)[1], body)
+        self.assertEqual(message.split('\n\n', 1)[1], body + '\n\n' + ATTRIBUTION)
         self.assertEqual(originals.splitlines(), ['NMEA: ' + report.nmea for report in reports])
 
     async def test_complete_training_text_is_assembled_before_one_heading_attachment(self):

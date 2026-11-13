@@ -12,7 +12,7 @@ from azarashi.reports import dcr
 
 from shirasu import service as main
 from shirasu.images.publication import ImagePublisher, image_entry, with_image
-from shirasu.reports.format import report_message
+from shirasu.reports.format import ATTRIBUTION, report_message
 from shirasu.outbox import Outbox
 from tests.qzqsm_samples import decode_reports, expected_nankai_text
 from tests.receiver import test_main as service_helpers
@@ -45,7 +45,7 @@ class PublicQzqsmPublicationTests(unittest.IsolatedAsyncioTestCase):
     def assert_complete_body(self, event, name, pages):
         body, separator, records = event.content().partition('\n---\n')
         self.assertEqual(separator, '\n---\n')
-        self.assertEqual(body.split('\n\n', 1)[1], expected_nankai_text(name))
+        self.assertEqual(body.split('\n\n', 1)[1], expected_nankai_text(name) + '\n\n' + ATTRIBUTION)
         self.assertIn('【訓練・試験】南海トラフ地震関連情報（発表）', body)
         self.assertIn('情報種別：巨大地震注意', body)
         self.assertNotIn('受信中', body)
@@ -137,7 +137,7 @@ class PublicQzqsmPublicationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await self.service.accept(report), 'queued')
                 self.assertTrue(await self.service.publish_one())
                 event = self.nostr.send.await_args.args[0]
-                self.assertEqual(event.content(), f'{report}\n---\nNMEA: {report.nmea}')
+                self.assertEqual(event.content(), f'{report}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}')
                 self.assertTrue(event.verify())
                 self.assertEqual(event.tags(), [])
         self.assertEqual(self.nostr.send.await_count, 211)

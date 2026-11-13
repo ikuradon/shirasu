@@ -55,3 +55,9 @@ docker compose exec -T shirasu python -m shirasu --history
 
 地図・フォント等の取得元、加工内容、ライセンスは[`vendor/`](vendor/README.md)にあります。
 受信サンプルの出典は[`tests/fixtures/qzqsm/`](tests/fixtures/qzqsm/README.md)を参照してください。
+
+## ライセンス
+
+shirasuの自作コードは[MITライセンス](LICENSE)です。依存ライブラリ、地図・フォント、
+受信サンプル・公式資料の転載には、それぞれの権利と利用条件が適用されます。
+出典、同梱ライセンス、確認が残る事項は[`licenses/`](licenses/README.md)にまとめています。

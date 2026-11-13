@@ -69,7 +69,7 @@ class ReleaseCandidateTests(unittest.TestCase):
         result = candidate.verify_bundle(self.output)
         self.assertEqual(result['source'], SOURCE)
         self.assertEqual((result['schema_version'], result['candidate_version'], result['rollback_version']),
-                         (1, 'v5', 'v4'))
+                         (2, 'v5', 'v4'))
         actual = {str(path.relative_to(self.output)) for path in self.output.rglob('*') if path.is_file()}
         self.assertEqual(actual, set(result['files']) | {candidate.MANIFEST_NAME})
         self.assertEqual(result['manifest_sha256'], hashlib.sha256(
@@ -87,30 +87,64 @@ class ReleaseCandidateTests(unittest.TestCase):
         self.assertEqual((self.output / 'images/requirements.txt').read_bytes(),
                          (self.source / 'image_service/requirements.txt').read_bytes())
 
-    def test_retained_flat_bundle_still_verifies_without_rewriting_it(self):
-        output = self.root / 'retained'
-        files = {}
-        for name in sorted(candidate._names(legacy=True)):
-            target = output / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            content = (candidate.CANDIDATE_PROFILE.encode() if name.endswith('/image_versions.py')
-                       else ('retained: ' + name).encode())
-            target.write_bytes(content)
-            files[name] = hashlib.sha256(content).hexdigest()
-        manifest = {'schema_version': 1, 'candidate_version': 'v5', 'rollback_version': 'v4',
-                    'source': SOURCE, 'files': files}
-        (output / candidate.MANIFEST_NAME).write_text(json.dumps(manifest))
-        checked = candidate.verify_bundle(output)
-        self.assertEqual(checked['files'], files)
-        # A future package addition must not invalidate an already published
-        # snapshot or silently extend its allowlist.
-        with patch.object(images, 'FILES', (*images.FILES, 'image_service/new.py')):
-            self.assertEqual(candidate.verify_bundle(output), checked)
-        extra = output / 'receiver/shirasu/__init__.py'
-        extra.parent.mkdir()
-        extra.write_text('')
-        with self.assertRaises(ValueError):
-            candidate.verify_bundle(output)
+    def test_retained_schema_one_bundles_verify_without_rewriting_or_extending_them(self):
+        for legacy, count in ((True, 121), (False, 130)):
+            with self.subTest(flat=legacy):
+                output = self.root / ('flat' if legacy else 'packaged')
+                files = {}
+                for name in sorted(candidate._names(legacy=legacy, schema_version=1)):
+                    target = output / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    content = (candidate.CANDIDATE_PROFILE.encode()
+                               if name.endswith(('/image_versions.py', '/shirasu/images/versions.py'))
+                               else ('retained: ' + name).encode())
+                    target.write_bytes(content)
+                    files[name] = hashlib.sha256(content).hexdigest()
+                self.assertEqual(len(files), count)
+                manifest = {'schema_version': 1, 'candidate_version': 'v5', 'rollback_version': 'v4',
+                            'source': SOURCE, 'files': files}
+                (output / candidate.MANIFEST_NAME).write_text(json.dumps(manifest))
+                checked = candidate.verify_bundle(output)
+                self.assertEqual(checked['files'], files)
+                # New package inputs cannot change a historical allowlist.
+                with patch.object(images, 'FILES', (*images.FILES, 'image_service/new.py')):
+                    self.assertEqual(candidate.verify_bundle(output), checked)
+                (output / 'receiver/LICENSE').write_text('unexpected historical addition')
+                with self.assertRaises(ValueError):
+                    candidate.verify_bundle(output)
+
+    def test_new_candidate_requires_license_and_notices_in_both_packages(self):
+        names = ('LICENSE', 'licenses/README.md', 'licenses/ACKNOWLEDGEMENTS.txt')
+        for name in names:
+            (self.source / name).write_bytes((ROOT / name).read_bytes())
+        self.make()
+        manifest = self.manifest()
+        for package in ('receiver', 'images'):
+            for name in names:
+                entry = package + '/' + name
+                path = self.output / entry
+                original = path.read_bytes()
+                self.assertEqual(original, (ROOT / name).read_bytes())
+                # Dropping both bytes and their manifest entry still fails:
+                # schema 2 must never fall back to an unlicensed old layout.
+                path.unlink()
+                altered = {**manifest, 'files': {k: v for k, v in manifest['files'].items() if k != entry}}
+                self.write_manifest(altered)
+                with self.subTest(entry=entry), self.assertRaisesRegex(ValueError, 'allowlist'):
+                    candidate.verify_bundle(self.output)
+                path.write_bytes(original)
+                self.write_manifest(manifest)
+        missing = {package + '/' + name for package in ('receiver', 'images') for name in names}
+        for entry in missing:
+            (self.output / entry).unlink()
+        self.write_manifest({**manifest, 'files': {k: v for k, v in manifest['files'].items() if k not in missing}})
+        with self.assertRaisesRegex(ValueError, 'allowlist'):
+            candidate.verify_bundle(self.output)
+        for entry in missing:
+            (self.output / entry).write_bytes((ROOT / entry.split('/', 1)[1]).read_bytes())
+        self.write_manifest({**manifest, 'schema_version': 1})
+        with self.assertRaisesRegex(ValueError, 'allowlist'):
+            candidate.verify_bundle(self.output)
 
     def test_normal_package_stays_v1_to_v4_and_candidate_registers_v5_in_both_artifacts(self):
         self.make()
@@ -256,7 +290,7 @@ print(json.dumps({'topics': [p.supports_nankai_topic for p in publishers],
     def test_manifest_types_duplicate_keys_and_excess_size_fail_closed(self):
         self.make()
         original = self.manifest()
-        for changed in ({'schema_version': True}, {'candidate_version': 'v6'},
+        for changed in ({'schema_version': True}, {'schema_version': 3}, {'candidate_version': 'v6'},
                         {'rollback_version': 'v5'}, {'files': []},
                         {'source': {'commit': 'a' * 40, 'working_tree': 1}},
                         {'source': {'commit': None, 'working_tree': False}},

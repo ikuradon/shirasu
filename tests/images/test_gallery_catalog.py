@@ -13,7 +13,7 @@ from unittest.mock import patch
 import azarashi
 from azarashi.reports import dcr
 
-from shirasu.reports.format import report_message
+from shirasu.reports.format import ATTRIBUTION, report_message
 from shirasu.images.nankai import header as nankai_header
 from tools.preview.gallery_catalog import _dcx_training_variant, _field_variant, _validated, load_cases
 
@@ -391,7 +391,7 @@ class GalleryCatalogTests(unittest.TestCase):
         self.assertEqual(report.d4_vector_length_between_centre_of_main_ellipse_and_epicentre, .25)
         for field in ('a6', 'a7', 'a12', 'a13', 'a14', 'a15', 'a16'):
             self.assertEqual(getattr(report.camf, field), getattr(source_report.camf, field))
-        self.assertEqual(report_message(report), f'{report}\n---\nNMEA: {report.nmea}')
+        self.assertEqual(report_message(report), f'{report}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}')
         payloads = [int(item.records[0][0].split('*')[0].split(',')[2] + '0', 16)
                     for item in (case, original)]
         allowed = 0

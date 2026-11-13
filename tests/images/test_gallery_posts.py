@@ -10,7 +10,7 @@ from unittest.mock import patch
 import azarashi
 from azarashi.reports import dcr, dcx
 
-from shirasu.reports.format import report_message
+from shirasu.reports.format import ATTRIBUTION, report_message
 from tests.qzqsm_samples import decode_reports, expected_nankai_text
 from tools.preview.gallery_catalog import _field_variant, load_cases
 from tools.preview.gallery_posts import plan_posts
@@ -56,6 +56,7 @@ class GalleryPostTests(unittest.TestCase):
                 self.assertTrue(posts)
                 for post in posts:
                     self.assertTrue(post.text)
+                    self.assertEqual(post.text.count(ATTRIBUTION), 1)
                     self.assertTrue(post.record_indexes)
                     self.assertTrue(all(0 <= index < len(records) for index in post.record_indexes))
                     self.assertIn(post.kind, ('single', 'typhoon', 'nankai'))
@@ -113,7 +114,7 @@ class GalleryPostTests(unittest.TestCase):
         expected_order = tuple(sorted(range(len(pages)), key=lambda index: pages[index].page_number))
         self.assertEqual(post.record_indexes, expected_order)
         body, _, nmea = post.text.partition('\n---\n')
-        self.assertEqual(body.split('\n\n', 1)[1], expected_nankai_text())
+        self.assertEqual(body.split('\n\n', 1)[1], expected_nankai_text() + '\n\n' + ATTRIBUTION)
         self.assertEqual(nmea.splitlines(), ['NMEA: ' + records[index][0] for index in expected_order])
 
     def test_nankai_missing_pages_produce_metadata_only_after_the_virtual_deadline(self):

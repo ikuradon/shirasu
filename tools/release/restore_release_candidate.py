@@ -15,7 +15,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if __package__ in (None, ''):
     sys.path.insert(0, str(ROOT))
 
-from tools.release.prepare_release_candidate import CANDIDATE_VERSION, MANIFEST_NAME, MAX_MANIFEST_BYTES, verify_bundle
+from tools.release.prepare_release_candidate import (CANDIDATE_VERSION, MANIFEST_NAME,
+                                                     MANIFEST_SCHEMA, MAX_MANIFEST_BYTES, verify_bundle)
 from tools.release.release_identity import RELEASE_PLATFORM, receipt_tag
 
 
@@ -68,7 +69,7 @@ def validate_receipt(receipt, manifest_bytes):
     require(hashlib.sha256(manifest_bytes).hexdigest() == digest, 'Candidate manifest digest differs')
     manifest = read_json(manifest_bytes)
     require(isinstance(manifest, dict)
-            and type(manifest.get('schema_version')) is int and manifest['schema_version'] == 1
+            and type(manifest.get('schema_version')) is int and manifest['schema_version'] in (1, MANIFEST_SCHEMA)
             and manifest.get('candidate_version') == receipt['version'],
             'Candidate manifest version differs')
     require(manifest.get('source') == {'commit': source, 'working_tree': False},
