@@ -11,8 +11,9 @@ import azarashi
 from azarashi.reports import dcr
 
 from shirasu import service as main
+from tests.posting_helpers import hashtag_tags, post_footer
 from shirasu.images.publication import ImagePublisher, image_entry, with_image
-from shirasu.reports.format import ATTRIBUTION, report_message
+from shirasu.reports.format import report_message
 from shirasu.outbox import Outbox
 from tests.qzqsm_samples import decode_reports, expected_nankai_text
 from tests.receiver import test_main as service_helpers
@@ -45,14 +46,14 @@ class PublicQzqsmPublicationTests(unittest.IsolatedAsyncioTestCase):
     def assert_complete_body(self, event, name, pages):
         body, separator, records = event.content().partition('\n---\n')
         self.assertEqual(separator, '\n---\n')
-        self.assertEqual(body.split('\n\n', 1)[1], expected_nankai_text(name) + '\n\n' + ATTRIBUTION)
+        self.assertEqual(body.split('\n\n', 1)[1], expected_nankai_text(name) + '\n\n' + post_footer(pages[0]))
         self.assertIn('【訓練・試験】南海トラフ地震関連情報（発表）', body)
         self.assertIn('情報種別：巨大地震注意', body)
         self.assertNotIn('受信中', body)
         self.assertNotIn('\ufffd', body)
         self.assertEqual(records.splitlines(),
                          ['NMEA: ' + page.nmea for page in sorted(pages, key=lambda r: r.page_number)])
-        self.assertEqual(event.tags(), [])
+        self.assertEqual([tag.to_vec() for tag in event.tags()], hashtag_tags(event))
         self.assertTrue(event.verify())
 
     async def test_all_27_pages_form_one_post_after_restart_in_received_or_reverse_order(self):
@@ -110,7 +111,7 @@ class PublicQzqsmPublicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('受信26/27ページ', body)
         self.assertIn('不足ページ：17', body)
         self.assertNotIn(expected_nankai_text(name)[:18], body)
-        self.assertEqual(notice.tags(), [])
+        self.assertEqual([tag.to_vec() for tag in notice.tags()], hashtag_tags(notice))
         self.assertTrue(notice.verify())
         self.assertFalse(await self.service.publish_one())
         self.reopen(images=False)
@@ -137,9 +138,9 @@ class PublicQzqsmPublicationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await self.service.accept(report), 'queued')
                 self.assertTrue(await self.service.publish_one())
                 event = self.nostr.send.await_args.args[0]
-                self.assertEqual(event.content(), f'{report}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}')
+                self.assertEqual(event.content(), f'{report}\n\n{post_footer(report)}\n---\nNMEA: {report.nmea}')
                 self.assertTrue(event.verify())
-                self.assertEqual(event.tags(), [])
+                self.assertEqual([tag.to_vec() for tag in event.tags()], hashtag_tags(event))
         self.assertEqual(self.nostr.send.await_count, 211)
         self.reopen(images=False)
         for report in reports:
@@ -190,7 +191,7 @@ class PublicQzqsmPublicationTests(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue(event.verify())
                     self.assertTrue(event.content().endswith('\n---\nNMEA: ' + report.nmea))
                     if images is not self.images:
-                        self.assertEqual(event.tags(), [])
+                        self.assertEqual([tag.to_vec() for tag in event.tags()], hashtag_tags(event))
                     saved = box.connection.execute('SELECT event_json FROM events').fetchone()['event_json']
                     self.assertEqual(await service.accept(report), 'duplicate')
                     self.assertEqual(box.connection.execute('SELECT event_json FROM events').fetchone()['event_json'], saved)

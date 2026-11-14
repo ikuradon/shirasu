@@ -153,6 +153,13 @@ LEGACY_PACKAGED_RECEIVER_FILES = (
     *PACKAGE_INITS, 'shirasu/__main__.py', 'shirasu/cli.py', 'shirasu/health.py',
 )
 
+# Schema 2 added the source license and notices to both packaged artifacts.
+# Keep these paths independent of the current packaging allowlists as well.
+SCHEMA2_IMAGE_FILES = (*LEGACY_PACKAGED_IMAGE_FILES, 'LICENSE',
+                       'licenses/README.md', 'licenses/ACKNOWLEDGEMENTS.txt')
+SCHEMA2_RECEIVER_FILES = (*LEGACY_PACKAGED_RECEIVER_FILES, 'LICENSE',
+                          'licenses/README.md', 'licenses/ACKNOWLEDGEMENTS.txt')
+
 
 def is_legacy(manifest):
     return 'receiver/main.py' in manifest['files']

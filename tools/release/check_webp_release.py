@@ -39,15 +39,15 @@ def event_details(modules, event, text, entries, publisher):
         require(publisher is not None, 'image requires a publisher')
         url = publisher.url(entries)
         alt = modules['image_alt'].image_alt_text(entries)
-        require(tags == [['imeta', 'url ' + url, 'm ' + publisher.mime, 'alt ' + alt]],
-                'real Nostr MIME, URL or ALT differs')
+        require(tags == images.posting_tags(event.content(), url=url, mime=publisher.mime, alt=alt),
+                'real Nostr MIME, URL, ALT or hashtags differ')
         path = urlsplit(url).path
         actual = modules['image_protocol'].parse_path(path, {KEY_ID: KEY})
         require(actual == tuple(sorted(entries, key=lambda entry: (entry[1], entry[0]))),
                 'signed URL lost original image inputs')
         expected = modules['image_publication'].with_image(text, url)
     else:
-        require(not tags, 'text-only event has attachment metadata')
+        require(tags == images.posting_tags(event.content()), 'text-only event has unexpected metadata')
         expected = text
     require(event.content() == expected, 'actual signed content changed')
     return {'event': json.loads(event.as_json()), 'url': url, 'alt': alt}
@@ -94,7 +94,8 @@ def attachment(row, protocol, *, entries, text=None, version=None, encoding=None
     event = images._event(row.get('event'))
     url, alt = row.get('url'), row.get('alt')
     if url is None:
-        require(not entries and alt is None and not event['tags'], 'text-only attachment changed')
+        require(not entries and alt is None and event['tags'] == images.posting_tags(event['content']),
+                'text-only attachment or hashtags changed')
         if text is not None:
             require(event['content'] == text, 'text-only body differs')
         return None
@@ -112,15 +113,10 @@ def attachment(row, protocol, *, entries, text=None, version=None, encoding=None
     require(protocol.make_path(entries, KEY_ID, KEY, version=actual_version,
                                encoding=actual_encoding) == parsed.path, 'attachment URL is not canonical')
     mime = 'image/webp' if actual_encoding == 'w1' else 'image/png'
-    require(event['tags'] == [['imeta', 'url ' + url, 'm ' + mime, 'alt ' + alt]],
-            'imeta URL, MIME or ALT differs')
-    if text is not None:
-        before, separator, after = text.partition('\n---\n')
-        require(event['content'] == before + '\n\n' + url + (separator + after if separator else ''),
-                'URL position or original text differs')
-    else:
-        require(event['content'].count('\n\n' + url + '\n---\n') == 1,
-                'transition URL is not in the original posting position')
+    require(event['tags'] == images.posting_tags(event['content'], url=url, mime=mime, alt=alt),
+            'imeta URL, MIME, ALT or hashtags differ')
+    require(images.posting_content_matches(event['content'], url, text),
+            'URL position or original text differs')
     return parsed.path
 
 

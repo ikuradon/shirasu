@@ -94,6 +94,5 @@ def image_entry(report):
 
 
 def with_image(message, image_url):
-    """Keep the NMEA records at the end for saved-event inspection."""
-    body, separator, original = message.partition('\n---\n')
-    return body + '\n\n' + image_url + (separator + original if separator else '')
+    """Put media before long text while preserving the original post verbatim."""
+    return image_url + '\n\n' + message

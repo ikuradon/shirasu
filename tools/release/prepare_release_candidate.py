@@ -23,13 +23,15 @@ if __package__ in (None, ''):
 from tools.release import prepare_image_service as images
 from tools.release.layout import (LEGACY_IMAGE_FILES, LEGACY_RECEIVER_FILES,
                                   LEGACY_PACKAGED_IMAGE_FILES, LEGACY_PACKAGED_RECEIVER_FILES,
+                                  SCHEMA2_IMAGE_FILES, SCHEMA2_RECEIVER_FILES,
                                   MOVED_FILES, PACKAGE_INITS, PROFILE_PATH, profile_path)
 
 
 CANDIDATE_VERSION = 'v5'
 ROLLBACK_VERSION = 'v4'
 MANIFEST_NAME = 'candidate-manifest.json'
-MANIFEST_SCHEMA = 2
+MANIFEST_SCHEMA = 3
+SUPPORTED_MANIFEST_SCHEMAS = (1, 2, MANIFEST_SCHEMA)
 MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_FILE_BYTES = 128 * 1024 * 1024
 MAX_BUNDLE_BYTES = 512 * 1024 * 1024
@@ -39,6 +41,7 @@ MAX_BUNDLE_BYTES = 512 * 1024 * 1024
 RECEIVER_FILES = (
     *PACKAGE_INITS, 'shirasu/__main__.py', 'shirasu/cli.py', 'shirasu/health.py',
     *MOVED_FILES.values(),
+    'shirasu/reports/publication.py',
     'requirements/receiver.txt', 'requirements/test.txt', 'Dockerfile', '.dockerignore',
     'LICENSE', 'licenses/README.md', 'licenses/ACKNOWLEDGEMENTS.txt',
     'licenses/pyserial-3.5-LICENSE.txt',
@@ -65,6 +68,9 @@ def _names(*, legacy=False, schema_version=MANIFEST_SCHEMA):
     elif schema_version == 1:
         image_names = LEGACY_PACKAGED_IMAGE_FILES
         receiver_names = LEGACY_PACKAGED_RECEIVER_FILES
+    elif schema_version == 2:
+        image_names = SCHEMA2_IMAGE_FILES
+        receiver_names = SCHEMA2_RECEIVER_FILES
     return {*(f'images/{name}' for name in image_names),
             *(f'receiver/{name}' for name in receiver_names)}
 
@@ -184,7 +190,8 @@ def verify_bundle(directory):
         raise ValueError('Candidate manifest is not valid JSON') from error
     if (not isinstance(manifest, dict)
             or set(manifest) != {'schema_version', 'candidate_version', 'rollback_version', 'source', 'files'}
-            or type(manifest['schema_version']) is not int or manifest['schema_version'] not in (1, MANIFEST_SCHEMA)
+            or type(manifest['schema_version']) is not int
+            or manifest['schema_version'] not in SUPPORTED_MANIFEST_SCHEMAS
             or manifest['candidate_version'] != CANDIDATE_VERSION
             or manifest['rollback_version'] != ROLLBACK_VERSION):
         raise ValueError('Candidate manifest version fields are invalid')
@@ -204,7 +211,8 @@ def verify_bundle(directory):
         if not isinstance(digest, str) or re.fullmatch(r'[0-9a-f]{64}', digest) is None:
             raise ValueError('Candidate file hash is invalid')
     allowed = ((_names(schema_version=1), _names(legacy=True))
-               if manifest['schema_version'] == 1 else (_names(),))
+               if manifest['schema_version'] == 1
+               else (_names(schema_version=manifest['schema_version']),))
     if set(declared) not in allowed:
         raise ValueError('Candidate manifest differs from the distribution allowlist')
     expected = set(declared) | {MANIFEST_NAME}

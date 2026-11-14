@@ -13,11 +13,11 @@ from unittest.mock import Mock, patch
 from urllib.parse import urlsplit
 
 from shirasu import service as main
+from tests.posting_helpers import hashtag_tags, image_tags, post_footer
 from shirasu.images.alt import image_alt_text
 from shirasu.images.protocol import MAX_REPORTS, ProtocolError, parse_path
 from shirasu.images.publication import ImagePublisher, image_entry
 from shirasu.outbox import Outbox
-from shirasu.reports.format import ATTRIBUTION
 from tests.receiver import test_main as service_helpers
 from tests.receiver.test_nankai_publication import isolate_assembly, nankai_page
 
@@ -60,21 +60,22 @@ class NankaiTopicPublicationTests(unittest.IsolatedAsyncioTestCase):
 
     def assert_image(self, event, representative):
         self.assertTrue(event.verify())
-        tags = [tag.to_vec() for tag in event.tags()]
+        tags = image_tags(event)
+        self.assertEqual([tag.to_vec() for tag in event.tags()], hashtag_tags(event) + tags)
         self.assertEqual(len(tags), 1)
         self.assertEqual(tags[0][0], 'imeta')
         url, = [field[4:] for field in tags[0][1:] if field.startswith('url ')]
-        self.assertIn('\n\n' + url + '\n---\n', event.content())
+        self.assertTrue(event.content().startswith(url + '\n\n'))
         entries = parse_path(urlsplit(url).path, {'topic': KEY})
         self.assertEqual(entries, (image_entry(representative),))
         self.assertIn('alt ' + image_alt_text(entries), tags[0])
         self.assertIn('m image/png', tags[0])
-        return event.content().replace('\n\n' + url, '', 1)
+        return event.content().removeprefix(url + '\n\n')
 
     def assert_full_text(self, text, body, reports):
         message, separator, originals = text.partition('\n---\n')
         self.assertEqual(separator, '\n---\n')
-        self.assertEqual(message.split('\n\n', 1)[1], body + '\n\n' + ATTRIBUTION)
+        self.assertEqual(message.split('\n\n', 1)[1], body + '\n\n' + post_footer(reports[0]))
         self.assertEqual(originals.splitlines(), ['NMEA: ' + report.nmea for report in reports])
 
     async def test_complete_training_text_is_assembled_before_one_heading_attachment(self):
@@ -118,7 +119,7 @@ class NankaiTopicPublicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self.service.publish_one())
         notice = self.nostr.send.await_args.args[0]
         notice_json = notice.as_json()
-        self.assertEqual(notice.tags(), [])
+        self.assertEqual([tag.to_vec() for tag in notice.tags()], hashtag_tags(notice))
         self.assertIn('【本文未受信】', notice.content())
         self.assertNotIn(body, notice.content())
         self.images.url.assert_not_called()
@@ -149,7 +150,7 @@ class NankaiTopicPublicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('CANCEL_FRAGMENT', text)
         self.assertNotIn('【本文未受信】', text)
         self.assertEqual(text.partition('\n---\n')[2], 'NMEA: ' + cancelled.nmea)
-        alt = next(field[4:] for field in event.tags()[0].to_vec() if field.startswith('alt '))
+        alt = next(field[4:] for field in image_tags(event)[0] if field.startswith('alt '))
         self.assertIn('【取消】', alt)
         self.assertNotIn('巨大地震注意', alt)
         self.clock.now += 180
@@ -176,7 +177,7 @@ class NankaiTopicPublicationTests(unittest.IsolatedAsyncioTestCase):
         event = self.nostr.send.await_args.args[0]
         self.assertTrue(event.verify())
         self.assertIn('本文の文字コードを読み取れません', event.content())
-        self.assertEqual(event.tags(), [])
+        self.assertEqual([tag.to_vec() for tag in event.tags()], hashtag_tags(event))
         self.assertEqual(event.content().count('\nNMEA: '), 2)
         self.images.url.assert_not_called()
 
@@ -187,7 +188,7 @@ class NankaiTopicPublicationTests(unittest.IsolatedAsyncioTestCase):
         await self.accept(reports)
         self.assertTrue(await self.service.publish_one())
         event = self.nostr.send.await_args.args[0]
-        self.assertEqual(event.tags(), [])
+        self.assertEqual([tag.to_vec() for tag in event.tags()], hashtag_tags(event))
         self.assert_full_text(event.content(), body, reports)
         self.assertEqual(self.service.state['last_image_error'], 'ProtocolError')
         self.assertEqual(self.service.nankai.waiting_count(), 0)
@@ -199,7 +200,7 @@ class NankaiTopicPublicationTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(main, 'nankai_topic_entries', side_effect=ValueError('metadata mismatch')):
             self.assertTrue(await self.service.publish_one())
         event = self.nostr.send.await_args.args[0]
-        self.assertEqual(event.tags(), [])
+        self.assertEqual([tag.to_vec() for tag in event.tags()], hashtag_tags(event))
         self.assert_full_text(event.content(), body, reports)
         self.images.url.assert_not_called()
 
@@ -213,7 +214,8 @@ class NankaiTopicPublicationTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(ImagePublisher, 'url', side_effect=AssertionError('No topic URL')):
             await self.accept(reports)
             self.assertTrue(await self.service.publish_one())
-        self.assertEqual(self.nostr.send.await_args.args[0].tags(), [])
+        self.assertEqual([tag.to_vec() for tag in self.nostr.send.await_args.args[0].tags()],
+                         hashtag_tags(self.nostr.send.await_args.args[0]))
 
     async def test_restart_and_capability_change_reuse_the_saved_signed_image_event(self):
         reports = pages_for('訓練です。')

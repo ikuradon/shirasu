@@ -17,6 +17,7 @@ from shirasu.images import publication
 from shirasu.images.alt import DEFAULT_IMAGE_ALT, image_alt_text
 from shirasu.images.publication import ImagePublisher, image_entry, with_image
 from shirasu import service as main
+from tests.posting_helpers import hashtag_tags, image_tags
 from shirasu.outbox import Outbox
 from tests.receiver.test_nankai_publication import isolate_assembly, nankai_page
 from tests.receiver.test_main import Clock, DCR_NMEA, RECEIVED_AT, TYPHOON_NMEA
@@ -104,13 +105,14 @@ class WebPServiceTests(unittest.IsolatedAsyncioTestCase):
 
     def assert_webp(self, event, entries):
         self.assertTrue(event.verify())
-        tags = [tag.to_vec() for tag in event.tags()]
+        tags = image_tags(event)
+        self.assertEqual([tag.to_vec() for tag in event.tags()], hashtag_tags(event) + tags)
         self.assertEqual(len(tags), 1)
         url, = [value[4:] for value in tags[0] if value.startswith('url ')]
         self.assertTrue(url.endswith('.w1.webp'))
         self.assertEqual(protocol.parse_path(urlsplit(url).path, {'test': KEY}), entries)
         self.assertEqual(tags, [['imeta', 'url ' + url, 'm image/webp', 'alt ' + image_alt_text(entries)]])
-        self.assertIn('\n\n' + url + '\n---\n', event.content())
+        self.assertTrue(event.content().startswith(url + '\n\n'))
         return url
 
     async def test_real_service_signs_matching_url_mime_alt_and_unchanged_text(self):
@@ -145,7 +147,7 @@ class WebPServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self.service.publish_one())
         notice = self.client.send.await_args.args[0]
         self.assertIn('【本文未受信】', notice.content())
-        self.assertEqual(notice.tags(), [])
+        self.assertEqual([tag.to_vec() for tag in notice.tags()], hashtag_tags(notice))
         self.assertEqual(await self.service.accept(pages[1]), 'buffered')
         self.assertTrue(await self.service.publish_one())
         completed = self.client.send.await_args.args[0]
@@ -156,12 +158,12 @@ class WebPServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_disabled_images_and_invalid_inputs_preserve_text_only(self):
         self.service.images = None
         plain = self.service._build_event(main.report_message(self.report), (image_entry(self.report),))
-        self.assertEqual(plain.tags(), [])
+        self.assertEqual([tag.to_vec() for tag in plain.tags()], hashtag_tags(plain))
         self.assertEqual(plain.content(), main.report_message(self.report))
         self.service.images = publisher('w1')
         with patch.object(ImagePublisher, 'url', side_effect=ValueError('invalid input')):
             failed = self.service._build_event(main.report_message(self.report), ())
-        self.assertEqual(failed.tags(), [])
+        self.assertEqual([tag.to_vec() for tag in failed.tags()], hashtag_tags(failed))
         self.assertEqual(failed.content(), plain.content())
 
     async def test_saved_png_and_webp_retries_survive_format_change_and_restart_unchanged(self):

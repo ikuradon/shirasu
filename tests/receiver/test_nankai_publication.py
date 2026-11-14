@@ -12,7 +12,8 @@ import azarashi
 from azarashi.reports import dcr
 
 from shirasu import service as main
-from shirasu.images.publication import ImagePublisher, image_entry, with_image
+from tests.posting_helpers import hashtag_tags, post_footer
+from shirasu.images.publication import ImagePublisher, image_entry
 from shirasu.reports.format import ATTRIBUTION, report_message
 from shirasu.outbox import Outbox
 from tests.receiver import test_main as service_helpers
@@ -20,6 +21,7 @@ from tests.receiver import test_typhoon as encoded_fixtures
 
 
 ISSUED_AT = datetime(2026, 11, 10, 0, 10, tzinfo=timezone.utc)
+NANKAI_FOOTER = '#QZSS #南海トラフ #訓練\n\n' + ATTRIBUTION
 
 
 def nankai_page(content=b'', *, number=1, total=1, classification=7,
@@ -52,7 +54,7 @@ class NankaiTextTests(unittest.TestCase):
                          '【南海トラフ地震関連情報】発表（通常）\n'
                          '情報種別：巨大地震注意\n'
                          '発表時刻：11月10日 09:10 JST\n\n'
-                         f'訓練です。\n\n{ATTRIBUTION}\n---\nNMEA: ' + report.nmea)
+                         f'訓練です。\n\n{post_footer(report)}\n---\nNMEA: ' + report.nmea)
 
     def test_training_correction_cancellation_and_priority_remain_explicit(self):
         cases = (
@@ -69,7 +71,7 @@ class NankaiTextTests(unittest.TestCase):
                                      information=information)
                 text = report_message(report)
                 self.assertEqual(text.splitlines()[0], header)
-                self.assertIn(f'\n\noriginal\n\n{ATTRIBUTION}\n---\n', text)
+                self.assertIn(f'\n\noriginal\n\n{post_footer(report)}\n---\n', text)
                 if information == 2:
                     self.assertNotIn('発表されました', text)
 
@@ -93,7 +95,7 @@ class NankaiTextTests(unittest.TestCase):
             if count < len(chunks):
                 self.assertIn(f'受信中 ({index + 1}) [{count}/{len(chunks)}]', text)
                 self.assertNotIn(original, text)
-        self.assertIn('\n\n' + original + f'\n\n{ATTRIBUTION}\n---\n', text)
+        self.assertIn('\n\n' + original + f'\n\n{post_footer(report)}\n---\n', text)
         self.assertNotIn('受信中', text)
         self.assertNotIn('\ufffd', text)
         self.assertTrue(text.endswith('NMEA: ' + report.nmea))
@@ -153,7 +155,7 @@ class NankaiPublicationTests(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue(await self.service.publish_one())
                     event = self.nostr.send.await_args.args[0]
                     self.assertEqual(event.content(), report_message(report))
-                    self.assertEqual(event.tags(), [])
+                    self.assertEqual([tag.to_vec() for tag in event.tags()], hashtag_tags(event))
                     self.assertTrue(event.verify())
                     self.assertNotIn('https://images.example.test', event.content())
                     self.assertFalse(await self.service.publish_one())
@@ -184,8 +186,8 @@ class NankaiPublicationTests(unittest.IsolatedAsyncioTestCase):
             else:
                 self.assertTrue(await self.service.publish_one())
                 event = self.nostr.send.await_args.args[0]
-                self.assertIn('\n\n' + original + f'\n\n{ATTRIBUTION}\n---\n', event.content())
-                self.assertEqual(event.tags(), [])
+                self.assertIn('\n\n' + original + f'\n\n{post_footer(report)}\n---\n', event.content())
+                self.assertEqual([tag.to_vec() for tag in event.tags()], hashtag_tags(event))
                 self.assertTrue(event.verify())
                 self.assertNotIn('受信中', event.content())
                 self.assertNotIn('\ufffd', event.content())
@@ -218,7 +220,7 @@ class NankaiPublicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('受信1/2ページ', partial.content())
         self.assertIn('不足ページ：2', partial.content())
         self.assertNotIn('PARTIAL_TEXT_ONLY', partial.content())
-        self.assertEqual(partial.tags(), [])
+        self.assertEqual([tag.to_vec() for tag in partial.tags()], hashtag_tags(partial))
         self.assertFalse(await self.service.publish_one())
 
         self.reopen(images=False)
@@ -230,12 +232,12 @@ class NankaiPublicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self.service.publish_one())
         completed = self.nostr.send.await_args.args[0]
         self.assertIn('【追加更新】', completed.content())
-        self.assertIn(f'\n\nPARTIAL_TEXT_ONLYCOMPLETED\n\n{ATTRIBUTION}\n---\n', completed.content())
+        self.assertIn(f'\n\nPARTIAL_TEXT_ONLYCOMPLETED\n\n{post_footer(first)}\n---\n', completed.content())
         self.assertNotIn('【本文未受信】', completed.content())
         for report in (first, last):
             self.assertIn('NMEA: ' + report.nmea, completed.content())
             self.assertEqual(await self.service.accept(report), 'duplicate')
-        self.assertEqual(completed.tags(), [])
+        self.assertEqual([tag.to_vec() for tag in completed.tags()], hashtag_tags(completed))
         self.assertFalse(await self.service.publish_one())
         self.assertEqual(self.nostr.send.await_count, 2)
 
@@ -265,7 +267,7 @@ class NankaiPublicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('この情報は取り消されました。', event.content())
         self.assertNotIn('UNFINISHED_TEXT', event.content())
         self.assertNotIn('CANCEL_FRAGMENT', event.content())
-        self.assertEqual(event.tags(), [])
+        self.assertEqual([tag.to_vec() for tag in event.tags()], hashtag_tags(event))
         self.clock.now += 180
         self.assertFalse(await self.service.publish_one())
         self.nostr.send.assert_awaited_once()
@@ -273,7 +275,7 @@ class NankaiPublicationTests(unittest.IsolatedAsyncioTestCase):
     async def test_saved_image_event_keeps_its_signature_through_duplicate_retry_and_restart(self):
         report = nankai_page('訓練です。'.encode())
         old_url = self.images.url((image_entry(report),))
-        old_content = with_image(f'{report}\n---\nNMEA: {report.nmea}', old_url)
+        old_content = f'{report}\n\n{old_url}\n---\nNMEA: {report.nmea}'
         old_event = self.nostr.build_event(old_content, image_url=old_url)
         old_json = old_event.as_json()
         self.outbox.enqueue(main.report_key(report), old_json, old_event.id().to_hex(), self.clock())

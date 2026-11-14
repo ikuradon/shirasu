@@ -69,7 +69,7 @@ class ReleaseCandidateTests(unittest.TestCase):
         result = candidate.verify_bundle(self.output)
         self.assertEqual(result['source'], SOURCE)
         self.assertEqual((result['schema_version'], result['candidate_version'], result['rollback_version']),
-                         (2, 'v5', 'v4'))
+                         (3, 'v5', 'v4'))
         actual = {str(path.relative_to(self.output)) for path in self.output.rglob('*') if path.is_file()}
         self.assertEqual(actual, set(result['files']) | {candidate.MANIFEST_NAME})
         self.assertEqual(result['manifest_sha256'], hashlib.sha256(
@@ -87,12 +87,12 @@ class ReleaseCandidateTests(unittest.TestCase):
         self.assertEqual((self.output / 'images/requirements.txt').read_bytes(),
                          (self.source / 'image_service/requirements.txt').read_bytes())
 
-    def test_retained_schema_one_bundles_verify_without_rewriting_or_extending_them(self):
-        for legacy, count in ((True, 121), (False, 130)):
-            with self.subTest(flat=legacy):
-                output = self.root / ('flat' if legacy else 'packaged')
+    def test_retained_schema_one_and_two_bundles_verify_without_rewriting_or_extending_them(self):
+        for legacy, schema, count in ((True, 1, 121), (False, 1, 130), (False, 2, 136)):
+            with self.subTest(flat=legacy, schema=schema):
+                output = self.root / (('flat' if legacy else 'packaged') + str(schema))
                 files = {}
-                for name in sorted(candidate._names(legacy=legacy, schema_version=1)):
+                for name in sorted(candidate._names(legacy=legacy, schema_version=schema)):
                     target = output / name
                     target.parent.mkdir(parents=True, exist_ok=True)
                     content = (candidate.CANDIDATE_PROFILE.encode()
@@ -101,7 +101,7 @@ class ReleaseCandidateTests(unittest.TestCase):
                     target.write_bytes(content)
                     files[name] = hashlib.sha256(content).hexdigest()
                 self.assertEqual(len(files), count)
-                manifest = {'schema_version': 1, 'candidate_version': 'v5', 'rollback_version': 'v4',
+                manifest = {'schema_version': schema, 'candidate_version': 'v5', 'rollback_version': 'v4',
                             'source': SOURCE, 'files': files}
                 (output / candidate.MANIFEST_NAME).write_text(json.dumps(manifest))
                 checked = candidate.verify_bundle(output)
@@ -109,7 +109,7 @@ class ReleaseCandidateTests(unittest.TestCase):
                 # New package inputs cannot change a historical allowlist.
                 with patch.object(images, 'FILES', (*images.FILES, 'image_service/new.py')):
                     self.assertEqual(candidate.verify_bundle(output), checked)
-                (output / 'receiver/LICENSE').write_text('unexpected historical addition')
+                (output / 'receiver/unexpected.py').write_text('unexpected historical addition')
                 with self.assertRaises(ValueError):
                     candidate.verify_bundle(output)
 
@@ -126,7 +126,7 @@ class ReleaseCandidateTests(unittest.TestCase):
                 original = path.read_bytes()
                 self.assertEqual(original, (ROOT / name).read_bytes())
                 # Dropping both bytes and their manifest entry still fails:
-                # schema 2 must never fall back to an unlicensed old layout.
+                # Current candidates must never fall back to an unlicensed layout.
                 path.unlink()
                 altered = {**manifest, 'files': {k: v for k, v in manifest['files'].items() if k != entry}}
                 self.write_manifest(altered)
@@ -145,6 +145,33 @@ class ReleaseCandidateTests(unittest.TestCase):
         self.write_manifest({**manifest, 'schema_version': 1})
         with self.assertRaisesRegex(ValueError, 'allowlist'):
             candidate.verify_bundle(self.output)
+
+    def test_new_candidate_requires_shared_footer_module_in_both_packages(self):
+        self.make()
+        manifest = self.manifest()
+        for package in ('images', 'receiver'):
+            folder = self.output / package
+            result = self.isolated(folder, '''import builtins, json
+original_import = builtins.__import__
+def guarded(name, *args, **kwargs):
+    if name.split('.')[0] in ('azarashi', 'nostr_sdk'):
+        raise AssertionError('Footer inspection must not load receiver dependencies')
+    return original_import(name, *args, **kwargs)
+builtins.__import__ = guarded
+from shirasu.reports.publication import message_hashtags, post_message
+text = post_message('test', ['sample'], hashtags=('QZSS', '台風'))
+print(json.dumps(message_hashtags(text)))
+''')
+            self.assertEqual(result, ['qzss', '台風'])
+            entry = package + '/shirasu/reports/publication.py'
+            path = self.output / entry
+            original = path.read_bytes()
+            path.unlink()
+            self.write_manifest({**manifest, 'files': {k: v for k, v in manifest['files'].items() if k != entry}})
+            with self.subTest(package=package), self.assertRaisesRegex(ValueError, 'allowlist'):
+                candidate.verify_bundle(self.output)
+            path.write_bytes(original)
+            self.write_manifest(manifest)
 
     def test_normal_package_stays_v1_to_v4_and_candidate_registers_v5_in_both_artifacts(self):
         self.make()
@@ -290,7 +317,7 @@ print(json.dumps({'topics': [p.supports_nankai_topic for p in publishers],
     def test_manifest_types_duplicate_keys_and_excess_size_fail_closed(self):
         self.make()
         original = self.manifest()
-        for changed in ({'schema_version': True}, {'schema_version': 3}, {'candidate_version': 'v6'},
+        for changed in ({'schema_version': True}, {'schema_version': 4}, {'candidate_version': 'v6'},
                         {'rollback_version': 'v5'}, {'files': []},
                         {'source': {'commit': 'a' * 40, 'working_tree': 1}},
                         {'source': {'commit': None, 'working_tree': False}},

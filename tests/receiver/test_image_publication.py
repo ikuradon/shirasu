@@ -84,12 +84,12 @@ class ImagePublicationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 image_entry(SimpleNamespace(nmea=NMEA, timestamp=invalid))
 
-    def test_appended_url_keeps_all_original_frames_at_the_end(self):
+    def test_url_precedes_body_and_keeps_all_original_frames_at_the_end(self):
         message = '本文\n---\nNMEA: original one\nNMEA: original two'
         url = 'https://images.example.test/image.png'
         self.assertEqual(with_image(message, url),
-                         '本文\n\n' + url + '\n---\nNMEA: original one\nNMEA: original two')
-        self.assertEqual(with_image('本文', url), '本文\n\n' + url)
+                         url + '\n\n本文\n---\nNMEA: original one\nNMEA: original two')
+        self.assertEqual(with_image('本文', url), url + '\n\n本文')
 
 
 if __name__ == '__main__':

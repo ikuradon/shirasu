@@ -11,6 +11,7 @@ import azarashi
 from azarashi.reports import dcr, dcx
 
 from shirasu.reports.format import ATTRIBUTION, report_message
+from tests.posting_helpers import post_footer
 from tests.qzqsm_samples import decode_reports, expected_nankai_text
 from tools.preview.gallery_catalog import _field_variant, load_cases
 from tools.preview.gallery_posts import plan_posts
@@ -114,7 +115,7 @@ class GalleryPostTests(unittest.TestCase):
         expected_order = tuple(sorted(range(len(pages)), key=lambda index: pages[index].page_number))
         self.assertEqual(post.record_indexes, expected_order)
         body, _, nmea = post.text.partition('\n---\n')
-        self.assertEqual(body.split('\n\n', 1)[1], expected_nankai_text() + '\n\n' + ATTRIBUTION)
+        self.assertEqual(body.split('\n\n', 1)[1], expected_nankai_text() + '\n\n' + post_footer(pages[0]))
         self.assertEqual(nmea.splitlines(), ['NMEA: ' + records[index][0] for index in expected_order])
 
     def test_nankai_missing_pages_produce_metadata_only_after_the_virtual_deadline(self):

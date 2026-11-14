@@ -14,7 +14,7 @@ import re
 import azarashi
 from azarashi.reports.dcr import Typhoon
 
-from shirasu.reports.format import post_message
+from shirasu.reports.publication import post_message, report_hashtags
 
 
 SCHEMA_VERSION = '1'
@@ -387,7 +387,8 @@ def typhoon_summary(reports, update=False):
                       f'中心気圧 {report.central_pressure} / 最大風速 {report.maximum_wind_speed} / 最大瞬間風速 {report.maximum_gust_wind_speed}',
                       f'大きさ：{report.typhoon_scale_category} / 強さ：{report.typhoon_intensity_category}',
                       report.coordinates_of_typhoon))
-    return post_message('\n'.join(lines), (report.nmea for report in ordered))
+    return post_message('\n'.join(lines), (report.nmea for report in ordered),
+                        hashtags=report_hashtags(first))
 
 
 def validate_storage(connection):

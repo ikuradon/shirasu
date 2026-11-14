@@ -11,6 +11,7 @@ import unittest
 import zlib
 
 from tools.release.compare_release_preview import compare
+from shirasu.reports.publication import ATTRIBUTION
 
 
 PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
@@ -57,7 +58,7 @@ class ReleasePreviewTests(unittest.TestCase):
             'images': {'preview': case_image}, 'posts': [post]}]}
         (self.gallery / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False))
         url = 'https://images.example.test/v5/rehearsal/payload.signature.png'
-        content = text.replace('\n---\n', '\n\n' + url + '\n---\n')
+        content = url + '\n\n' + text
         event = {'id': 'a' * 64, 'content': content,
                  'tags': [['imeta', 'url ' + url, 'm image/png', 'alt ' + alt]]}
         self.exported = {'schema_version': 1, 'candidate_version': 'v5', 'rollback_version': 'v4',
@@ -106,6 +107,48 @@ class ReleasePreviewTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.run_check()
                 self.assertFalse(self.output.exists())
+
+    def test_generated_hashtag_footer_requires_exact_signed_tags_alongside_imeta(self):
+        row = self.exported['posts'][0]
+        text = row['text'].replace('\n---\n', '\n\n#QZSS #南海トラフ #訓練\n\n' + ATTRIBUTION + '\n---\n')
+        manifest_path = self.gallery / 'manifest.json'
+        manifest = json.loads(manifest_path.read_text())
+        manifest['cases'][0]['posts'][0]['text'] = text
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False))
+        row['text'] = text
+        row['event']['content'] = row['url'] + '\n\n' + text
+        metadata = row['event']['tags']
+        t_tags = [['t', 'qzss'], ['t', '南海トラフ'], ['t', '訓練']]
+        row['event']['tags'] = t_tags + metadata
+        self.save()
+        self.assertEqual(self.run_check()['matched_posts'], 1)
+        self.output.unlink()
+        for tags in (metadata, t_tags[:2] + metadata,
+                     t_tags + [['t', '地震']] + metadata, metadata + t_tags):
+            row['event']['tags'] = tags
+            self.save()
+            with self.subTest(tags=tags), self.assertRaisesRegex(ValueError, 'signed post differs'):
+                self.run_check()
+            self.assertFalse(self.output.exists())
+
+    def test_archived_post_layout_matches_without_rewriting_the_export(self):
+        exported = deepcopy(self.exported)
+        row = exported['posts'][0]
+        row['event']['content'] = row['text'].replace('\n---\n', '\n\n' + row['url'] + '\n---\n')
+        self.save(exported)
+        before = self.events.read_bytes()
+        self.assertEqual(self.run_check()['matched_posts'], 1)
+        self.assertEqual(self.events.read_bytes(), before)
+
+    def test_other_url_positions_cannot_pass_with_unchanged_post_text_and_png(self):
+        row = self.exported['posts'][0]
+        for content in (row['text'] + '\n\n' + row['url'], row['url'] + '\n' + row['text']):
+            exported = deepcopy(self.exported)
+            exported['posts'][0]['event']['content'] = content
+            self.save(exported)
+            with self.subTest(content=content), self.assertRaisesRegex(ValueError, 'signed post differs'):
+                self.run_check()
+            self.assertFalse(self.output.exists())
 
     def test_valid_but_different_http_png_is_rejected_even_when_the_report_hash_matches(self):
         self.png.write_bytes(OTHER_PNG)

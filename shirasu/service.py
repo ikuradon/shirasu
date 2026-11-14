@@ -25,6 +25,7 @@ from shirasu.outbox import Outbox
 from shirasu.receiver import GpsdReceiver
 from shirasu.reports.format import report_message
 from shirasu.images.publication import ImagePublisher, image_entry, with_image
+from shirasu.reports.publication import message_hashtags
 from shirasu.images.alt import DEFAULT_IMAGE_ALT, image_alt_text
 from shirasu.images.nankai import nankai_topic_entries
 
@@ -112,13 +113,14 @@ class Nostr:
 
     def build_event(self, message, image_url=None, image_alt=None, image_mime='image/png'):
         builder = EventBuilder(Kind(1), message)
+        tags = [Tag.parse(['t', hashtag]) for hashtag in message_hashtags(message)]
         if image_url is not None:
             if image_mime not in ('image/png', 'image/webp'):
                 raise ValueError('Unsupported image MIME type')
             alt = image_alt if isinstance(image_alt, str) and image_alt.strip() else DEFAULT_IMAGE_ALT
-            builder = builder.tags([Tag.parse(['imeta', f'url {image_url}',
-                                             'm ' + image_mime, 'alt ' + alt])])
-        return builder.finalize(self.keys)
+            tags.append(Tag.parse(['imeta', f'url {image_url}',
+                                   'm ' + image_mime, 'alt ' + alt]))
+        return builder.tags(tags).finalize(self.keys)
 
     async def connect(self):
         for url in self.urls:

@@ -10,6 +10,7 @@ import tempfile
 import unittest
 
 from tools.release.prepare_release_candidate import prepare, verify_bundle
+from tools.release.check_release_images import posting_tags
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -58,8 +59,9 @@ class ReleaseReceiverTests(unittest.TestCase):
         for post in result['posts']:
             self.assertEqual(set(post['event']), {'id', 'pubkey', 'created_at', 'kind', 'tags', 'content', 'sig'})
             self.assertTrue(post['url'].startswith('https://images.example.test/v5/rehearsal/'))
-            self.assertIn('url ' + post['url'], post['event']['tags'][0])
-            self.assertIn('alt ' + post['alt'], post['event']['tags'][0])
+            self.assertEqual(post['event']['tags'], posting_tags(
+                post['event']['content'], url=post['url'], alt=post['alt']))
+            self.assertEqual(post['event']['tags'][0], ['t', 'qzss'])
             self.assertIn(post['url'], post['event']['content'])
             self.assertTrue(post['image_record_indexes'])
             self.assertTrue(set(post['image_record_indexes']) <= set(post['record_indexes']))

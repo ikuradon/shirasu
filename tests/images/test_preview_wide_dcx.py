@@ -22,7 +22,8 @@ if HAS_RENDERER:
     from image_service import preview_wide_layout as wide
     from image_service.preview_dcx_reports import Area, Point, SecondaryEllipse, dcx_plan
     from tools.preview.gallery_catalog import load_cases
-    from shirasu.reports.format import ATTRIBUTION, report_message
+    from shirasu.reports.format import report_message
+    from tests.posting_helpers import post_footer
 
 
 @unittest.skipUnless(HAS_RENDERER, 'DCX rendering uses the isolated image renderer')
@@ -87,7 +88,7 @@ class DcxRenderingTests(unittest.TestCase):
         records = self.cases['dcx-earthquake-vector'].records
         report, = base._decode(records)
         before = str(report), deepcopy(report.camf.get_params()), report.nmea
-        expected_post = f'{report}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}'
+        expected_post = f'{report}\n\n{post_footer(report)}\n---\nNMEA: {report.nmea}'
         # Valid main geometry cannot create a plausible partial map while the
         # earthquake's D3 reference direction and surface transform are unknown.
         with patch.object(dcx_images, 'ellipse_ring') as ellipse, \
@@ -294,7 +295,7 @@ class DcxRenderingTests(unittest.TestCase):
                                      for artist in fig.axes[0].collections))
                 self.assert_plain_locator(fig)
                 self.assertEqual((str(report), report.camf.get_params(), report.nmea), before)
-                self.assertTrue(report_message(report).endswith(f'{report}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}'))
+                self.assertTrue(report_message(report).endswith(f'{report}\n\n{post_footer(report)}\n---\nNMEA: {report.nmea}'))
 
     def test_mtinfo_invalid_and_polar_additional_ranges_never_leave_a_primary_only_map(self):
         for slug in ('dcx-mtinfo-leave', 'dcx-mtinfo-area'):
@@ -319,7 +320,7 @@ class DcxRenderingTests(unittest.TestCase):
                     self.assertEqual(image.decision.mode, 'topic')
                     self.assertTrue(any(item.code == reason and item.stage == 'geometry'
                                         for item in image.decision.reasons))
-                    self.assertTrue(report_message(report).endswith(f'{report}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}'))
+                    self.assertTrue(report_message(report).endswith(f'{report}\n\n{post_footer(report)}\n---\nNMEA: {report.nmea}'))
 
     def test_mtinfo_missing_primary_area_does_not_leave_an_additional_only_map(self):
         records = self.cases['dcx-mtinfo-area'].records

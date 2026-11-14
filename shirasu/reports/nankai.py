@@ -19,7 +19,8 @@ from azarashi.definitions.qzss.dcr.report_classification import report_classific
 from azarashi.reports.dcr import NankaiTroughEarthquake
 
 from shirasu.images.protocol import _nmea
-from shirasu.reports.format import JST, _header, post_message
+from shirasu.reports.format import JST, _header
+from shirasu.reports.publication import post_message
 from shirasu.reports.typhoon import report_identity
 
 
@@ -347,7 +348,8 @@ def nankai_summary(batch):
             lines.append('全ページを受信しましたが、本文の文字コードを読み取れませんでした。')
     else:
         raise ValueError('A complete Nankai text requires every page')
-    return post_message('\n'.join(lines), (nmea for nmea, _ in batch.entries))
+    hashtags = ('QZSS', '南海トラフ') + (('訓練',) if batch.classification == 7 else ())
+    return post_message('\n'.join(lines), (nmea for nmea, _ in batch.entries), hashtags=hashtags)
 
 
 def _stored_frame(sentence, received_ms):

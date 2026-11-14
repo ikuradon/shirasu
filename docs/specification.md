@@ -12,9 +12,13 @@
 配送期限は既定15分、重複抑制は同じ通報を最後に受信してから24時間です。
 設定項目は`config/config.py.example`を参照してください。
 
-画像付き投稿には本文と同じURLを持つ`imeta`タグを付け、`m`にMIME、`alt`に
+画像付き投稿は、画像URL → 本文 → ハッシュタグ → 出典リンク → NMEAの順に並べます。
+本文と同じURLを持つ`imeta`タグを付け、`m`にMIME、`alt`に
 種別・JST日時・訓練／取消等の説明を記録します。[NIP-92](https://github.com/nostr-protocol/nips/blob/master/92.md)
 クライアントによって画像表示・ALTの利用状況は異なります。
+
+ハッシュタグは共通の`#QZSS`と判別できる通報種別を付け、訓練・試験には`#訓練`を加えます。
+本文末尾に生成したタグだけを小文字の`t`タグ値にも記録します。[NIP-24](https://github.com/nostr-protocol/nips/blob/master/24.md#tags)
 
 ## 分割通報の集約
 

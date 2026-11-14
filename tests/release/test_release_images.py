@@ -1,6 +1,7 @@
 """Release verification rejects stale artifacts, changed inputs and false PNG evidence."""
 
 import base64
+import builtins
 from copy import deepcopy
 import hashlib
 import json
@@ -11,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from shirasu.images.protocol import make_path
+from shirasu.reports.publication import ATTRIBUTION
 from tools.release import check_release_images as check
 
 
@@ -31,7 +33,7 @@ def signed_id(event):
 def post():
     url = check.ORIGIN + make_path(ENTRIES, check.KEY_ID, check.KEY, version='v4')
     alt = '検証用の代替テキスト。'
-    content = TEXT.replace('\n---\n', '\n\n' + url + '\n---\n')
+    content = url + '\n\n' + TEXT
     event = signed_id({'pubkey': 'a' * 64, 'sig': 'b' * 128, 'created_at': 1, 'kind': 1,
                        'tags': [['imeta', 'url ' + url, 'm image/png', 'alt ' + alt]], 'content': content})
     return {'case': 'weather', 'number': 1, 'kind': 'single', 'text': TEXT,
@@ -105,6 +107,68 @@ class ReleaseImageTests(unittest.TestCase):
         signed_id(wrong['event'])
         with self.assertRaises(ValueError):
             check._attachment(wrong, image_protocol, entries=(), text=TEXT)
+
+    def test_footer_hashtags_match_signed_tags_exactly_for_image_and_text_only_exports(self):
+        from shirasu.images import protocol as image_protocol
+        text = TEXT.replace('\n---\n', '\n\n#QZSS #気象情報\n\n' + ATTRIBUTION + '\n---\n')
+        for image in (True, False):
+            row = post()
+            t_tags = [['t', 'qzss'], ['t', '気象情報']]
+            metadata = row['event']['tags'] if image else []
+            entries = ENTRIES if image else ()
+            row['text'] = text
+            row['event'].update(content=row['url'] + '\n\n' + text if image else text,
+                                tags=t_tags + metadata)
+            if not image:
+                row.update(url=None, alt=None)
+            signed_id(row['event'])
+            check._attachment(row, image_protocol, entries=entries, text=text)
+            for tags in (metadata, t_tags[:1] + metadata,
+                         t_tags + [['t', '津波']] + metadata,
+                         list(reversed(t_tags)) + metadata, t_tags + t_tags + metadata):
+                wrong = deepcopy(row)
+                wrong['event']['tags'] = tags
+                signed_id(wrong['event'])
+                with self.subTest(image=image, tags=tags), self.assertRaises(ValueError):
+                    check._attachment(wrong, image_protocol, entries=entries, text=text)
+
+    def test_old_untagged_exports_do_not_import_new_footer_module_or_accept_added_tags(self):
+        from shirasu.images import protocol as image_protocol
+        original_import = builtins.__import__
+        def guarded(name, *args, **kwargs):
+            if name == 'shirasu.reports.publication':
+                raise AssertionError('An old untagged export must not load the new parser')
+            return original_import(name, *args, **kwargs)
+        row = post()
+        with patch('builtins.__import__', side_effect=guarded):
+            check._attachment(row, image_protocol, entries=ENTRIES, text=TEXT)
+            row['event']['tags'].insert(0, ['t', 'qzss'])
+            signed_id(row['event'])
+            with self.assertRaises(ValueError):
+                check._attachment(row, image_protocol, entries=ENTRIES, text=TEXT)
+
+    def test_archived_attachment_position_remains_valid_without_rewriting_signed_content(self):
+        from shirasu.images import protocol as image_protocol
+        row = post()
+        row['event']['content'] = TEXT.replace('\n---\n', '\n\n' + row['url'] + '\n---\n')
+        signed_id(row['event'])
+        original = deepcopy(row)
+        for text in (TEXT, None):
+            with self.subTest(text=text):
+                check._attachment(row, image_protocol, entries=ENTRIES, text=text, version='v4')
+        self.assertEqual(row, original)
+
+    def test_current_transition_requires_a_single_url_at_a_known_position(self):
+        from shirasu.images import protocol as image_protocol
+        row = post()
+        check._attachment(row, image_protocol, entries=ENTRIES)
+        for content in (TEXT + '\n\n' + row['url'], row['url'] + '\n' + TEXT,
+                        row['event']['content'] + '\n\n' + row['url']):
+            changed = deepcopy(row)
+            changed['event']['content'] = content
+            signed_id(changed['event'])
+            with self.subTest(content=content), self.assertRaises(ValueError):
+                check._attachment(changed, image_protocol, entries=ENTRIES)
 
     def test_export_rejects_different_bundle_provenance_or_dropped_nmea(self):
         value = export()

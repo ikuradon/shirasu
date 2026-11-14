@@ -5,17 +5,10 @@ from datetime import timedelta, timezone
 from azarashi.reports import dcr
 
 from shirasu.reports.dcx import MtInfoEvacuationError, is_evacuation_destination, mtinfo_evacuation
+from shirasu.reports.publication import ATTRIBUTION, post_message, report_hashtags
 
 
 JST = timezone(timedelta(hours=9), 'JST')
-ATTRIBUTION = '出典・利用条件：https://github.com/ikuradon/shirasu/blob/main/licenses/README.md'
-
-
-def post_message(text, sentences):
-    """Add the source notice to new posts, preserving text and raw records."""
-    if text != ATTRIBUTION and not text.endswith('\n' + ATTRIBUTION):
-        text += '\n\n' + ATTRIBUTION
-    return '\n'.join((text, '---', *(f'NMEA: {sentence}' for sentence in sentences)))
 
 
 def _header(report, title):
@@ -137,4 +130,4 @@ def report_message(report):
         except MtInfoEvacuationError:
             evacuation = None  # Preserve received text even when image interpretation is unavailable.
         text = _mtinfo_evacuation_text(report, evacuation) if evacuation is not None else str(report)
-    return post_message(text, (report.nmea,))
+    return post_message(text, (report.nmea,), hashtags=report_hashtags(report))

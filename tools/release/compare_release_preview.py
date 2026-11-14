@@ -13,6 +13,7 @@ if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tools.preview.gallery_compare import _Reader, _parse, _png, load_baseline
+from tools.release.check_release_images import posting_content_matches, posting_tags
 
 
 def require(value, message):
@@ -97,7 +98,8 @@ def compare(events, images, gallery, output):
         event = row.get('event', {})
         if not reference['image_enabled']:
             require(row.get('url') is None and row.get('alt') is None and http.get('image') is None
-                    and event.get('content') == reference['text'] and event.get('tags') == [], 'text-only post changed')
+                    and event.get('content') == reference['text']
+                    and event.get('tags') == posting_tags(reference['text']), 'text-only post changed')
             continue
         expected = reference['images'].get('preview')
         require(isinstance(expected, dict) and 'sha256' in expected, 'approved post has no valid preview PNG')
@@ -105,9 +107,8 @@ def compare(events, images, gallery, output):
         require(isinstance(url, str) and url.startswith('https://images.example.test/v5/rehearsal/')
                 and http.get('url') == url and http.get('event_id') == event.get('id')
                 and alt == http.get('alt') == expected.get('alt') and isinstance(alt, str), 'image URL, event or ALT differs')
-        body, separator, nmea = reference['text'].partition('\n---\n')
-        require(event.get('content') == body + '\n\n' + url + (separator + nmea if separator else '')
-                and event.get('tags') == [['imeta', 'url ' + url, 'm image/png', 'alt ' + alt]], 'signed post differs')
+        require(posting_content_matches(event.get('content'), url, reference['text'])
+                and event.get('tags') == posting_tags(event['content'], url=url, alt=alt), 'signed post differs')
         metadata = http.get('image')
         require(isinstance(metadata, dict) and isinstance(metadata.get('path'), str)
                 and metadata['path'].startswith(folder + '/'), 'invalid HTTP image path')

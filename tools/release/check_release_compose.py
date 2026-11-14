@@ -49,6 +49,12 @@ else:
  import main
  from outbox import Outbox, read_history, read_status
 
+if Path('/app/shirasu/reports/publication.py').is_file():
+ from shirasu.reports.publication import message_hashtags
+else:
+ def message_hashtags(message):
+  return ()
+
 NMEA = {
  'webp': '$QZQSM,55,C6AF89A820000324000050400548C5E2C000000003DFF8001C00001185443FC*05',
  'png': '$QZQSM,58,53ADF5A111800283FC5083541042820D5047EA17994309A8622000113240198*7B',
@@ -66,6 +72,7 @@ def events():
   raw = json.loads(row['event_json'])
   tags = [tag for tag in raw['tags'] if tag[0] == 'imeta']
   assert len(tags) == 1
+  assert raw['tags'] == [['t', value] for value in message_hashtags(raw['content'])] + tags
   fields = {field.split(' ', 1)[0]: field.split(' ', 1)[1] for field in tags[0][1:]}
   assert fields['url'] in raw['content'] and fields['alt']
   result[row['event_id']] = {

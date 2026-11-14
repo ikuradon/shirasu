@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 
 
 from tools.release.layout import MODULES
+from tools.release.check_release_images import posting_tags
 
 
 KEY = bytes(range(32))  # Public rehearsal key, never a deployment credential.
@@ -46,6 +47,14 @@ def runtime_modules(bundle):
         location = Path(getattr(module, '__file__', '')).resolve()
         require(location == directory / (import_name.replace('.', '/') + '.py'), 'module is outside the candidate: ' + name)
         modules[name] = module
+    # Retained candidates predate the shared footer module. New candidates
+    # must inspect footer tags from the same immutable receiver artifact.
+    publication = directory / 'shirasu/reports/publication.py'
+    if publication.is_file():
+        module = importlib.import_module('shirasu.reports.publication')
+        require(Path(module.__file__).resolve() == publication,
+                'module is outside the candidate: report_publication')
+        modules['report_publication'] = module
     return modules
 
 
@@ -131,8 +140,8 @@ def event_details(modules, event, text, entries, images):
         require(images is not None, 'an image requires a configured publisher')
         url = images.url(entries)
         alt = modules['image_alt'].image_alt_text(entries)
-        expected = ['imeta', 'url ' + url, 'm image/png', 'alt ' + alt]
-        require(tags == [expected], 'image metadata differs from the signed attachment')
+        require(tags == posting_tags(event.content(), url=url, alt=alt),
+                'image or hashtag metadata differs from the signed post')
         parsed = urlsplit(url)
         require(parsed.scheme == 'https' and parsed.netloc == 'images.example.test'
                 and not parsed.query and not parsed.fragment, 'unexpected attachment origin or query')
@@ -141,7 +150,7 @@ def event_details(modules, event, text, entries, images):
                 'signed URL lost the original image inputs')
         expected_text = modules['image_publication'].with_image(text, url)
     else:
-        require(not tags, 'a text-only event has image metadata')
+        require(tags == posting_tags(event.content()), 'a text-only event has unexpected metadata')
         expected_text = text
     require(event.content() == expected_text, 'signed content differs from the complete planned post')
     return {'event': json.loads(event.as_json()), 'url': url, 'alt': alt}

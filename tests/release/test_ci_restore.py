@@ -113,6 +113,32 @@ class RestoreReleaseTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 release.validate_receipt(changed, self.raw)
 
+    def test_retained_candidate_schemas_restore_without_adding_current_modules(self):
+        for schema in (1, 2):
+            with self.subTest(schema=schema):
+                retained = candidate._names(schema_version=schema)
+                for name in set(self.manifest['files']) - retained:
+                    (self.fixture / name).unlink(missing_ok=True)
+                manifest = {**self.manifest, 'schema_version': schema,
+                            'files': {name: value for name, value in self.manifest['files'].items()
+                                      if name in retained}}
+                # Schema 1 omits the notices; restore them before the schema 2 run.
+                for name in retained:
+                    path = self.fixture / name
+                    if not path.exists():
+                        path.write_bytes(('fixture ' + name).encode())
+                raw = (json.dumps(manifest, sort_keys=True, indent=2) + '\n').encode()
+                self.manifest_path.write_bytes(raw)
+                self.receipt['candidate_manifest_sha256'] = hashlib.sha256(raw).hexdigest()
+                self.release_path.write_text(json.dumps(self.receipt))
+                output = self.root / ('retained-' + str(schema))
+                with patch.object(release, 'docker', side_effect=self.docker):
+                    release.restore(self.release_path, self.manifest_path, output)
+                self.assertEqual((output / candidate.MANIFEST_NAME).read_bytes(), raw)
+                self.assertEqual(candidate.verify_bundle(output)['files'], manifest['files'])
+                for package in ('images', 'receiver'):
+                    self.assertFalse((output / package / 'shirasu/reports/publication.py').exists())
+
     def test_dirty_source_or_mismatched_manifest_cannot_be_restored(self):
         manifest = copy.deepcopy(self.manifest)
         manifest['source']['working_tree'] = True

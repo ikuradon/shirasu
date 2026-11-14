@@ -63,6 +63,7 @@ FILES = (
 PREVIEW_FILES = (
     'shirasu/reports/__init__.py',
     'shirasu/reports/dcx.py',
+    'shirasu/reports/publication.py',
     'shirasu/images/nankai.py',
     'image_service/render_preview.py',
     'image_service/webp_w1.py',

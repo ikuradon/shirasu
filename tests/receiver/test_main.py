@@ -13,6 +13,7 @@ from azarashi.reports import dcx
 from nostr_sdk import Event, Keys, RelayUrl
 
 from shirasu import service as main
+from tests.posting_helpers import hashtag_tags, image_tags, post_footer
 from shirasu.health import healthy
 from shirasu.reports.format import ATTRIBUTION
 from shirasu.images.protocol import ProtocolError, parse_path
@@ -92,7 +93,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(event.verify())
         self.assertEqual(event.kind().as_u16(), 1)
         self.assertEqual(event.author().to_hex(), self.nostr.identity)
-        self.assertEqual(event.content(), f'{self.report}\n\n{ATTRIBUTION}\n---\nNMEA: {DCR_NMEA}')
+        self.assertEqual(event.content(), f'{self.report}\n\n{post_footer(self.report)}\n---\nNMEA: {DCR_NMEA}')
         self.assertEqual(event.id().to_hex(), record['event_id'])
 
         self.assertTrue(await self.service.publish_one())
@@ -115,7 +116,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
             '・関東海域南部\n'
             '・沿海州南部沖\n'
             '・能登沖\n'
-            f'\n{ATTRIBUTION}\n---\nNMEA: {MARINE_NMEA}'
+            f'\n{post_footer(self.marine)}\n---\nNMEA: {MARINE_NMEA}'
         )
         self.assertEqual(await self.service.accept(self.marine), 'queued')
         record = self.outbox.next_due(self.clock())
@@ -336,7 +337,7 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
             event = self.nostr.send.await_args.args[0]
             url = self.image_url(event)
             self.assertEqual(parse_path(urlsplit(url).path, {'k1': IMAGE_KEY}), (image_entry(report),))
-            self.assertIn('alt ' + image_alt_text((image_entry(report),)), event.tags()[0].to_vec())
+            self.assertIn('alt ' + image_alt_text((image_entry(report),)), image_tags(event)[0])
             self.assertTrue(event.content().endswith('NMEA: ' + report.nmea))
         self.assertEqual(self.service.typhoons.pending_count(), 1)
         self.assertEqual(self.nostr.send.await_count, 2)
@@ -358,7 +359,7 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(parse_path(urlsplit(self.image_url(event)).path, {'k1': IMAGE_KEY}),
                          tuple(image_entry(report) for report in self.typhoons))
         self.assertIn('alt ' + image_alt_text(tuple(image_entry(report) for report in self.typhoons)),
-                      event.tags()[0].to_vec())
+                      image_tags(event)[0])
         self.assertEqual(self.service.typhoons.pending_count(), 0)
         self.assertEqual(await self.service.accept(self.typhoons[0]), 'duplicate')
         self.assertFalse(await self.service.publish_one())
@@ -397,7 +398,7 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(TYPHOON_NMEA[0], summary.content())
         self.assertEqual(self.service.typhoons.pending_count(), 0)
         for call in self.nostr.send.await_args_list:
-            self.assertEqual(call.args[0].tags(), [])
+            self.assertEqual([tag.to_vec() for tag in call.args[0].tags()], hashtag_tags(call.args[0]))
             self.assertNotIn('https://images.', call.args[0].content())
         self.service.save_status()
         self.assertFalse(read_status(self.path, now=self.clock())['status']['images_enabled'])
@@ -448,7 +449,7 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         await self.service.publish_one()
         event = self.nostr.send.await_args.args[0]
         self.assertEqual(event.content(), main.report_message(self.report))
-        self.assertEqual(event.tags(), [])
+        self.assertEqual([tag.to_vec() for tag in event.tags()], hashtag_tags(event))
         self.assertTrue(event.verify())
 
     async def test_alt_failure_keeps_the_image_text_and_original_record_deliverable(self):
@@ -459,8 +460,8 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         event = self.nostr.send.await_args.args[0]
         url = self.image_url(event)
         self.assertEqual(parse_path(urlsplit(url).path, {'k1': IMAGE_KEY}), (image_entry(self.report),))
-        self.assertIn('alt ' + DEFAULT_IMAGE_ALT, event.tags()[0].to_vec())
-        self.assertEqual(event.content().replace('\n\n' + url, '', 1), main.report_message(self.report))
+        self.assertIn('alt ' + DEFAULT_IMAGE_ALT, image_tags(event)[0])
+        self.assertEqual(event.content().removeprefix(url + '\n\n'), main.report_message(self.report))
         self.assertTrue(event.verify())
 
     async def test_invalid_receipt_context_falls_back_to_text_without_losing_report(self):
@@ -480,7 +481,7 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('受信した2時点', event.content())
         for nmea in TYPHOON_NMEA:
             self.assertIn(nmea, event.content())
-        self.assertEqual(event.tags(), [])
+        self.assertEqual([tag.to_vec() for tag in event.tags()], hashtag_tags(event))
         self.assertEqual(self.service.typhoons.pending_count(), 0)
 
     async def test_retry_and_restart_reuse_the_signed_url_after_key_rotation(self):
@@ -542,6 +543,23 @@ class NostrTests(unittest.IsolatedAsyncioTestCase):
         restored = Event.from_json(event.as_json())
         self.assertTrue(restored.verify())
         self.assertEqual([tag.to_vec() for tag in restored.tags()], [tag.to_vec() for tag in event.tags()])
+
+    async def test_hashtags_are_signed_for_plain_and_image_posts_without_tagging_raw_records(self):
+        url = 'https://images.example.test/v1/k1/payload.signature.png'
+        text = ('台風の通報本文。\n\n#QZSS #台風 #訓練\n\n' + ATTRIBUTION
+                + '\n---\nNMEA: #受信原文')
+        expected = [['t', 'qzss'], ['t', '台風'], ['t', '訓練']]
+        for image_url in (None, url):
+            with self.subTest(image=image_url is not None):
+                content = url + '\n\n' + text if image_url else text
+                event = self.nostr.build_event(content, image_url=image_url)
+                tags = expected + ([['imeta', 'url ' + url, 'm image/png',
+                                     'alt みちびき受信通報の図']] if image_url else [])
+                self.assertEqual(event.content(), content)
+                self.assertEqual([tag.to_vec() for tag in event.tags()], tags)
+                restored = Event.from_json(event.as_json())
+                self.assertTrue(restored.verify())
+                self.assertEqual([tag.to_vec() for tag in restored.tags()], tags)
 
     async def test_specific_image_alt_is_signed_and_text_only_events_have_no_image_metadata(self):
         url = 'https://images.example.test/v1/k1/payload.signature.png'

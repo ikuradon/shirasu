@@ -15,6 +15,7 @@ import azarashi
 from azarashi.reports import dcr
 
 from shirasu import service as main
+from tests.posting_helpers import hashtag_tags
 from shirasu.images.alt import image_alt_text
 from shirasu.images.publication import ImagePublisher
 from shirasu.outbox import Outbox
@@ -107,13 +108,15 @@ class TimelinePublicationTests(unittest.IsolatedAsyncioTestCase):
                     content = event.content()
                     self.assertEqual(content.count(ATTRIBUTION), 1)
                     self.assertEqual(post.text.count(ATTRIBUTION), 1)
-                    urls = [url for url in image_inputs if '\n\n' + url + '\n---\n' in content]
+                    self.assertEqual([tag.to_vec() for tag in event.tags() if tag.to_vec()[0] == 't'],
+                                     hashtag_tags(event))
+                    urls = [url for url in image_inputs if content.startswith(url + '\n\n')]
                     self.assertEqual(len(urls), int(post.image_enabled))
                     imeta = [tag.to_vec() for tag in event.tags() if tag.to_vec()[0] == 'imeta']
                     self.assertEqual(len(imeta), int(post.image_enabled))
                     if urls:
                         url, = urls
-                        self.assertEqual(content.replace('\n\n' + url, '', 1), post.text)
+                        self.assertEqual(content.removeprefix(url + '\n\n'), post.text)
                         entries = tuple(records[i] for i in post.image_record_indexes)
                         self.assertEqual(image_inputs[url], entries)
                         self.assertIn('url ' + url, imeta[0])

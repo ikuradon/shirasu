@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 from azarashi.reports import dcr
 
-from shirasu.reports.format import ATTRIBUTION
 from shirasu.reports.nankai import NankaiCollector, nankai_summary, validate_storage
 from shirasu.outbox import Outbox
 from shirasu.reports.typhoon import TyphoonCollector, report_identity
@@ -53,7 +52,7 @@ class NankaiCollectorTests(unittest.TestCase):
                           side_effect=AssertionError('No decoder shared state')):
             batch = self.finish(collector, 0)
             text = nankai_summary(batch)
-            self.assertIn('\n\n' + body + f'\n\n{ATTRIBUTION}\n---\n', text)
+            self.assertIn('\n\n' + body + f'\n\n{fixtures.NANKAI_FOOTER}\n---\n', text)
         self.assertEqual([nmea for nmea, _ in batch.entries], [pages[index] for index in sorted(pages)])
         self.assertEqual(collector.pending_count(), 0)
         self.assertIsNone(collector.due(0))
@@ -79,7 +78,7 @@ class NankaiCollectorTests(unittest.TestCase):
         complete = self.finish(collector, 51, 'complete')
         self.assertEqual(complete.mode, 'complete')
         self.assertIn('【追加更新】', nankai_summary(complete))
-        self.assertIn(f'\n\nfirst second\n\n{ATTRIBUTION}\n---\n', nankai_summary(complete))
+        self.assertIn(f'\n\nfirst second\n\n{fixtures.NANKAI_FOOTER}\n---\n', nankai_summary(complete))
         self.assertEqual(collector.waiting_count(), 0)
         self.assertEqual(box.pending_count(), 2)
         validate_storage(box.connection)
@@ -109,7 +108,7 @@ class NankaiCollectorTests(unittest.TestCase):
         # received again, but is not silently reused at the conflicting update.
         self.assertEqual(collector.accept(second, 2), 'buffered')
         current = self.finish(collector, 2)
-        self.assertIn(f'\n\nnew tail\n\n{ATTRIBUTION}\n---\n', nankai_summary(current))
+        self.assertIn(f'\n\nnew tail\n\n{fixtures.NANKAI_FOOTER}\n---\n', nankai_summary(current))
         self.assertNotIn(first.nmea, nankai_summary(current))
         validate_storage(box.connection)
 
@@ -158,7 +157,7 @@ class NankaiCollectorTests(unittest.TestCase):
         self.assertEqual(collector.accept(tail, 9), 'buffered')
         updated = self.finish(collector, 9, 'new-complete')
         self.assertIn('【追加更新】', nankai_summary(updated))
-        self.assertIn(f'\n\nnew tail\n\n{ATTRIBUTION}\n---\n', nankai_summary(updated))
+        self.assertIn(f'\n\nnew tail\n\n{fixtures.NANKAI_FOOTER}\n---\n', nankai_summary(updated))
         self.assertNotIn(original.nmea, nankai_summary(updated))
         self.assertEqual(box.connection.execute('SELECT event_json FROM events WHERE key=?',
                                                (old_batch.key,)).fetchone()[0], old_json)
@@ -176,7 +175,7 @@ class NankaiCollectorTests(unittest.TestCase):
         self.assertEqual(collector.accept(old, 1), 'duplicate')
         batch = self.finish(collector, 1)
         self.assertEqual(datetime.fromtimestamp(batch.issued_at, timezone.utc).year, 2027)
-        self.assertIn(f'\n\nnew\n\n{ATTRIBUTION}\n---\n', nankai_summary(batch))
+        self.assertIn(f'\n\nnew\n\n{fixtures.NANKAI_FOOTER}\n---\n', nankai_summary(batch))
         validate_storage(box.connection)
 
     def test_serial_total_and_account_never_mix(self):
@@ -211,7 +210,7 @@ class NankaiCollectorTests(unittest.TestCase):
                                                               issued_at=new_time), later), 'buffered')
         batch = self.finish(collector, later)
         self.assertEqual(datetime.fromtimestamp(batch.issued_at, timezone.utc).year, new_time.year)
-        self.assertIn(f'\n\nonetwo\n\n{ATTRIBUTION}\n---\n', nankai_summary(batch))
+        self.assertIn(f'\n\nonetwo\n\n{fixtures.NANKAI_FOOTER}\n---\n', nankai_summary(batch))
         validate_storage(box.connection)
 
     def test_new_year_existing_group_does_not_deduplicate_a_completed_old_year_page(self):
@@ -231,7 +230,7 @@ class NankaiCollectorTests(unittest.TestCase):
                                                               issued_at=new_time), later), 'buffered')
         batch = self.finish(collector, later, 'new-year')
         self.assertNotEqual(batch.group_key, original.group_key)
-        self.assertIn(f'\n\nnewtwo\n\n{ATTRIBUTION}\n---\n', nankai_summary(batch))
+        self.assertIn(f'\n\nnewtwo\n\n{fixtures.NANKAI_FOOTER}\n---\n', nankai_summary(batch))
         validate_storage(box.connection)
 
     def test_legacy_page_suppresses_the_whole_group_without_rewriting_old_events(self):
@@ -314,7 +313,7 @@ class NankaiCollectorTests(unittest.TestCase):
         self.assertEqual(collector.waiting_count(), 1)
         self.assertEqual(collector.accept(fixtures.nankai_page(b'two', number=2, total=2), 101), 'buffered')
         batch = self.finish(collector, 101, 'late')
-        self.assertIn(f'\n\nonetwo\n\n{ATTRIBUTION}\n---\n', nankai_summary(batch))
+        self.assertIn(f'\n\nonetwo\n\n{fixtures.NANKAI_FOOTER}\n---\n', nankai_summary(batch))
         validate_storage(box.connection)
 
     def test_commit_failure_rolls_back_both_summary_and_page_completion(self):

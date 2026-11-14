@@ -122,6 +122,16 @@ class PostContents(HTMLParser):
 
 
 class GalleryHtmlTests(unittest.TestCase):
+    def test_long_post_displays_attachment_before_text_and_nmea(self):
+        manifest = posting_sample()
+        post, = manifest['cases'][0]['posts']
+        post['text'] = ('長い通報本文。\n' * 100) + '\n---\nNMEA: $QZQSM,55,0*AB'
+        bodies = PostContents(render_html(manifest)).bodies
+        self.assertEqual(len(bodies), 2)
+        for body in bodies:
+            self.assertEqual(body.splitlines()[0], PostContents.MEDIA)
+            self.assertEqual(body[len(PostContents.MEDIA) + 2:], post['text'])
+
     def test_nankai_published_post_is_text_only_and_preview_attaches_only_the_headline(self):
         manifest = posting_sample()
         case = manifest['cases'][0]
@@ -437,7 +447,7 @@ class GalleryHtmlTests(unittest.TestCase):
             self.assertIn(f'入力 {index} · 1電文', content)
             # Two renderer versions each get the unchanged text and their own
             # local attachment. The original grouped image view also remains.
-            self.assertEqual(sum(body.startswith(f'【訓練・試験】降灰予報 {index}\n')
+            self.assertEqual(sum(body.startswith(f'{PostContents.MEDIA}\n\n【訓練・試験】降灰予報 {index}\n')
                                  for body in PostContents(content).bodies), 2)
         sources = [image['src'] for image in document.attrs('img')]
         self.assertEqual(len(sources), 12)
@@ -481,8 +491,8 @@ class GalleryHtmlTests(unittest.TestCase):
                 self.assertNotIn('class="post-raw"', content)
                 self.assertNotIn('末尾のNMEAを表示', content)
                 self.assertIn('<summary>出典・入力データを確認</summary>', content)
-        self.assertEqual(_post_content('本文\n---\nNMEA: 例', '<media>'), '本文\n\n<media>\n---\nNMEA: 例')
-        self.assertEqual(_post_content('本文\n', '<media>'), '本文\n\n\n<media>')
+        self.assertEqual(_post_content('本文\n---\nNMEA: 例', '<media>'), '<media>\n\n本文\n---\nNMEA: 例')
+        self.assertEqual(_post_content('本文\n', '<media>'), '<media>\n\n本文\n')
 
     def test_whole_posts_offer_accessible_folding_and_remain_readable_without_javascript(self):
         manifest = posting_sample(multiple=True)

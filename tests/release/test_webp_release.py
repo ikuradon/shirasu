@@ -14,6 +14,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from shirasu.images import protocol as image_protocol
+from shirasu.reports.publication import ATTRIBUTION
 from tools.release import check_webp_release as check
 
 
@@ -35,7 +36,7 @@ def post():
             'records': [list(row) for row in ENTRIES], 'record_indexes': [0], 'image_record_indexes': [0],
             'url': url, 'alt': alt, 'event': signed_id({
                 'pubkey': 'a' * 64, 'sig': 'b' * 128, 'created_at': 1, 'kind': 1,
-                'content': TEXT.replace('\n---\n', '\n\n' + url + '\n---\n'),
+                'content': url + '\n\n' + TEXT,
                 'tags': [['imeta', 'url ' + url, 'm image/webp', 'alt ' + alt]]})}
 
 
@@ -103,6 +104,45 @@ class WebPReleaseTests(unittest.TestCase):
             image.save(other, format='PNG')
         with self.assertRaisesRegex(ValueError, 'RGBA'):
             check.webp_response(response(webp), other.getvalue())
+
+    def test_footer_tags_are_required_with_webp_metadata_and_text_only_posts(self):
+        text = TEXT.replace('\n---\n', '\n\n#QZSS #気象情報\n\n' + ATTRIBUTION + '\n---\n')
+        for image in (True, False):
+            row = post()
+            t_tags = [['t', 'qzss'], ['t', '気象情報']]
+            metadata = row['event']['tags'] if image else []
+            entries = ENTRIES if image else ()
+            row['event'].update(content=row['url'] + '\n\n' + text if image else text,
+                                tags=t_tags + metadata)
+            if not image:
+                row.update(url=None, alt=None)
+            signed_id(row['event'])
+            check.attachment(row, image_protocol, entries=entries, text=text)
+            for tags in (metadata, t_tags[:1] + metadata, t_tags + [['t', '津波']] + metadata):
+                changed = deepcopy(row)
+                changed['event']['tags'] = tags
+                signed_id(changed['event'])
+                with self.subTest(image=image, tags=tags), self.assertRaises(ValueError):
+                    check.attachment(changed, image_protocol, entries=entries, text=text)
+
+    def test_saved_webp_layout_is_preserved_and_arbitrary_url_positions_are_rejected(self):
+        row = post()
+        current = deepcopy(row)
+        row['event']['content'] = TEXT.replace('\n---\n', '\n\n' + row['url'] + '\n---\n')
+        signed_id(row['event'])
+        for source in (row, current):
+            before = deepcopy(source)
+            for text in (TEXT, None):
+                check.attachment(source, image_protocol, entries=ENTRIES, text=text, encoding='w1')
+            self.assertEqual(source, before)
+        for content in (TEXT + '\n\n' + row['url'], row['url'] + '\n' + TEXT,
+                        current['event']['content'] + '\n\n' + row['url']):
+            changed = deepcopy(current)
+            changed['event']['content'] = content
+            signed_id(changed['event'])
+            for text in (TEXT, None):
+                with self.subTest(content=content, text=text), self.assertRaises(ValueError):
+                    check.attachment(changed, image_protocol, entries=ENTRIES, text=text, encoding='w1')
 
     def test_case_reference_remains_separate_from_actual_post_inputs(self):
         png, _ = sample()

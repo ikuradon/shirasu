@@ -11,7 +11,8 @@ if HAS_DECODER:
     from image_service import preview_dcx_reports as dcx_reports
     from image_service.preview_dcx_reports import Area, Ellipse, Point, SecondaryEllipse, dcx_plan
     from image_service.preview_diagnostics import reason
-    from shirasu.reports.format import ATTRIBUTION, report_message
+    from shirasu.reports.format import report_message
+    from tests.posting_helpers import post_footer
     from tests.qzqsm_samples import frames, reference_time
     from tools.preview.gallery_catalog import _field_variant
 
@@ -274,7 +275,7 @@ class DcxReportTests(unittest.TestCase):
                     before = str(report), deepcopy(report.camf.get_params()), report.nmea
                     plan = self.assert_earthquake_unconfirmed(report)
                     self.assertEqual((plan.status, plan.topic, plan.headline), (status, '地震', '地震情報'))
-                    self.assertEqual(report_message(report), f'{before[0]}\n\n{ATTRIBUTION}\n---\nNMEA: {before[2]}')
+                    self.assertEqual(report_message(report), f'{before[0]}\n\n{post_footer(report)}\n---\nNMEA: {before[2]}')
                     self.assertEqual((str(report), report.camf.get_params(), report.nmea), before)
 
     def test_b4_earthquake_requires_the_reviewed_international_library(self):
@@ -351,7 +352,7 @@ class DcxReportTests(unittest.TestCase):
                 self.assertEqual(plan.scope_kind, 'geometry')
                 self.assertEqual(plan.geometries, (expected,))
                 self.assertFalse(any(item.stage == 'geometry' for item in plan.reasons))
-                self.assertEqual(report_message(report), f'{report}\n\n{ATTRIBUTION}\n---\nNMEA: {report.nmea}')
+                self.assertEqual(report_message(report), f'{report}\n\n{post_footer(report)}\n---\nNMEA: {report.nmea}')
 
     def test_secondary_ellipse_keeps_main_frame_and_exact_transmitted_parameters(self):
         plan = dcx_plan((self.secondary_report(),))

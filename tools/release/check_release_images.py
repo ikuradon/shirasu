@@ -81,7 +81,8 @@ def _runtime_origins(directory):
         if (name == 'image_service' or name.startswith('image_service.')
                 or name in ('image_protocol', 'image_versions', 'dcx_instructions', 'nankai_image',
                             'shirasu.images.protocol', 'shirasu.images.versions',
-                            'shirasu.images.nankai', 'shirasu.reports.dcx')):
+                            'shirasu.images.nankai', 'shirasu.reports.dcx',
+                            'shirasu.reports.publication')):
             _origin(module, directory)
 
 
@@ -186,11 +187,48 @@ def _indexes(value, count, *, allow_empty=False):
     return tuple(value)
 
 
+def posting_content_matches(content, url, text=None):
+    """Match current posts and immutable exports made before URL-first posting.
+
+    The receiver validates newly created posts against its actual formatter.
+    Image checks also read archived exports, whose signed content must not be
+    rewritten merely to move the attachment URL.
+    """
+    if text is not None:
+        before, separator, after = text.partition('\n---\n')
+        legacy = before + '\n\n' + url + (separator + after if separator else '')
+        return content in (url + '\n\n' + text, legacy)
+    # Transition exports retain the signed content but do not carry a separate
+    # text field. Require exactly one attachment at either known position.
+    return content.count(url) == 1 and (
+        content.startswith(url + '\n\n')
+        or content.count('\n\n' + url + '\n---\n') == 1)
+
+
+def posting_tags(content, *, url=None, mime='image/png', alt=None):
+    """Require only the generated footer's hashtags and the signed attachment.
+
+    Load the dependency only for post checks. Recording v1-v4 image baselines
+    still runs inside the retained image package without the posting module.
+    Old exports have no generated hashtag footer and retain their original tags.
+    """
+    tags = []
+    # A footer always includes QZSS. Old package layouts have no footer parser;
+    # inspecting their ordinary untagged exports does not need to import it.
+    if '#qzss' in content.lower():
+        from shirasu.reports.publication import message_hashtags
+        tags = [['t', value] for value in message_hashtags(content)]
+    if url is not None:
+        tags.append(['imeta', 'url ' + url, 'm ' + mime, 'alt ' + alt])
+    return tags
+
+
 def _attachment(row, protocol, *, entries, text=None, version=None):
     event = _event(row.get('event'))
     url, alt = row.get('url'), row.get('alt')
     if url is None:
-        _require(not entries and alt is None and not event['tags'], 'Text-only event has attachment metadata')
+        _require(not entries and alt is None and event['tags'] == posting_tags(event['content']),
+                 'Text-only event has unexpected metadata')
         if text is not None:
             _require(event['content'] == text, 'Text-only event differs from its planned text')
         return None
@@ -208,15 +246,10 @@ def _attachment(row, protocol, *, entries, text=None, version=None):
              'Signed image URL does not contain the original image inputs')
     _require(protocol.make_path(entries, KEY_ID, KEY, version=actual_version) == parsed.path,
              'Exported image URL is not canonical')
-    _require(event['tags'] == [['imeta', 'url ' + url, 'm image/png', 'alt ' + alt]],
-             'Image URL or ALT differs from the signed imeta tag')
-    if text is not None:
-        before, separator, after = text.partition('\n---\n')
-        expected = before + '\n\n' + url + (separator + after if separator else '')
-        _require(event['content'] == expected, 'Image URL is not at the actual posting position')
-    else:
-        _require(event['content'].count('\n\n' + url + '\n---\n') == 1,
-                 'Transition event does not include its image URL exactly once')
+    _require(event['tags'] == posting_tags(event['content'], url=url, alt=alt),
+             'Image URL, ALT or hashtags differ from the signed tags')
+    _require(posting_content_matches(event['content'], url, text),
+             'Image URL position or original posting text differs')
     return parsed.path
 
 

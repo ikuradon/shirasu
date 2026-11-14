@@ -16,6 +16,7 @@ import azarashi
 from azarashi.reports import dcr
 
 from shirasu import service as main
+from tests.posting_helpers import hashtag_tags, post_footer
 from shirasu.images.publication import ImagePublisher
 from shirasu.images.alt import image_alt_text
 from shirasu.outbox import Outbox
@@ -87,13 +88,16 @@ class GalleryPostPublicationTests(unittest.IsolatedAsyncioTestCase):
                     content = event.content()
                     self.assertEqual(content.count(ATTRIBUTION), 1)
                     self.assertEqual(post.text.count(ATTRIBUTION), 1)
-                    urls = [url for url in image_inputs if '\n\n' + url + '\n---\n' in content]
+                    self.assertEqual([tag.to_vec() for tag in event.tags() if tag.to_vec()[0] == 't'],
+                                     hashtag_tags(event))
+                    urls = [url for url in image_inputs if content.startswith(url + '\n\n')]
                     self.assertLessEqual(len(urls), 1)
                     self.assertEqual(bool(urls), post.image_enabled)
-                    self.assertEqual(bool(event.tags()), post.image_enabled)
+                    self.assertEqual(bool([tag for tag in event.tags() if tag.to_vec()[0] == 'imeta']),
+                                     post.image_enabled)
                     if urls:
                         url, = urls
-                        self.assertEqual(content.replace('\n\n' + url, '', 1), post.text)
+                        self.assertEqual(content.removeprefix(url + '\n\n'), post.text)
                         self.assertEqual(image_inputs[url], tuple(records[i] for i in post.image_record_indexes))
                         imeta = [tag.to_vec() for tag in event.tags() if tag.to_vec()[0] == 'imeta']
                         self.assertEqual(len(imeta), 1)
@@ -185,7 +189,7 @@ class GalleryPostPublicationTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(len(posts[0].image_record_indexes), int(nankai_topics))
                     self.assertEqual(set(posts[0].record_indexes), set(range(27)))
                     body = posts[0].text.partition('\n---\n')[0].split('\n\n', 1)[1]
-                    self.assertEqual(body, expected_nankai_text() + '\n\n' + ATTRIBUTION)
+                    self.assertEqual(body, expected_nankai_text() + '\n\n' + post_footer(pages[0]))
                     self.assertNotIn('本文未受信', posts[0].text)
                     self.assertNotIn('受信中', posts[0].text)
 
